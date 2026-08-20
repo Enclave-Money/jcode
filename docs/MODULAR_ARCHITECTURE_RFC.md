@@ -2,7 +2,7 @@
 
 Status: Draft
 
-This RFC describes a modular target architecture for jcode that matches the current codebase, preserves the existing product model, and gives us a safe migration path from today's mostly-monolithic root crate to a layered workspace.
+This RFC describes a modular target architecture for blaude that matches the current codebase, preserves the existing product model, and gives us a safe migration path from today's mostly-monolithic root crate to a layered workspace.
 
 It is intentionally aligned with:
 
@@ -28,9 +28,9 @@ It is intentionally aligned with:
 
 ## Executive Summary
 
-Today, jcode is best described as a **modular monolith with a growing workspace shell**:
+Today, blaude is best described as a **modular monolith with a growing workspace shell**:
 
-- The root `jcode` crate still owns most runtime orchestration and product behavior.
+- The root `blaude` crate still owns most runtime orchestration and product behavior.
 - Several heavy or relatively self-contained subsystems have already moved into workspace crates.
 - The codebase has strong module-level separation in some areas, but several broad root modules still act as architectural chokepoints.
 
@@ -39,7 +39,7 @@ The target architecture is a **layered workspace**:
 1. **Foundation layer** for stable shared types and runtime primitives.
 2. **Domain/runtime layer** for session, agent, provider, and server logic.
 3. **Interface layer** for CLI, TUI, self-dev, and optional heavy integrations.
-4. **Composition layer** where the top-level `jcode` package wires the product together.
+4. **Composition layer** where the top-level `blaude` package wires the product together.
 
 The most important design rule is this:
 
@@ -53,7 +53,7 @@ That rule serves both architecture quality and compile-speed goals.
 
 At the product level, the runtime architecture is already clear:
 
-- `jcode` is a **single-server, multi-client** application.
+- `blaude` is a **single-server, multi-client** application.
 - The server owns sessions, swarm state, background tasks, provider state, and shared services.
 - Clients are primarily TUI frontends that attach to server-owned sessions.
 - Self-dev is session-local capability on the shared server, not a separate architecture.
@@ -64,13 +64,13 @@ That model should stay intact.
 
 The current code organization is mixed:
 
-- **Root crate `jcode`** still contains most product logic.
+- **Root crate `blaude`** still contains most product logic.
 - **Workspace crates** already isolate several heavy or stable seams.
 - **Subdirectories under `src/`** increasingly reflect domain boundaries, especially for `agent`, `cli`, `server`, `tool`, and `tui`.
 
 Current workspace members from `Cargo.toml` are grouped roughly as follows:
 
-- root package: `jcode`
+- root package: `blaude`
 - foundation/runtime support: `jcode-agent-runtime`, `jcode-core`, `jcode-storage`, `jcode-terminal-launch`, `jcode-tool-core`
 - data-contract crates: `jcode-ambient-types`, `jcode-auth-types`, `jcode-background-types`, `jcode-batch-types`, `jcode-config-types`, `jcode-gateway-types`, `jcode-memory-types`, `jcode-message-types`, `jcode-selfdev-types`, `jcode-session-types`, `jcode-side-panel-types`, `jcode-task-types`, `jcode-tool-types`, `jcode-usage-types`
 - protocol and planning: `jcode-protocol`, `jcode-plan`
@@ -159,7 +159,7 @@ This supports the current plan direction:
 
 ```mermaid
 flowchart TD
-  J[jcode root crate]
+  J[blaude root crate]
 
   J --> CLI[CLI and startup]
   J --> Server[Server orchestration]
@@ -224,7 +224,7 @@ The target is a layered workspace with a thin composition root. Arrows below mea
 
 ```mermaid
 flowchart TD
-  App[jcode top-level package]
+  App[blaude top-level package]
 
   subgraph L2[Layer 2: interfaces and product surfaces]
     TUI[jcode-tui]
@@ -393,7 +393,7 @@ Compile-time reason:
 
 #### 5. Composition package
 
-The top-level `jcode` package should eventually become mostly:
+The top-level `blaude` package should eventually become mostly:
 
 - binary entrypoints
 - feature defaults
@@ -408,7 +408,7 @@ It should not be the long-term home of large implementation modules.
 A healthy final graph should look like this:
 
 ```text
-jcode binary/composition
+blaude binary/composition
   -> jcode-cli, jcode-tui, jcode-server, jcode-selfdev
 
 jcode-cli / jcode-tui
@@ -650,7 +650,7 @@ Notes:
 
 - This aligns with the compile-performance plan's issue-#32 direction and with the already-unified shared-server model.
 
-### `jcode` top-level package
+### `blaude` top-level package
 
 Purpose: composition root and shipping product package.
 
@@ -724,7 +724,7 @@ If code has a clear owner, it belongs with that owner:
 
 ### Rule 8: The root package may compose many crates, but peer crates should stay narrow
 
-The top-level `jcode` package can wire multiple domains together. Peer crates should not casually depend on each other sideways when a lower-level contract would do.
+The top-level `blaude` package can wire multiple domains together. Peer crates should not casually depend on each other sideways when a lower-level contract would do.
 
 ### Rule 9: New crate boundaries should follow both ownership and invalidation logic
 
@@ -852,7 +852,7 @@ Exit criteria:
 Desired end state:
 
 - `src/main.rs` remains thin
-- `jcode::run()` is mostly wiring
+- `blaude::run()` is mostly wiring
 - the top-level package primarily assembles runtime services and default product configuration
 
 ### Continuous work across all phases

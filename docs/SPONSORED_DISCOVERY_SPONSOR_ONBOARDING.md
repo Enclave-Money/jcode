@@ -1,6 +1,6 @@
 # Sponsored discovery sponsor onboarding
 
-This runbook is the source of truth for adding a tool sponsor to jcode's
+This runbook is the source of truth for adding a tool sponsor to blaude's
 `discover_tools` catalog. It covers product approval, catalog data, service
 behavior, client validation, rollout, and rollback.
 
@@ -12,9 +12,9 @@ preferential recommendations, hidden placement, or weaker user safeguards.
 ## What usually changes
 
 Adding a sponsor to an existing category is a discovery-service catalog change.
-It should not require a jcode release.
+It should not require a blaude release.
 
-A jcode code change is required when the sponsor needs:
+A blaude code change is required when the sponsor needs:
 
 - a new category in `DISCOVERY_CATEGORIES`;
 - a response field the current client does not support;
@@ -54,7 +54,7 @@ The discovery owner must verify that:
    distribution channel where possible.
 4. No credential, API key, referral secret, user identifier, or environment
    value is embedded in catalog data.
-5. The setup does not bypass jcode's confirmation requirements. Signups,
+5. The setup does not bypass blaude's confirmation requirements. Signups,
    payments, destructive operations, and other consequential actions still
    require the normal user confirmation and sponsorship disclosure.
 6. The commercial agreement buys discoverability only. Editorial ranking and
@@ -74,7 +74,7 @@ add a category:
 2. Add the same value to the discovery service's category allowlist.
 3. Update any public category documentation.
 4. Run the client tests listed below.
-5. Ship the jcode change before publishing entries that rely on the category.
+5. Ship the blaude change before publishing entries that rely on the category.
 
 Do not create a sponsor-specific category. Categories describe user needs, not
 vendors.
@@ -123,7 +123,7 @@ instructions. If an intentionally floating version is used, document who owns
 continuous monitoring and emergency disablement.
 
 For MCP entries, `mcp.command` and `mcp.args` are security- and
-measurement-sensitive. jcode records discovery provenance only when a later MCP
+measurement-sensitive. blaude records discovery provenance only when a later MCP
 connection exactly matches both values. A prose `setup` string alone does not
 enable provenance tagging or coarse usage metering.
 
@@ -159,7 +159,7 @@ Browse and select use these query parameters:
 
 The model-facing schema explicitly says browse/select `q` and `reason` may be
 sent to relevant sponsors for demand and selection reporting. Catalog
-suggestions are sent only to Jcode maintainers. The schema tells the model to
+suggestions are sent only to blaude maintainers. The schema tells the model to
 write fresh summaries, not copy user text, and never include secrets,
 credentials, personal data, or private content. Both fields remain required and
 use the same length bounds in all three actions.
@@ -239,7 +239,7 @@ persist the suggestion before acknowledging it, and apply the same sensitive
 data validation to every text field. Return `202` with
 `{"suggestion_id":"...","status":"received"}`. A duplicate submission may
 return `409` with `status: "duplicate"`; the client treats that as a successful
-receipt. Suggestions go only to Jcode maintainers, never to sponsors. Receipt
+receipt. Suggestions go only to blaude maintainers, never to sponsors. Receipt
 does not imply approval, sponsorship, implementation, or availability.
 
 ## 5. Validate before production
@@ -286,14 +286,14 @@ Verify all of the following:
 - a configured sponsor recipient receives both browse and select summaries, but
   the same requests with the benchmark header produce no sponsor delivery;
 - suggest requires a prior successful browse in the same category, persists one
-  actionable proposal per browse, and sends it only to Jcode maintainers;
+  actionable proposal per browse, and sends it only to blaude maintainers;
 - suggestion receipts clearly state that the proposed product or capability is
   not approved or available yet;
 - the request ID appears in service logs and can be correlated for reliability
   debugging without a persistent user identifier; and
 - disabling the catalog entry removes it from browse and prevents selection.
 
-Then validate through jcode by pointing a test config at staging:
+Then validate through blaude by pointing a test config at staging:
 
 ```toml
 [sponsors]
@@ -301,7 +301,7 @@ enabled = true
 endpoint = "https://staging.example.com/v1/discovery"
 ```
 
-In a disposable jcode session, browse the category, select the sponsor or submit
+In a disposable blaude session, browse the category, select the sponsor or submit
 a suggestion when no entry fits, and, if applicable, connect the advertised MCP
 server. Confirm:
 
@@ -384,7 +384,7 @@ A sponsor is onboarded only when every box is checked:
 - [ ] Sponsor reporting recipients are reviewed and benchmark exclusion is tested.
 - [ ] Browse does not expose setup or MCP launch data.
 - [ ] MCP command and arguments exactly match the tested connection, if used.
-- [ ] Staging jcode validation passes, including disclosure and confirmation.
+- [ ] Staging blaude validation passes, including disclosure and confirmation.
 - [ ] Unknown and disabled entries fail closed.
 - [ ] Production smoke tests pass and monitoring has an owner.
 - [ ] Rollback has been tested or demonstrated by disabling the staging entry.

@@ -4,7 +4,7 @@ Status: exploration. Nothing here is implemented yet.
 
 ## The idea
 
-A session is currently pinned to the machine whose `jcode` server owns it. Remote
+A session is currently pinned to the machine whose `blaude` server owns it. Remote
 handoff means: **move a live session, mid-turn if needed, from one host to another**,
 without losing transcript, tool state, or the user's attention.
 
@@ -46,7 +46,7 @@ handoff is mostly plumbing those two through a transport that is not a local soc
 Today clients dial `socket_path()`. Introduce a `SessionTransport` with three impls:
 
 - `Local(UnixStream)` — today's path, zero behavior change.
-- `Ssh(profile)` — `ssh -S <control-socket> <target> jcode serve --stdio`, framed over
+- `Ssh(profile)` — `ssh -S <control-socket> <target> blaude serve --stdio`, framed over
   stdin/stdout. Reuses the existing verified ControlMaster, so no new auth surface and
   no credential handling in jcode.
 - `Relay` — existing jade relay framing, for hosts that cannot be SSH'd into.
@@ -76,7 +76,7 @@ fixing regardless of handoff.
 
 `/handoff desktop --move`. Sequence:
 
-1. **Preflight** on the target: jcode present and version-compatible, workspace path
+1. **Preflight** on the target: blaude present and version-compatible, workspace path
    exists, git remote/commit matches, provider credentials available. Refuse loudly
    rather than half-migrating. Version skew is the most likely real-world failure.
 2. **Quiesce**: finish or checkpoint the current turn. Reuse the graceful-shutdown

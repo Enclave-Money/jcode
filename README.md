@@ -1,6 +1,6 @@
 <div align="center">
 
-# jcode
+# blaude
 
 [![Latest Release](https://badgen.net/github/release/1jehuang/jcode?icon=github)](https://github.com/1jehuang/jcode/releases)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue?style=flat-square)](LICENSE)
@@ -14,10 +14,10 @@ The most intelligent harness
 
 <a href="https://trendshift.io/repositories/25042?utm_source=repository-badge&amp;utm_medium=badge&amp;utm_campaign=badge-repository-25042" target="_blank" rel="noopener noreferrer"><img src="https://trendshift.io/api/badge/repositories/25042" alt="1jehuang/jcode | Trendshift" width="250" height="55"></a>
 
-<a href="https://github.com/1jehuang/jcode/stargazers"><img src="docs/images/star-history.svg" alt="jcode GitHub stars over time" width="600"></a>
+<a href="https://github.com/1jehuang/jcode/stargazers"><img src="docs/images/star-history.svg" alt="blaude GitHub stars over time" width="600"></a>
 
 <a href="https://github.com/1jehuang/jcode/releases/download/readme-assets/jcode-yc-launch.mp4">
-  <img src="https://github.com/1jehuang/jcode/releases/download/readme-assets/jcode-yc-launch.webp" alt="jcode YC launch video" width="800">
+  <img src="https://github.com/1jehuang/jcode/releases/download/readme-assets/jcode-yc-launch.webp" alt="blaude YC launch video" width="800">
 </a>
 
 <br>
@@ -56,7 +56,7 @@ Need Homebrew, source builds, provider setup, or want an agent to set it up for 
 
 </div>
 
-jcode is built to be as performant and resource efficient as possible. Every metric is optimized to the bone, which is important for scaling multi-session workflows. Here we sample a few metrics to show the difference: RAM usage and boot up.
+blaude is built to be as performant and resource efficient as possible. Every metric is optimized to the bone, which is important for scaling multi-session workflows. Here we sample a few metrics to show the difference: RAM usage and boot up.
 
 ### RAM comparison
 
@@ -76,12 +76,12 @@ jcode is built to be as performant and resource efficient as possible. Every met
         </thead>
         <tbody>
           <tr>
-            <td><strong>jcode (local embedding off)</strong></td>
+            <td><strong>blaude (local embedding off)</strong></td>
             <td align="right"><strong>27.8 MB</strong></td>
             <td align="right">baseline</td>
           </tr>
           <tr>
-            <td><strong>jcode</strong></td>
+            <td><strong>blaude</strong></td>
             <td align="right"><strong>167.1 MB</strong></td>
             <td align="right"><strong>6.0× more RAM</strong></td>
           </tr>
@@ -136,12 +136,12 @@ jcode is built to be as performant and resource efficient as possible. Every met
         </thead>
         <tbody>
           <tr>
-            <td><strong>jcode (local embedding off)</strong></td>
+            <td><strong>blaude (local embedding off)</strong></td>
             <td align="right"><strong>117.0 MB</strong></td>
             <td align="right">baseline</td>
           </tr>
           <tr>
-            <td><strong>jcode</strong></td>
+            <td><strong>blaude</strong></td>
             <td align="right"><strong>260.8 MB</strong></td>
             <td align="right"><strong>2.2× more RAM</strong></td>
           </tr>
@@ -194,7 +194,7 @@ jcode is built to be as performant and resource efficient as possible. Every met
 
 | Tool | Time to first frame | Range | Comparison |
 |---|---:|---:|---:|
-| **jcode** | **14.0 ms** | 10.1–19.3 ms | baseline |
+| **blaude** | **14.0 ms** | 10.1–19.3 ms | baseline |
 | **Antigravity CLI** | **383.5 ms** | 363.1–415.4 ms | **27.4× slower** |
 | **pi** | **590.7 ms** | 369.6–934.8 ms | **42.2× slower** |
 | **Codex CLI** | **882.8 ms** | 742.3–1640.9 ms | **63.1× slower** |
@@ -213,7 +213,7 @@ Measured on this Linux machine across 10 interactive PTY launches.
 
 | Tool | Time to first input | Range | Comparison |
 |---|---:|---:|---:|
-| **jcode** | **48.7 ms** | 30.3–62.7 ms | baseline |
+| **blaude** | **48.7 ms** | 30.3–62.7 ms | baseline |
 | **Antigravity CLI** | **383.7 ms** | 363.4–415.7 ms | **7.9× slower** |
 | **pi** | **596.4 ms** | 373.9–955.2 ms | **12.2× slower** |
 | **Codex CLI** | **905.8 ms** | 760.1–1675.7 ms | **18.6× slower** |
@@ -232,8 +232,8 @@ Measured on this Linux machine across 10 interactive PTY launches. Antigravity C
 
 | Tool | Extra PSS per added session | Comparison |
 |---|---:|---:|
-| **jcode (local embedding off)** | **~9.9 MB** | baseline |
-| **jcode** | **~10.4 MB** | **1.1× more RAM** |
+| **blaude (local embedding off)** | **~9.9 MB** | baseline |
+| **blaude** | **~10.4 MB** | **1.1× more RAM** |
 | **pi** | **~76.5 MB** | **7.7× more RAM** |
 | **Codex CLI** | **~21.6 MB** | **2.2× more RAM** |
 | **OpenCode** | **~318.4 MB** | **32.2× more RAM** |
@@ -245,7 +245,7 @@ Measured on this Linux machine across 10 interactive PTY launches. Antigravity C
 </div>
 versions tested for this corrected memory rerun:
 
-- `jcode v0.9.1888-dev (be386f2)`
+- `blaude v0.9.1888-dev (be386f2)`
 - `pi 0.62.0`
 - `codex-cli 0.120.0`
 - `opencode 1.0.203`
@@ -257,10 +257,10 @@ versions tested for this corrected memory rerun:
 <div align="center">
 
   <a href="https://github.com/1jehuang/jcode/releases/download/readme-assets/jcode-performance-demo.mp4">
-    <img src="https://github.com/1jehuang/jcode/releases/download/readme-assets/jcode-performance-demo.webp" alt="jcode performance demonstration" width="900">
+    <img src="https://github.com/1jehuang/jcode/releases/download/readme-assets/jcode-performance-demo.webp" alt="blaude performance demonstration" width="900">
   </a>
 
-  <p><em>jcode performance demonstration</em></p>
+  <p><em>blaude performance demonstration</em></p>
 
 </div>
 
@@ -269,7 +269,7 @@ versions tested for this corrected memory rerun:
 
 ## Memory (Agent memory)
 
-Jcode embeds each turn/response as a semantic vector. Every turn does queries a graph of memories to efficiently find related memory entries via a cosine similarity check. The embedding hits are fed into the conversation, or optionally uses a memory sideagent which verifies the memories are relevant, and potentially does more work for information retreival before injecting into the conversation. This results in a human like memory system which allows the agent to automatically recall relevant information to the conversation without actively calling memory tools or being a token burner. 
+blaude embeds each turn/response as a semantic vector. Every turn does queries a graph of memories to efficiently find related memory entries via a cosine similarity check. The embedding hits are fed into the conversation, or optionally uses a memory sideagent which verifies the memories are relevant, and potentially does more work for information retreival before injecting into the conversation. This results in a human like memory system which allows the agent to automatically recall relevant information to the conversation without actively calling memory tools or being a token burner. 
 ot 
 To have memories which are retrieved, they must also be extracted and stored. Every so often (semantic drift, K turns since last extraction, session end, etc), memories are extracted via a memory sideagent, and put into the memory graph. 
 
@@ -280,10 +280,10 @@ Memories are automatically consolidated every so often via the ambient mode. Thi
 <div align="center">
 
   <a href="https://github.com/1jehuang/jcode/releases/download/readme-assets/jcode-memory-demo.mp4">
-    <img src="https://github.com/1jehuang/jcode/releases/download/readme-assets/jcode-memory-demo.webp" alt="jcode memory demonstration" width="900">
+    <img src="https://github.com/1jehuang/jcode/releases/download/readme-assets/jcode-memory-demo.webp" alt="blaude memory demonstration" width="900">
   </a>
 
-  <p><em>jcode memory demonstration</em></p>
+  <p><em>blaude memory demonstration</em></p>
 
 </div>
 
@@ -293,20 +293,20 @@ Memories are automatically consolidated every so often via the ambient mode. Thi
 
 ## UI: Side panels, Diagrams, Info Widgets, rendering, scrolling, alignment
 
-The side panel is a place for auxiliary information. Tell your jcode agent to load a file into the side panel and see it update in real time, or tell your agent to write directly to the side panel, or use it as a diff viewer. The side panel (and chat) is able to render mermaid diagrams inline. 
+The side panel is a place for auxiliary information. Tell your blaude agent to load a file into the side panel and see it update in real time, or tell your agent to write directly to the side panel, or use it as a diff viewer. The side panel (and chat) is able to render mermaid diagrams inline. 
 <img width="2877" height="1762" alt="image" src="https://github.com/user-attachments/assets/6c7bec81-ef3f-434d-8a7b-d55f8a54e5cf" />
 
 To make this possible, I created a new mermaid rendering library to render diagrams 1800x faster. It has no browser or Typescript dependency. See https://github.com/1jehuang/mermaid-rs-renderer
 
 To show you important information without taking space away from the screen that could be used for responses, I developed info widgets. Info widgets will only ever take up the negative space on the screen to show you information, and will get out of the way if there isn't any. 
 
-Jcode can render at over a thousand fps. Your monitor will not have the refresh rate to show you, but this means you will not have silly flicker problems. 
+blaude can render at over a thousand fps. Your monitor will not have the refresh rate to show you, but this means you will not have silly flicker problems. 
 
-The custom scrollback implementation of jcode allows it to do much more than a native scrollback. However, it is a terminal-level limitation that I cannot have smooth, partial line scrolling with a custom scrollback. To fix this, I made my own terminal. Handterm https://github.com/1jehuang/handterm implements a native scroll api, and also happens to be very efficient. This is a work in progress. Scrolling is still well implemented for normal terminals.
+The custom scrollback implementation of blaude allows it to do much more than a native scrollback. However, it is a terminal-level limitation that I cannot have smooth, partial line scrolling with a custom scrollback. To fix this, I made my own terminal. Handterm https://github.com/1jehuang/handterm implements a native scroll api, and also happens to be very efficient. This is a work in progress. Scrolling is still well implemented for normal terminals.
 
-Jcode is left-aligned by default. You can switch to centered mode with the `Alt+C` hotkey, with the `/alignment` command, or in the config.
+blaude is left-aligned by default. You can switch to centered mode with the `Alt+C` hotkey, with the `/alignment` command, or in the config.
 
-To disable emoji globally in TUI and CLI output, set `emoji = false` under `[display]` in `~/.jcode/config.toml`, or launch with `JCODE_NO_EMOJI=1`. Jcode replaces emoji with compact ASCII markers while preserving other Unicode text.
+To disable emoji globally in TUI and CLI output, set `emoji = false` under `[display]` in `~/.jcode/config.toml`, or launch with `JCODE_NO_EMOJI=1`. blaude replaces emoji with compact ASCII markers while preserving other Unicode text.
 
 ---
 
@@ -317,10 +317,10 @@ Spawn two or more agents in the same repo, and they will automatically be manage
 <div align="center">
 
   <a href="https://github.com/1jehuang/jcode/releases/download/readme-assets/swarm-demo.mp4">
-    <img src="https://github.com/1jehuang/jcode/releases/download/readme-assets/jcode-swarm-demonstration.webp" alt="jcode swarm demonstration" width="900">
+    <img src="https://github.com/1jehuang/jcode/releases/download/readme-assets/jcode-swarm-demonstration.webp" alt="blaude swarm demonstration" width="900">
   </a>
 
-  <p><em>jcode swarm demonstration</em></p>
+  <p><em>blaude swarm demonstration</em></p>
 
 </div>
 
@@ -330,67 +330,67 @@ Agents are also able to spawn their own swarms autonomously. They have a swarm t
 
 ## OAuth and Providers
 
-jcode works with subscription-backed OAuth flows and many provider integrations, so you can use the models you already pay for and still fall back to direct API providers when needed.
+blaude works with subscription-backed OAuth flows and many provider integrations, so you can use the models you already pay for and still fall back to direct API providers when needed.
 
 ### Supported built-in login flows
 
-- **Claude** (`jcode login --provider claude`)
-- **OpenAI / ChatGPT / Codex** (`jcode login --provider openai`)
-- **Google Gemini** (`jcode login --provider gemini`)
-- **GitHub Copilot** (`jcode login --provider copilot`)
-- **Azure OpenAI** (`jcode login --provider azure`)
-- **Alibaba Cloud Coding Plan** (`jcode login --provider alibaba-coding-plan`)
-- **Fireworks** (`jcode login --provider fireworks`)
-- **MiniMax** (`jcode login --provider minimax`)
-- **Meta Model API / Muse** (`jcode login --provider meta-muse`)
-- **LM Studio** (`jcode login --provider lmstudio`)
-- **Ollama** (`jcode login --provider ollama`)
-- **Custom OpenAI-compatible endpoint** (`jcode login --provider openai-compatible`)
+- **Claude** (`blaude login --provider claude`)
+- **OpenAI / ChatGPT / Codex** (`blaude login --provider openai`)
+- **Google Gemini** (`blaude login --provider gemini`)
+- **GitHub Copilot** (`blaude login --provider copilot`)
+- **Azure OpenAI** (`blaude login --provider azure`)
+- **Alibaba Cloud Coding Plan** (`blaude login --provider alibaba-coding-plan`)
+- **Fireworks** (`blaude login --provider fireworks`)
+- **MiniMax** (`blaude login --provider minimax`)
+- **Meta Model API / Muse** (`blaude login --provider meta-muse`)
+- **LM Studio** (`blaude login --provider lmstudio`)
+- **Ollama** (`blaude login --provider ollama`)
+- **Custom OpenAI-compatible endpoint** (`blaude login --provider openai-compatible`)
 
-For custom OpenAI-compatible endpoints, jcode now prompts for the API base and supports local localhost servers without requiring an API key.
+For custom OpenAI-compatible endpoints, blaude now prompts for the API base and supports local localhost servers without requiring an API key.
 
 ### Config-file setup for self-hosted endpoints and MCP
 
-If you prefer to configure things by editing files instead of using the login UI, jcode supports both a custom OpenAI-compatible endpoint config and MCP config files.
+If you prefer to configure things by editing files instead of using the login UI, blaude supports both a custom OpenAI-compatible endpoint config and MCP config files.
 
 #### OpenAI-compatible providers
 
-Many hosted services speak the standard OpenAI `/v1/chat/completions` API. jcode talks to them through one shared OpenAI-compatible provider, so you can use almost any such endpoint without waiting for a dedicated integration.
+Many hosted services speak the standard OpenAI `/v1/chat/completions` API. blaude talks to them through one shared OpenAI-compatible provider, so you can use almost any such endpoint without waiting for a dedicated integration.
 
 There are two ways to set one up:
 
-- **Built-in named profiles** — jcode ships ready-made profiles for several popular OpenAI-compatible services. Log in by id and jcode fills in the base URL and key environment variable for you:
+- **Built-in named profiles** — blaude ships ready-made profiles for several popular OpenAI-compatible services. Log in by id and blaude fills in the base URL and key environment variable for you:
 
   ```bash
-  jcode login --provider <profile-id>
+  blaude login --provider <profile-id>
   # for example:
-  jcode login --provider openrouter
-  jcode login --provider orcarouter
-  jcode login --provider deepseek
-  jcode login --provider opencode      # OpenCode Zen
-  jcode login --provider moonshotai
-  jcode login --provider meta-muse     # Meta Model API / Muse Spark
+  blaude login --provider openrouter
+  blaude login --provider orcarouter
+  blaude login --provider deepseek
+  blaude login --provider opencode      # OpenCode Zen
+  blaude login --provider moonshotai
+  blaude login --provider meta-muse     # Meta Model API / Muse Spark
   ```
 
-  Built-in OpenAI-compatible profile ids include: `openrouter`, `orcarouter`, `deepseek`, `zai`, `kimi`, `moonshotai`, `meta-muse` (Meta Model API / Muse Spark), `opencode` (OpenCode Zen), `opencode-go`, `302ai`, `baseten`, `cortecs`, `huggingface`, `nebius`, `scaleway`, `stackit`, and `firmware`. Each profile only sets the endpoint and key variable; you still pick the model with `/model` (or `--model`). Run `jcode login` with no provider to see the interactive list.
+  Built-in OpenAI-compatible profile ids include: `openrouter`, `orcarouter`, `deepseek`, `zai`, `kimi`, `moonshotai`, `meta-muse` (Meta Model API / Muse Spark), `opencode` (OpenCode Zen), `opencode-go`, `302ai`, `baseten`, `cortecs`, `huggingface`, `nebius`, `scaleway`, `stackit`, and `firmware`. Each profile only sets the endpoint and key variable; you still pick the model with `/model` (or `--model`). Run `blaude login` with no provider to see the interactive list.
 
-- **Any other endpoint** — point jcode at an arbitrary OpenAI-compatible API (hosted or local) with `jcode login --provider openai-compatible` or the scriptable `jcode provider add` command described below.
+- **Any other endpoint** — point blaude at an arbitrary OpenAI-compatible API (hosted or local) with `blaude login --provider openai-compatible` or the scriptable `blaude provider add` command described below.
 
 Useful environment overrides for these endpoints:
 
 - `JCODE_STREAM_IDLE_TIMEOUT_SECS` — raise the base streaming idle timeout (default 180s) for slow reasoning models that think silently before emitting tokens. High reasoning efforts scale this automatically (high 2x, xhigh 3x, max 4x). Also settable as `[provider] stream_idle_timeout_secs` in `config.toml`.
-- Per-model `context_window` (alias `context_limit`) in a `[[providers.<name>.models]]` entry — set the context window when the endpoint has no usable `/v1/models` response, so jcode does not fall back to the generic 200k default.
+- Per-model `context_window` (alias `context_limit`) in a `[[providers.<name>.models]]` entry — set the context window when the endpoint has no usable `/v1/models` response, so blaude does not fall back to the generic 200k default.
 - `extra_body` — inject non-standard top-level fields into every chat/completions request body for backends that require them. See [Extra request-body fields](#extra-request-body-fields-extra_body) below.
 
 For details on self-hosting, local runtimes, and the exact config file shape, see below.
 
 #### Self-hosted OpenAI-compatible endpoints, including vLLM
 
-For agents and scripts, the preferred path is the one-shot provider profile command. It writes a named profile to `~/.jcode/config.toml`, stores secrets in jcode's private app config directory when requested, and prints exact run/validation commands:
+For agents and scripts, the preferred path is the one-shot provider profile command. It writes a named profile to `~/.jcode/config.toml`, stores secrets in blaude's private app config directory when requested, and prints exact run/validation commands:
 
 ```bash
 # Secret-safe setup for a hosted OpenAI-compatible API.
-printf '%s' "$MY_API_KEY" | jcode provider add my-api \
+printf '%s' "$MY_API_KEY" | blaude provider add my-api \
   --base-url https://llm.example.com/v1 \
   --model my-model-id \
   --api-key-stdin \
@@ -398,16 +398,16 @@ printf '%s' "$MY_API_KEY" | jcode provider add my-api \
   --json
 
 # Smoke test the profile.
-jcode --provider-profile my-api auth-test --prompt 'Reply exactly JCODE_PROVIDER_SETUP_OK'
+blaude --provider-profile my-api auth-test --prompt 'Reply exactly JCODE_PROVIDER_SETUP_OK'
 
 # Use it directly.
-jcode --provider-profile my-api run 'hello'
+blaude --provider-profile my-api run 'hello'
 ```
 
 For local servers that do not require auth:
 
 ```bash
-jcode provider add local-vllm \
+blaude provider add local-vllm \
   --base-url http://localhost:8000/v1 \
   --model Qwen/Qwen3-Coder-30B-A3B-Instruct \
   --no-api-key \
@@ -419,16 +419,16 @@ Built-in local profiles are available for the common desktop/local runtimes:
 ```bash
 # Ollama: start the local server and install a model first.
 ollama pull llama3.2
-jcode login --provider ollama
-jcode --provider ollama --model llama3.2 run 'hello'
+blaude login --provider ollama
+blaude --provider ollama --model llama3.2 run 'hello'
 
 # LM Studio: start the Local Server, load a chat model, then use the exact
 # model identifier shown by LM Studio or by curl http://localhost:1234/v1/models.
-jcode login --provider lmstudio
-jcode --provider lmstudio --model '<model-id>' run 'hello'
+blaude login --provider lmstudio
+blaude --provider lmstudio --model '<model-id>' run 'hello'
 ```
 
-Ollama and LM Studio both expose OpenAI-compatible `/v1/models` and `/v1/chat/completions` endpoints. jcode uses streaming chat completions, function/tool calling, and OpenAI-style image content for vision-capable local models. If a local server requires a token, enter it during `jcode login` or create a named profile with `--api-key-stdin`.
+Ollama and LM Studio both expose OpenAI-compatible `/v1/models` and `/v1/chat/completions` endpoints. blaude uses streaming chat completions, function/tool calling, and OpenAI-style image content for vision-capable local models. If a local server requires a token, enter it during `blaude login` or create a named profile with `--api-key-stdin`.
 
 Useful flags:
 
@@ -487,7 +487,7 @@ Claude OAuth traffic always continues to use Anthropic's official endpoints.
 
 ##### Extra request-body fields (`extra_body`)
 
-Some OpenAI-compatible backends require non-standard top-level request fields. For example, NVIDIA NIM DeepSeek-V4 reasoning models (`deepseek-ai/deepseek-v4-flash`, `deepseek-ai/deepseek-v4-pro`) only enable thinking when the request includes `chat_template_kwargs`; without it they reply without reasoning (or, for some deployments, hang). jcode lets you inject arbitrary top-level fields two ways.
+Some OpenAI-compatible backends require non-standard top-level request fields. For example, NVIDIA NIM DeepSeek-V4 reasoning models (`deepseek-ai/deepseek-v4-flash`, `deepseek-ai/deepseek-v4-pro`) only enable thinking when the request includes `chat_template_kwargs`; without it they reply without reasoning (or, for some deployments, hang). blaude lets you inject arbitrary top-level fields two ways.
 
 1. Per named profile, via `extra_body` in `config.toml` (a TOML table merged verbatim into the JSON body):
 
@@ -511,7 +511,7 @@ Some OpenAI-compatible backends require non-standard top-level request fields. F
 
 Keys from `extra_body` are merged last and override any jcode-generated body field with the same name (`JCODE_OPENAI_EXTRA_BODY` wins over the config `extra_body` on key collisions). Invalid values are logged and ignored rather than failing the request.
 
-The custom OpenAI-compatible provider reads overrides from environment variables or from an env file in jcode's app config directory. On Linux this is usually `~/.config/jcode/`, so the default file is usually:
+The custom OpenAI-compatible provider reads overrides from environment variables or from an env file in blaude's app config directory. On Linux this is usually `~/.config/jcode/`, so the default file is usually:
 
 ```text
 ~/.config/jcode/openai-compatible.env
@@ -528,7 +528,7 @@ OPENAI_COMPAT_API_KEY=your-token-here
 
 Notes:
 
-- `jcode login --provider openai-compatible` can create or update this for you.
+- `blaude login --provider openai-compatible` can create or update this for you.
 - Plain `http://` is accepted for `localhost` and private LAN IPs. Public remote HTTP is still rejected.
 - HTTPS endpoints work as usual.
 
@@ -547,16 +547,16 @@ Claude Code compatibility:
 - `.mcp.json` at the repo root (Claude Code's project config)
 - `.claude/mcp.json` (legacy fallback)
 
-Claude Code config is read live on every load rather than copied into jcode's
+Claude Code config is read live on every load rather than copied into blaude's
 global config. Additions, edits, and deletions therefore take effect without
 leaving a stale snapshot (and inline environment values are not duplicated).
-For migration from Codex CLI, jcode still performs a one-time import from
+For migration from Codex CLI, blaude still performs a one-time import from
 `~/.codex/config.toml` into `~/.jcode/mcp.json` when the latter does not exist.
 That imported file is then jcode-owned; later Codex changes are not synced
 automatically. Imported environment values are copied too and may contain
 secrets.
 
-Both the canonical `mcpServers` key and jcode's historical `servers` key are accepted. jcode currently supports stdio (command-based) servers only; HTTP/SSE entries (`"type": "http"`/`"sse"`) are recognized and skipped with a log line.
+Both the canonical `mcpServers` key and blaude's historical `servers` key are accepted. blaude currently supports stdio (command-based) servers only; HTTP/SSE entries (`"type": "http"`/`"sse"`) are recognized and skipped with a log line.
 
 Example MCP config:
 
@@ -573,34 +573,34 @@ Example MCP config:
 }
 ```
 
-For headless or SSH sessions, OAuth-style providers support `jcode login --provider <provider> --no-browser` (alias: `--headless`) so jcode prints the auth URL/QR and falls back to manual code or callback paste instead of trying to launch a local browser.
+For headless or SSH sessions, OAuth-style providers support `blaude login --provider <provider> --no-browser` (alias: `--headless`) so blaude prints the auth URL/QR and falls back to manual code or callback paste instead of trying to launch a local browser.
 
 For more scriptable remote flows, `claude`, `openai`, `gemini`, and `antigravity` also support a two-step pattern:
 
 ```bash
 # Step 1: print a resumable auth URL
-jcode login --provider openai --print-auth-url --json
+blaude login --provider openai --print-auth-url --json
 
 # Step 2: complete later with the callback URL or auth code
-jcode login --provider openai --callback-url 'http://localhost:1455/auth/callback?...'
-jcode login --provider gemini --auth-code '...'
+blaude login --provider openai --callback-url 'http://localhost:1455/auth/callback?...'
+blaude login --provider gemini --auth-code '...'
 ```
 
 Additional scriptable cases:
 
 ```bash
 # Copilot device flow: print URL + user code, then complete later
-jcode login --provider copilot --print-auth-url --json
-jcode login --provider copilot --complete
+blaude login --provider copilot --print-auth-url --json
+blaude login --provider copilot --complete
 
 # Gmail/Google OAuth after credentials are already configured
-jcode login --provider google --print-auth-url --google-access-tier readonly
-jcode login --provider google --callback-url 'http://127.0.0.1:8456?...'
+blaude login --provider google --print-auth-url --google-access-tier readonly
+blaude login --provider google --callback-url 'http://127.0.0.1:8456?...'
 ```
 
 Pending scriptable login state is stored under `~/.jcode/pending-login/`, automatically expires, and stale entries are cleaned up when new scriptable logins start or resume.
 
-For the built-in OpenAI login flow, jcode opens a local callback on
+For the built-in OpenAI login flow, blaude opens a local callback on
 `http://localhost:1455/auth/callback` by default.
 
 <img width="2877" height="1762" alt="Screenshot from 2026-04-02 14-28-51" src="https://github.com/user-attachments/assets/530684c0-9d12-4363-aa0e-1b39a0d4e1be" />
@@ -612,15 +612,15 @@ The above image is the first page of provider logins
 - **Aggregator / compatibility providers:** `openrouter`, `orcarouter`, `openai-compatible`
 - **Additional provider integrations:** `opencode`, `opencode-go`, `zai` / `kimi`, `302ai`, `baseten`, `cortecs`, `deepseek`, `firmware`, `huggingface`, `moonshotai`, `nebius`, `scaleway`, `stackit`, `groq`, `mistral`, `perplexity`, `togetherai`, `deepinfra`, `fireworks`, `minimax`, `xai`, `lmstudio`, `ollama`, `chutes`, `cerebras`, `cursor`, `antigravity`, `google`
 
-Jcode also supports easy multi-account switching. Ran out of tokens on your first ChatGPT Pro subscription? /account and quickly switch to your second. 
+blaude also supports easy multi-account switching. Ran out of tokens on your first ChatGPT Pro subscription? /account and quickly switch to your second. 
 
 ---
 
 ## Customizability / Self-Dev
 
-Jcode is inventing a new form of customizability. One that doesn't limit you to what a plugin or extension can do. Tell your jcode agent to enter self dev mode, and it will start modifying its own source code. Jcode is optimized to iterate on itself. There is significant infrastructure around self developement, which allows it to edit, build, and test its own source code, then reload its own binary and continue work in your (potentially many) sessions, fully automatically. 
+blaude is inventing a new form of customizability. One that doesn't limit you to what a plugin or extension can do. Tell your blaude agent to enter self dev mode, and it will start modifying its own source code. blaude is optimized to iterate on itself. There is significant infrastructure around self developement, which allows it to edit, build, and test its own source code, then reload its own binary and continue work in your (potentially many) sessions, fully automatically. 
 
-It is reccomended that you use a frontier model for this. The jcode codebase is not a simple one, and weaker models can make subtle, breaking changes. GPT 5.5 or the latest available frontier model works well.
+It is reccomended that you use a frontier model for this. The blaude codebase is not a simple one, and weaker models can make subtle, breaking changes. GPT 5.5 or the latest available frontier model works well.
 
 <!-- Add self-dev demo thumbnail/video and fuller writeup here. -->
 
@@ -628,17 +628,17 @@ It is reccomended that you use a frontier model for this. The jcode codebase is 
 
 ## Misc.
 
-The devil is in the details. There are many undocumented optimizations and niceties that jcode implements. Some examples: 
+The devil is in the details. There are many undocumented optimizations and niceties that blaude implements. Some examples: 
 
 Anthropic's Claude cache goes cold after 5 minutes. If you initiate Claude after these 5 minutes, you have a cache miss, potentially costing you lots of tokens. The ui warns you when the cache went cold, and notfies you if there was an unexpected cache miss. 
 
-jcode comes with instructions on how to set up Firefox Agent Bridge. Ask you agent to set it up, and then you will have browser automation in jcode as well. 
+blaude comes with instructions on how to set up Firefox Agent Bridge. Ask you agent to set it up, and then you will have browser automation in blaude as well. 
 
-Agent grep is a grep tool I made for the jcode agent. It adds file strucuture information (ie the list of functions, their displacement, etc) to the grep return, so that the agent can infer more of what the file doesn without actually reading the file. It also implements a harness-level integration that adaptively truncates returns based on what the agent has already seen. This saves on context a lot. 
+Agent grep is a grep tool I made for the blaude agent. It adds file strucuture information (ie the list of functions, their displacement, etc) to the grep return, so that the agent can infer more of what the file doesn without actually reading the file. It also implements a harness-level integration that adaptively truncates returns based on what the agent has already seen. This saves on context a lot. 
 
 Inputs are by default interleaved with the working agent. It sends the input as soon as it safely can without breaking the KV cache. Submit with shift enter instead, and it will send a queue send, and wait for the agent to fully finish its turn before sending.
 
-Resume sessions from different harnesses. Claude code broke on you? Resume the session from jcode and continue where you left off. Session resume is supported for codex, claude code, opencode, and pi. 
+Resume sessions from different harnesses. Claude code broke on you? Resume the session from blaude and continue where you left off. Session resume is supported for codex, claude code, opencode, and pi. 
 
 <img width="2877" height="1762" alt="Screenshot from 2026-04-11 16-28-52" src="https://github.com/user-attachments/assets/c2b383cf-2531-4217-85ae-6a863354dc97" />
 image of /Resume for codex sessions
@@ -650,7 +650,7 @@ Skills are not all loaded on startup. The conversation is embedded as a semantic
 
 ## iOS Application / Native OpenClaw
 
-A native iOS application version of jcode is coming soon. This will allow you to work with jcode on your personal machine's environment from your phone, via Tailscale. Openclaw like features will be bundled with this iOS application. 
+A native iOS application version of blaude is coming soon. This will allow you to work with blaude on your personal machine's environment from your phone, via Tailscale. Openclaw like features will be bundled with this iOS application. 
 
 ---
 
@@ -672,32 +672,32 @@ Build speed improvements: An incremental debug cargo build with cache enabled ta
 
 ```bash
 # Launch the TUI
-jcode
+blaude
 
 # Run a single command non-interactively
-jcode run "say hello"
+blaude run "say hello"
 
 # Resume a previous session by memorable name
-jcode --resume fox
+blaude --resume fox
 
 # Run as a persistent background server, then attach more clients
-jcode serve
-jcode connect
+blaude serve
+blaude connect
 
 # Send voice input from your configured STT command
-jcode dictate
+blaude dictate
 ```
 
-jcode supports interactive TUI use, non-interactive runs, persistent server/client workflows,
+blaude supports interactive TUI use, non-interactive runs, persistent server/client workflows,
 and hotkey-friendly dictation without requiring a bundled speech-to-text stack.
 
 <div align="center">
 
   <a href="https://github.com/1jehuang/jcode/releases/download/readme-assets/workflow.mp4">
-    <img src="https://github.com/1jehuang/jcode/releases/download/readme-assets/jcode-workflow-demonstration.webp" alt="jcode workflow demonstration" width="900">
+    <img src="https://github.com/1jehuang/jcode/releases/download/readme-assets/jcode-workflow-demonstration.webp" alt="blaude workflow demonstration" width="900">
   </a>
 
-  <p><em>jcode workflow demonstration</em></p>
+  <p><em>blaude workflow demonstration</em></p>
 
 </div>
 
@@ -705,7 +705,7 @@ and hotkey-friendly dictation without requiring a bundled speech-to-text stack.
 
 ## Browser Automation
 
-jcode includes a first-class built-in `browser` tool for browser control inside agent sessions.
+blaude includes a first-class built-in `browser` tool for browser control inside agent sessions.
 
 Current built-in backend:
 - Firefox via Firefox Agent Bridge
@@ -731,8 +731,8 @@ Current built-in tool actions include:
 Quick setup:
 
 ```bash
-jcode browser status
-jcode browser setup
+blaude browser status
+blaude browser setup
 ```
 
 Once setup is complete, the model can use the built-in `browser` tool directly. The UI also summarizes browser tool calls compactly, for example opening a URL, clicking a selector, or typing into a field without echoing sensitive typed text.
@@ -748,7 +748,7 @@ Notes:
 
 - [jcode.sh/docs](https://jcode.sh/docs) — install, providers, configuration, keybindings
 - [jcode.sh/swarm](https://jcode.sh/swarm) — many coding agents in one repository
-- [jcode.sh/sdk](https://jcode.sh/sdk) — TypeScript SDK: drive jcode sessions from your own program
+- [jcode.sh/sdk](https://jcode.sh/sdk) — TypeScript SDK: drive blaude sessions from your own program
 - [jcode.sh/bench](https://jcode.sh/bench) — benchmark methodology and results
 - [Ambient Mode / OpenClaw](docs/AMBIENT_MODE.md)
 - [Browser Provider Protocol](docs/BROWSER_PROVIDER_PROTOCOL.md)
@@ -767,16 +767,16 @@ Notes:
 
 ### Setup
 
-If you want another agent to set up jcode for you, give it this prompt:
+If you want another agent to set up blaude for you, give it this prompt:
 
 ```text
-Set up jcode on this machine for me.
+Set up blaude on this machine for me.
 
-1. Detect the operating system, available package managers, and shell environment, then install jcode using the best matching command below instead of referring me somewhere else:
+1. Detect the operating system, available package managers, and shell environment, then install blaude using the best matching command below instead of referring me somewhere else:
 
    - macOS with Homebrew available:
      brew tap 1jehuang/jcode
-     brew install jcode
+     brew install blaude
 
    - macOS or Linux via install script:
      curl -fsSL https://jcode.sh/install | bash
@@ -786,7 +786,7 @@ Set up jcode on this machine for me.
 
    - From source if the above paths are not appropriate:
      git clone https://github.com/1jehuang/jcode.git
-     cd jcode
+     cd blaude
      cargo build --release
      scripts/install_release.sh
 
@@ -795,8 +795,8 @@ Set up jcode on this machine for me.
      scripts/dev_cargo.sh --print-setup
      scripts/install_release.sh
 
-2. Verify that `jcode` is on my `PATH`.
-3. Launch `jcode` once in a new terminal window/session to confirm it starts successfully.
+2. Verify that `blaude` is on my `PATH`.
+3. Launch `blaude` once in a new terminal window/session to confirm it starts successfully.
 4. Before attempting any interactive login flow, assess which providers are already available non-interactively and prefer those first. Check existing local credentials, config files, CLI sessions, and environment variables such as:
    - Claude: `~/.jcode/auth.json`, `~/.claude/.credentials.json`, `~/.local/share/opencode/auth.json`, `ANTHROPIC_API_KEY`
    - OpenAI: `~/.jcode/openai-auth.json`, `~/.codex/auth.json`, `OPENAI_API_KEY`
@@ -807,26 +807,26 @@ Set up jcode on this machine for me.
    - Fireworks: `~/.config/jcode/fireworks.env`, `FIREWORKS_API_KEY`
    - MiniMax: `~/.config/jcode/minimax.env`, `MINIMAX_API_KEY`
    - NVIDIA NIM: `~/.config/jcode/nvidia-nim.env`, `NVIDIA_API_KEY`
-   - Alibaba Cloud Coding Plan: existing jcode config/env if present
-5. Prefer whichever provider is already configured and verify it with `jcode auth-test --all-configured` or a provider-specific auth test when appropriate.
+   - Alibaba Cloud Coding Plan: existing blaude config/env if present
+5. Prefer whichever provider is already configured and verify it with `blaude auth-test --all-configured` or a provider-specific auth test when appropriate.
 6. Only if no usable provider is already configured, guide me through the minimal manual step needed:
-   - Claude: `jcode login --provider claude`
-   - GitHub Copilot: `jcode login --provider copilot`
-   - OpenAI: `jcode login --provider openai`
-   - Gemini: `jcode login --provider gemini`
-   - Azure OpenAI: `jcode login --provider azure`
-   - Fireworks: `jcode login --provider fireworks`
-   - MiniMax: `jcode login --provider minimax`
-   - NVIDIA NIM: `jcode login --provider nvidia-nim`
-   - Alibaba Cloud Coding Plan: `jcode login --provider alibaba-coding-plan`
+   - Claude: `blaude login --provider claude`
+   - GitHub Copilot: `blaude login --provider copilot`
+   - OpenAI: `blaude login --provider openai`
+   - Gemini: `blaude login --provider gemini`
+   - Azure OpenAI: `blaude login --provider azure`
+   - Fireworks: `blaude login --provider fireworks`
+   - MiniMax: `blaude login --provider minimax`
+   - NVIDIA NIM: `blaude login --provider nvidia-nim`
+   - Alibaba Cloud Coding Plan: `blaude login --provider alibaba-coding-plan`
    - OpenRouter: help me set `OPENROUTER_API_KEY`
    - Anthropic direct API: help me set `ANTHROPIC_API_KEY`
-7. After setup, run a simple smoke test with `jcode run "say hello"` and confirm it works.
-8. If I want browser automation, also check `jcode browser status`. If browser automation is not ready, run `jcode browser setup`, verify the built-in `browser` tool works, and explain any remaining manual step.
+7. After setup, run a simple smoke test with `blaude run "say hello"` and confirm it works.
+8. If I want browser automation, also check `blaude browser status`. If browser automation is not ready, run `blaude browser setup`, verify the built-in `browser` tool works, and explain any remaining manual step.
 9. Explain any manual step that still needs me, especially browser OAuth, device login, API key entry, or browser extension approval.
 ```
 
-This is intended to be a copy-paste bootstrap prompt for jcode itself or any other coding agent.
+This is intended to be a copy-paste bootstrap prompt for blaude itself or any other coding agent.
 
 ### Quick Install
 
@@ -863,14 +863,14 @@ is available with `-BuildFromSource` and requires Git, Rust, and Visual Studio
 
 ```bash
 brew tap 1jehuang/jcode
-brew install jcode
+brew install blaude
 ```
 
 ### From Source (all platforms)
 
 ```bash
 git clone https://github.com/1jehuang/jcode.git
-cd jcode
+cd blaude
 cargo build --release
 ```
 

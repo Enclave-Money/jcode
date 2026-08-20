@@ -153,7 +153,7 @@ sequenceDiagram
 
 ## Ambient Agent Tools
 
-The ambient agent has access to a subset of jcode tools plus ambient-specific tools.
+The ambient agent has access to a subset of blaude tools plus ambient-specific tools.
 
 ### `end_ambient_cycle` (required)
 
@@ -867,7 +867,7 @@ When ambient starts after an unexpected shutdown:
 
 ```mermaid
 stateDiagram-v2
-    [*] --> Starting: jcode starts
+    [*] --> Starting: blaude starts
     Starting --> CheckLastRun: ambient enabled?
 
     CheckLastRun --> NormalCycle: last run recent

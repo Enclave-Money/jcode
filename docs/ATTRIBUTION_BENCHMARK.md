@@ -35,7 +35,7 @@ Accordingly:
 - it is weighted `CRITICAL_CHECK_WEIGHT` (3x) in the score;
 - every run prints an explicit per-sponsor CLI-attribution verdict
   (`attributed` / `NOT-ATTRIBUTED` / `unknown`) plus an
-  `N/M sponsors credit agent-driven CLI signups to jcode` summary line;
+  `N/M sponsors credit agent-driven CLI signups to blaude` summary line;
 - the report JSON carries `primary_check`, a top-level `cli_attribution` map,
   and per-sponsor `cli_attribution` + `cli_attribution_detail`;
 - a `NOT-ATTRIBUTED` verdict fails the run regardless of `--min-score`.

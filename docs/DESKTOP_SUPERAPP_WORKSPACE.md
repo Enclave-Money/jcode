@@ -3,7 +3,7 @@
 Status: Proposed
 Updated: 2026-04-25
 
-This document refines the Jcode Desktop product direction from a single chat-like app into a **Niri-like agent workspace superapp**.
+This document refines the blaude Desktop product direction from a single chat-like app into a **Niri-like agent workspace superapp**.
 
 The app should eventually host multiple kinds of surfaces:
 
@@ -14,7 +14,7 @@ The app should eventually host multiple kinds of surfaces:
 - terminals or command output surfaces
 - settings/auth/tools/debug surfaces
 
-The goal is not to clone a general-purpose window manager. The goal is to give Jcode users a fast, keyboard-driven, spatial environment for supervising multiple agent sessions and related development tools inside one custom desktop app.
+The goal is not to clone a general-purpose window manager. The goal is to give blaude users a fast, keyboard-driven, spatial environment for supervising multiple agent sessions and related development tools inside one custom desktop app.
 
 See also:
 
@@ -24,7 +24,7 @@ See also:
 
 ## Product thesis
 
-Jcode Desktop should be a **local AI development superapp**:
+blaude Desktop should be a **local AI development superapp**:
 
 ```text
 one native app
@@ -52,7 +52,7 @@ And less like:
 
 ## Why Niri-like
 
-Niri's useful idea for Jcode is not the compositor implementation. It is the mental model:
+Niri's useful idea for blaude is not the compositor implementation. It is the mental model:
 
 - surfaces are arranged spatially
 - focus moves predictably
@@ -61,7 +61,7 @@ Niri's useful idea for Jcode is not the compositor implementation. It is the men
 - layout is persistent enough to build muscle memory
 - many parallel tasks can be monitored without losing context
 
-Jcode Desktop can bring that workflow to macOS users who do not have a Niri-like environment, while still working well on Linux.
+blaude Desktop can bring that workflow to macOS users who do not have a Niri-like environment, while still working well on Linux.
 
 ## Workspace model
 
@@ -91,7 +91,7 @@ Suggested initial terms:
 | Lane | A vertical grouping or Niri-like workspace row |
 | Column | A horizontal focus/navigation unit |
 | Surface | A visible app panel: session, file/code view, diff, activity, settings, debug, etc. |
-| Session surface | A surface attached to a server-owned Jcode session |
+| Session surface | A surface attached to a server-owned blaude session |
 | Tool surface | File/code/diff/activity/settings/debug/etc. |
 
 ## Surface types
@@ -381,7 +381,7 @@ Activity should be a surface type that can be:
 - navigated with the same surface commands
 - used to jump to the relevant session/tool output
 
-This is important because Jcode users may run many agents/tasks concurrently.
+This is important because blaude users may run many agents/tasks concurrently.
 
 ## Command palette as the universal router
 
@@ -501,7 +501,7 @@ Because “superapp” can explode in scope, keep these guardrails:
 
 ## Summary decision
 
-Jcode Desktop should become a **keyboard-driven, Niri-like agent workspace superapp**.
+blaude Desktop should become a **keyboard-driven, Niri-like agent workspace superapp**.
 
 The initial desktop app should prove:
 

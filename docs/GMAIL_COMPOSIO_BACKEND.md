@@ -9,7 +9,7 @@ auth/transport layer changes.
 
 | Backend | Auth | Pros | Cons |
 |---|---|---|---|
-| `direct` (default) | Local Google OAuth tokens (`jcode login google`) | No third party in the loop | Unverified-app warning; 7-day refresh-token expiry in Google "Testing" mode |
+| `direct` (default) | Local Google OAuth tokens (`blaude login google`) | No third party in the loop | Unverified-app warning; 7-day refresh-token expiry in Google "Testing" mode |
 | `composio` | Composio-managed OAuth (Google-verified app) | No unverified-app warning, no 7-day expiry, no per-user Google Cloud project | Composio brokers Gmail token custody; external dependency/cost |
 
 Both backends call the *same* Gmail REST endpoints
@@ -27,7 +27,7 @@ The backend is resolved from environment at `GmailClient::new()`:
 - `JCODE_GMAIL_BACKEND=direct` (or unset) -> direct Google backend.
 - `JCODE_GMAIL_BACKEND=composio` -> Composio backend (requires `COMPOSIO_API_KEY`).
 
-If `composio` is requested but `COMPOSIO_API_KEY` is missing, jcode warns and
+If `composio` is requested but `COMPOSIO_API_KEY` is missing, blaude warns and
 falls back to `direct`.
 
 ### Composio environment variables
@@ -45,13 +45,13 @@ falls back to `direct`.
 Once `COMPOSIO_API_KEY` and `COMPOSIO_GMAIL_AUTH_CONFIG_ID` are set, the user
 (or the agent) runs the gmail tool with `action: "connect"`:
 
-1. jcode calls Composio's `POST /connected_accounts/link` (hosted "Connect
+1. blaude calls Composio's `POST /connected_accounts/link` (hosted "Connect
    Link" flow) to start an OAuth session.
 2. The returned `redirect_url` is opened in the system browser (printed to
    stderr as a fallback, e.g. over SSH).
 3. The user approves Gmail access on Google's consent screen. Because Composio
    owns a Google-verified app, there is no "unverified app" warning.
-4. jcode polls `GET /connected_accounts/{id}` until the connection is `ACTIVE`,
+4. blaude polls `GET /connected_accounts/{id}` until the connection is `ACTIVE`,
    then persists it to `~/.jcode/composio_gmail.json`.
 
 Future sessions load the persisted `connected_account_id`, so the connect step
@@ -83,7 +83,7 @@ a hint telling the agent to run `action: "connect"` first.
 
 ## Access tiers
 
-- `direct`: honors the access tier chosen at `jcode login google`
+- `direct`: honors the access tier chosen at `blaude login google`
   (Read & Draft Only logins cannot send/trash, enforced at the OAuth scope level).
 - `composio`: connections request full Gmail scopes, so send/trash are
   available. The tool still requires explicit `confirmed: true` for send,

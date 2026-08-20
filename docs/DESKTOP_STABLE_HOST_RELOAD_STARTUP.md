@@ -121,7 +121,7 @@ flowchart LR
   Host --> Window[winit window]
   Host --> Renderer[wgpu renderer + font/text atlases]
   Host <-->|input, display updates, snapshots| Worker[jcode-desktop-app worker]
-  Worker <-->|session protocol| Server[jcode server/daemon]
+  Worker <-->|session protocol| Server[blaude server/daemon]
 ```
 
 ### Stable host responsibilities

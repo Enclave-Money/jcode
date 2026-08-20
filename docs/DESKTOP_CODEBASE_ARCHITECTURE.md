@@ -5,7 +5,7 @@
 Status: Proposed
 Updated: 2026-04-25
 
-This document translates the current Jcode TUI architecture into a concrete codebase plan for a future custom desktop app.
+This document translates the current blaude TUI architecture into a concrete codebase plan for a future custom desktop app.
 
 The desktop app is expected to have roughly the same product capabilities as the TUI, but it should not be a direct port of the TUI implementation. The TUI is terminal/cell-oriented and has accumulated a large amount of terminal-specific rendering, input, layout, scrolling, and cache logic. The desktop app should reuse the runtime/protocol/session concepts and some presentation models, but it should have a separate custom UI and rendering architecture.
 
@@ -85,7 +85,7 @@ The desktop should not import `ratatui::Line`, terminal-width wrapping, global r
 The desktop should instead use this split:
 
 ```text
-Jcode server/runtime/protocol
+blaude server/runtime/protocol
   -> client-core reducer and view model
     -> desktop product views
       -> custom UI tree/layout
@@ -188,9 +188,9 @@ jcode-desktop
 - `crossterm`
 - terminal markdown rendering
 
-`jcode-desktop-ui` should not depend on the Jcode server runtime. It can depend on client-core view models and generic UI types.
+`jcode-desktop-ui` should not depend on the blaude server runtime. It can depend on client-core view models and generic UI types.
 
-`jcode-desktop-renderer` should not know what a Jcode session is. It renders display lists, text runs, images, clips, and primitives.
+`jcode-desktop-renderer` should not know what a blaude session is. It renders display lists, text runs, images, clips, and primitives.
 
 ## `jcode-protocol`
 
@@ -632,7 +632,7 @@ Avoid depending on `src/tui`.
 
 Use the existing server protocol:
 
-- connect to `jcode serve`
+- connect to `blaude serve`
 - subscribe/resume session
 - receive `ServerEvent`
 - send `Request::Message`, `Request::Cancel`, etc.
@@ -674,7 +674,7 @@ The TUI still supports local mode and remote/server mode. The desktop should sta
 
 Recommended desktop rule:
 
-> Desktop always connects to a local Jcode server/daemon. It does not embed the agent runtime in-process.
+> Desktop always connects to a local blaude server/daemon. It does not embed the agent runtime in-process.
 
 Reasons:
 

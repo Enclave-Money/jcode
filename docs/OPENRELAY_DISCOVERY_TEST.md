@@ -1,7 +1,7 @@
 # OpenRelay Discovery test
 
 This is a local-only evaluation of adding OpenRelay to `discover_tools`. It does
-not modify the hosted Discovery manifest, Jcode's default endpoint, or any
+not modify the hosted Discovery manifest, blaude's default endpoint, or any
 production deployment.
 
 The fixture lists OpenRelay's Rivet public Ethereum Classic JSON-RPC endpoint in

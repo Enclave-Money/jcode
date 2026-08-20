@@ -5,7 +5,7 @@
 Status: Proposed
 Updated: 2026-04-25
 
-The first implementation step for Jcode Desktop should be **Phase 0: a fullscreen blank white canvas**.
+The first implementation step for blaude Desktop should be **Phase 0: a fullscreen blank white canvas**.
 
 Do not start with:
 

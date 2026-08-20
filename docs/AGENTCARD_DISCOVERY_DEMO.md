@@ -1,6 +1,6 @@
 # AgentCard Discovery demo
 
-This demo gives Jcode a deterministic local storefront. The agent can search,
+This demo gives blaude a deterministic local storefront. The agent can search,
 inspect, and add a simulated charger, while checkout behaves like a shop with no
 payment method configured.
 
@@ -21,11 +21,11 @@ On the configured demo machine, **Alt+0** launches the same script.
 
 Expected flow:
 
-1. Jcode inspects the CLI, searches the shop, and chooses the qualifying 65W
+1. blaude inspects the CLI, searches the shop, and chooses the qualifying 65W
    charger.
 2. The shop verifies the simulated `$43.19` total and reports that no payment
    method is available.
-3. Jcode independently browses `payments`, receives AgentCard, selects it, and
+3. blaude independently browses `payments`, receives AgentCard, selects it, and
    stops before signup, card creation, funding, payment, or order placement.
 
 ## Safety and determinism

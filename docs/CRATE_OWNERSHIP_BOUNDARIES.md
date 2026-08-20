@@ -1,6 +1,6 @@
 # Crate Ownership and Modularization Boundaries
 
-This document defines the target structure for keeping `jcode` modular without turning shared crates into a dumping ground. It is intentionally practical: use it when deciding whether to move a type, helper, or behavior out of the root crate.
+This document defines the target structure for keeping `blaude` modular without turning shared crates into a dumping ground. It is intentionally practical: use it when deciding whether to move a type, helper, or behavior out of the root crate.
 
 ## Goals
 
@@ -99,7 +99,7 @@ Run this guard after adding or changing any type crate dependency:
 python3 scripts/check_dependency_boundaries.py
 ```
 
-The guard blocks direct dependencies from `jcode-*-types` crates to root/runtime-heavy internal crates such as `jcode`, `jcode-core`, provider crates, TUI crates, protocol/runtime crates, and desktop/mobile crates. Type crates may depend on external lightweight libraries and other type crates. If a new internal dependency is needed, first decide whether it should itself be a type crate.
+The guard blocks direct dependencies from `jcode-*-types` crates to root/runtime-heavy internal crates such as `blaude`, `jcode-core`, provider crates, TUI crates, protocol/runtime crates, and desktop/mobile crates. Type crates may depend on external lightweight libraries and other type crates. If a new internal dependency is needed, first decide whether it should itself be a type crate.
 
 ## Test policy
 

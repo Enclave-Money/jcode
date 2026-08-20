@@ -3,7 +3,7 @@
 > **Status:** Design
 > **Updated:** 2026-02-08
 
-A human-in-the-loop safety layer for unmonitored agent operations. Designed as an independent subsystem that any jcode feature can integrate with. Currently the only consumer is ambient mode, but the system is intentionally decoupled so it can be reused for future features.
+A human-in-the-loop safety layer for unmonitored agent operations. Designed as an independent subsystem that any blaude feature can integrate with. Currently the only consumer is ambient mode, but the system is intentionally decoupled so it can be reused for future features.
 
 ## Overview
 
@@ -47,7 +47,7 @@ graph TB
 
     subgraph "User Review"
         PH[Phone / Email]
-        CLI[jcode safety review]
+        CLI[blaude safety review]
         TW[TUI Review Panel]
     end
 
@@ -166,7 +166,7 @@ sequenceDiagram
     RQ->>RQ: Store pending request
     RQ->>NF: Dispatch notification
 
-    NF->>US: Email: "jcode ambient wants to create a PR"
+    NF->>US: Email: "blaude ambient wants to create a PR"
     NF->>US: Desktop notification (if available)
 
     Note over AG: Agent decides: wait or move on?
@@ -380,7 +380,7 @@ Budget: 62% remaining today
 - **Always:** Written to `~/.jcode/ambient/transcripts/YYYY-MM-DD-HHMMSS.json`
 - **If email enabled:** Summary sent after each cycle (respecting batch interval)
 - **If TUI open:** Summary shown in ambient info widget
-- **CLI:** `jcode ambient log` to view recent transcripts
+- **CLI:** `blaude ambient log` to view recent transcripts
 
 ---
 
@@ -397,7 +397,7 @@ Budget: 62% remaining today
 
 ### Review Interfaces
 
-**1. TUI (when jcode is open)**
+**1. TUI (when blaude is open)**
 
 A review panel showing pending requests:
 
@@ -417,11 +417,11 @@ A review panel showing pending requests:
 **2. CLI**
 
 ```bash
-jcode safety review           # Interactive review of pending requests
-jcode safety list             # List all pending requests
-jcode safety approve <id>     # Approve a specific request
-jcode safety deny <id>        # Deny a specific request
-jcode safety log              # View decision history
+blaude safety review           # Interactive review of pending requests
+blaude safety list             # List all pending requests
+blaude safety approve <id>     # Approve a specific request
+blaude safety deny <id>        # Deny a specific request
+blaude safety log              # View decision history
 ```
 
 **3. Email / Remote**
@@ -449,7 +449,7 @@ This history could eventually feed into smarter classification — if the user a
 
 ## Integration API
 
-The safety system exposes a simple API for any jcode feature to use:
+The safety system exposes a simple API for any blaude feature to use:
 
 ```rust
 pub struct SafetySystem {
@@ -524,7 +524,7 @@ pub enum Urgency {
 
 ### Phase 3: Review Interfaces
 - [ ] TUI review panel
-- [ ] CLI commands (`jcode safety review/list/approve/deny/log`)
+- [ ] CLI commands (`blaude safety review/list/approve/deny/log`)
 - [ ] Email approve/deny links (relay service)
 
 ### Phase 4: Configuration

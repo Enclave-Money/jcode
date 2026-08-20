@@ -15,7 +15,7 @@ This repo already supports that isolation:
 scripts/onboarding_sandbox.sh fresh
 ```
 
-That gives you a clean jcode launch with isolated state.
+That gives you a clean blaude launch with isolated state.
 
 ## Test with your REAL logins (import them in the sandbox)
 
@@ -32,11 +32,11 @@ scripts/onboarding_sandbox.sh seed-real-logins
 # step has real history to resume:
 scripts/onboarding_sandbox.sh seed-real-logins --with-transcripts
 
-# Or do it all in one shot: reset, seed, and launch jcode
+# Or do it all in one shot: reset, seed, and launch blaude
 scripts/onboarding_sandbox.sh fresh-real --with-transcripts
 ```
 
-How it works: when `JCODE_HOME` is set, jcode resolves every external credential
+How it works: when `JCODE_HOME` is set, blaude resolves every external credential
 and transcript lookup to `$JCODE_HOME/external/<same-relative-path-as-$HOME>`.
 `seed-real-logins` copies your real files there, so detection and import behave
 exactly as they would on a first-run machine that already has those tools
@@ -47,7 +47,7 @@ Once seeded, just launch the sandbox and walk onboarding; it will detect and
 offer to import each real login:
 
 ```bash
-scripts/onboarding_sandbox.sh jcode
+scripts/onboarding_sandbox.sh blaude
 ```
 
 ## Common commands
@@ -61,7 +61,7 @@ scripts/onboarding_sandbox.sh status
 scripts/onboarding_sandbox.sh reset
 scripts/onboarding_sandbox.sh fresh
 
-# Log into a provider without touching your normal jcode config
+# Log into a provider without touching your normal blaude config
 scripts/onboarding_sandbox.sh login openai
 scripts/onboarding_sandbox.sh login claude
 scripts/onboarding_sandbox.sh auth-status
@@ -76,9 +76,9 @@ scripts/onboarding_sandbox.sh auth-status
 # Or load and run one command in the fixture-backed sandbox
 scripts/onboarding_sandbox.sh fixture-run normal-openai -- auth-test --provider openai --no-smoke
 
-# Run arbitrary jcode commands in the sandbox
-scripts/onboarding_sandbox.sh jcode auth status
-scripts/onboarding_sandbox.sh jcode pair
+# Run arbitrary blaude commands in the sandbox
+scripts/onboarding_sandbox.sh blaude auth status
+scripts/onboarding_sandbox.sh blaude pair
 ```
 
 ## Reusable local auth fixtures
@@ -104,7 +104,7 @@ scripts/onboarding_sandbox.sh fixture-save normal-openai
 # Fast repeat loop after that
 scripts/onboarding_sandbox.sh fixture-load normal-openai
 scripts/onboarding_sandbox.sh auth-status
-scripts/onboarding_sandbox.sh jcode auth-test --provider openai
+scripts/onboarding_sandbox.sh blaude auth-test --provider openai
 ```
 
 The lower-level helper can also be used directly:
@@ -178,12 +178,12 @@ suggestions, and the accepted suggested-review turn.
 
 A fresh sandbox means:
 
-- no real jcode config files are reused
+- no real blaude config files are reused
 - no real runtime sockets are reused
 - no previously trusted external auth sources are reused
 - you can blow it away with one `reset`
 
-When using fixtures, the sandbox is still isolated from your normal jcode state,
+When using fixtures, the sandbox is still isolated from your normal blaude state,
 but the loaded fixture may intentionally contain copied auth state from an earlier
 sandbox login.
 

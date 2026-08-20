@@ -1,12 +1,12 @@
 # Keybinding conflict detection
 
-jcode runs inside a terminal, which runs inside an OS. Both layers can claim a
-key chord before it ever reaches jcode (for example Ghostty binding `Ctrl+Tab`
+blaude runs inside a terminal, which runs inside an OS. Both layers can claim a
+key chord before it ever reaches blaude (for example Ghostty binding `Ctrl+Tab`
 to "next tab", or macOS binding `Cmd+Space` to Spotlight). When that happens, a
-jcode keybinding silently does nothing and it is not obvious why.
+blaude keybinding silently does nothing and it is not obvious why.
 
 This feature discovers the key bindings that exist on the machine, compares them
-against jcode's own configured bindings, and warns about overlaps.
+against blaude's own configured bindings, and warns about overlaps.
 
 ## What it can and cannot detect
 
@@ -27,7 +27,7 @@ against jcode's own configured bindings, and warns about overlaps.
 - Terminals other than Ghostty (yet). Adding one is a self-contained adapter
   (see "Adding a terminal adapter" below).
 
-It is a snapshot taken at startup, not a live hook, so changes made while jcode
+It is a snapshot taken at startup, not a live hook, so changes made while blaude
 is running are not seen until the snapshot is refreshed.
 
 ## How it surfaces
@@ -37,23 +37,23 @@ is running are not seen until the snapshot is refreshed.
   owns it. `/keys refresh` forces a rescan of the machine (otherwise a cached
   snapshot up to a day old is reused).
 - **Startup notice.** On launch, if the set of conflicts has *changed* since the
-  last time we warned, jcode shows a one-time heads-up pointing at `/keys`. It is
+  last time we warned, blaude shows a one-time heads-up pointing at `/keys`. It is
   debounced by a signature of the conflict set, so users are warned once per
   distinct set of conflicts and never nagged on every launch.
 
 ## Resolving a conflict
 
-The report names the conflicting jcode action and its config field, e.g.:
+The report names the conflicting blaude action and its config field, e.g.:
 
 ```
   ⚠ Ctrl+Tab
-      jcode: Switch to next model (keybindings.model_switch_next = "ctrl+tab")
+      blaude: Switch to next model (keybindings.model_switch_next = "ctrl+tab")
       taken by terminal: next_tab
 ```
 
 To fix, either:
 
-- rebind the jcode action in `~/.jcode/config.toml` under `[keybindings]`
+- rebind the blaude action in `~/.jcode/config.toml` under `[keybindings]`
   (e.g. `model_switch_next = "ctrl+shift+m"`), or
 - change the conflicting shortcut in your terminal or OS settings.
 
@@ -63,7 +63,7 @@ All logic lives in `crates/jcode-setup-hints/src/keymap/`:
 
 - `chord.rs` - `KeyChord`, a normalized `(cmd/ctrl/alt/shift + key)` that unifies
   the different key spellings each source uses, plus `KeyChord::parse` for
-  jcode's own binding-string grammar.
+  blaude's own binding-string grammar.
 - `macos_hotkeys.rs` - decode `com.apple.symbolichotkeys`
   `[ascii, keycode, modmask]` triples (pure logic + a thin subprocess wrapper).
 - `terminal.rs` - parse `ghostty +list-keybinds` output (pure logic + wrapper).

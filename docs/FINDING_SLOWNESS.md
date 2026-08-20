@@ -102,7 +102,7 @@ The pattern generalizes to any renderer with these two properties:
 If both hold, add a sweep, add heavy nodes, gate on a work counter rather than
 only on time, and prove it by breaking something.
 
-The jcode TUI satisfies both (it has headless golden-render tests and mature
+The blaude TUI satisfies both (it has headless golden-render tests and mature
 render caches in `ui_messages_cache.rs`), so the same harness would transfer.
 It has not been done, because the TUI's caches are not currently carrying this
 class of bug; the note is here so the option is on the shelf rather than

@@ -1,4 +1,4 @@
-# jcode iOS App
+# blaude iOS App
 
 > Status: v2 rebuild. Pure Swift. This replaces the earlier prototype and the
 > Rust-mobile-core/simulator direction, both removed in the `ios-app-restart`
@@ -6,7 +6,7 @@
 
 ## Product definition
 
-A native iOS remote control for jcode servers running on your own machines.
+A native iOS remote control for blaude servers running on your own machines.
 The phone renders conversations and drives sessions; all heavy lifting (LLM
 calls, tools, git, files, MCP) stays on the server. Reachability is assumed to
 be Tailscale (or LAN); the app never talks to LLM providers directly.
@@ -64,8 +64,8 @@ Rules:
 
 Server side (already shipped, unchanged):
 
-- `jcode pair` CLI generates a 6-digit code (5 min TTL) and QR with
-  `jcode://pair?host=H&port=P&code=C`.
+- `blaude pair` CLI generates a 6-digit code (5 min TTL) and QR with
+  `blaude://pair?host=H&port=P&code=C`.
 - `POST http://host:7643/pair` with `{code, device_id, device_name}` returns
   `{token, server_name, server_version}`. Token is stored hashed server-side.
 - `GET /health` for reachability checks.

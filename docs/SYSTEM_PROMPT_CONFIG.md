@@ -1,6 +1,6 @@
 # Configuring the System Prompt
 
-jcode builds its system prompt from several layers. Two of them are user-editable
+blaude builds its system prompt from several layers. Two of them are user-editable
 files, so you can tune agent behavior without rebuilding.
 
 ## Layers (in order)

@@ -89,7 +89,7 @@ The single highest-value category: this is where the first cut actually broke.
 | 3.2 | Body leading 1.65; captions carry 0.1-0.2em letterspacing. | `layout::BODY_LEADING`, caption styles |
 | 3.3 | Single-line fields **elide**, never wrap past their own rule. | `tests::elide_*`, `visual_tests::masthead_rule_is_clear_of_text` |
 | 3.4 | Elision keeps the informative ends (head and tail of paths, ids, errors). | `tests::elide_respects_budget_and_keeps_ends` |
-| 3.5 | Sentence case; product names keep their own casing (`jcode` lowercase). | manual |
+| 3.5 | Sentence case; product names keep their own casing (`blaude` lowercase). | manual |
 
 ## 4. Color and contrast
 

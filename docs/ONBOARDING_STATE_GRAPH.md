@@ -146,7 +146,7 @@ These are the payoff. Once the graph is data, you can assert over it:
 
 1. **No dead ends.** Every non-terminal node has ≥1 outgoing edge reachable by a key
    the user can actually press, and that edge is named on screen.
-2. **Every failure node has a recovery edge** that is not "restart jcode".
+2. **Every failure node has a recovery edge** that is not "restart blaude".
 3. **Bounded work.** `max steps-to-ready ≤ N` and `max keystrokes ≤ K` over all paths
    (Tier 1 of `onboarding_eval.rs` already counts this; the graph makes it exhaustive
    instead of authored-by-hand).
@@ -231,7 +231,7 @@ closed enum) but is derived by string-matching an error message we do also log.
 6. **k-anonymity on the aggregation side.** Any (env, trace-shape) cohort with fewer
    than k=20 installs is reported only as "rare". Rare-but-fatal shapes still surface
    as a count, without the env vector.
-7. **Local-first and inspectable.** `jcode telemetry show-last-trace` prints the exact
+7. **Local-first and inspectable.** `blaude telemetry show-last-trace` prints the exact
    bytes we would send. `--dry-run` mode writes them to disk and sends nothing. If a
    user can read the whole payload in 20 lines, trust is cheap.
 8. **Cap and drop.** Traces are bounded (say 64 steps); overflow reports

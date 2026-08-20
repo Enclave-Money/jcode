@@ -1,6 +1,6 @@
 # Windows Support
 
-Jcode supports Windows as a first-class platform. The Windows implementation uses native named pipes, Windows process management, PowerShell installation, and platform-specific launch-hotkey integration.
+blaude supports Windows as a first-class platform. The Windows implementation uses native named pipes, Windows process management, PowerShell installation, and platform-specific launch-hotkey integration.
 
 ## Support status
 
@@ -10,7 +10,7 @@ Jcode supports Windows as a first-class platform. The Windows implementation use
 | Windows 11 ARM64 | Release builds and automated install checks |
 | PowerShell installer | Tested on Windows CI |
 | Native IPC and process lifecycle | Covered by targeted and end-to-end Windows tests |
-| `jcode update` | Supported with SHA-256 verification |
+| `blaude update` | Supported with SHA-256 verification |
 | Release assets | x64 and ARM64 `.exe` and `.tar.gz` assets |
 | Authenticode signing | Release pipeline ready; requires the one-time Azure configuration below |
 
@@ -39,7 +39,7 @@ $script = [scriptblock]::Create((irm https://jcode.sh/install.ps1))
 & $script -ConfigureAlacritty -ConfigureHotkey
 ```
 
-Jcode can also offer these options interactively after launch.
+blaude can also offer these options interactively after launch.
 
 If a release does not contain a matching prebuilt Windows asset, the installer
 fails with an actionable message rather than silently starting a long build.
@@ -63,9 +63,9 @@ Source builds require Git, Rust, and Visual Studio 2022 Build Tools with the
 ### Verify an installation
 
 ```powershell
-jcode --version
-Get-Command jcode
-Get-FileHash (Get-Command jcode).Source -Algorithm SHA256
+blaude --version
+Get-Command blaude
+Get-FileHash (Get-Command blaude).Source -Algorithm SHA256
 ```
 
 Compare the hash with `SHA256SUMS` on the matching [GitHub release](https://github.com/1jehuang/jcode/releases/latest).
@@ -73,7 +73,7 @@ Compare the hash with `SHA256SUMS` on the matching [GitHub release](https://gith
 After Authenticode signing is enabled, this must report `Valid`:
 
 ```powershell
-Get-AuthenticodeSignature (Get-Command jcode).Source | Format-List Status,StatusMessage,SignerCertificate
+Get-AuthenticodeSignature (Get-Command blaude).Source | Format-List Status,StatusMessage,SignerCertificate
 ```
 
 ## Microsoft Defender and SmartScreen
@@ -153,7 +153,7 @@ Windows launch-hotkey setup is implemented in `crates/jcode-setup-hints/src/wind
 Include the following in a GitHub issue:
 
 - Windows edition, version, and architecture
-- Jcode version from `jcode --version`
+- blaude version from `blaude --version`
 - Installation method
 - Terminal and PowerShell version (`$PSVersionTable.PSVersion`)
 - Exact Defender or SmartScreen message

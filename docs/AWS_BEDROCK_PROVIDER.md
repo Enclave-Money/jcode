@@ -1,18 +1,18 @@
 # AWS Bedrock provider
 
-Jcode supports a native AWS Bedrock provider that talks directly to Bedrock Runtime with the AWS Rust SDK and `ConverseStream`.
+blaude supports a native AWS Bedrock provider that talks directly to Bedrock Runtime with the AWS Rust SDK and `ConverseStream`.
 
 ## Configure credentials
 
-Jcode supports two Bedrock auth styles:
+blaude supports two Bedrock auth styles:
 
-- **Bedrock API key / bearer token**: easiest for local onboarding. Jcode stores the token in its config env file and sends it through the AWS SDK as `AWS_BEARER_TOKEN_BEDROCK`.
+- **Bedrock API key / bearer token**: easiest for local onboarding. blaude stores the token in its config env file and sends it through the AWS SDK as `AWS_BEARER_TOKEN_BEDROCK`.
 - **AWS IAM credentials**: best for normal AWS customer environments. This can be an AWS CLI/SSO profile, environment access keys, web identity, EC2/ECS metadata credentials, or another standard AWS SDK credential source.
 
 For the guided API-key flow, run:
 
 ```bash
-jcode login --provider bedrock
+blaude login --provider bedrock
 ```
 
 This saves `AWS_BEARER_TOKEN_BEDROCK` and `JCODE_BEDROCK_REGION` to `~/.config/jcode/bedrock.env`.
@@ -47,13 +47,13 @@ For AWS SSO profiles, run:
 aws sso login --profile my-profile
 ```
 
-For AWS CLI console-login profiles, Jcode can also use credentials exported by:
+For AWS CLI console-login profiles, blaude can also use credentials exported by:
 
 ```bash
 aws configure export-credentials --profile my-profile --format env-no-export
 ```
 
-Jcode does not store these exported session credentials; it asks the AWS CLI profile provider when the Bedrock provider initializes.
+blaude does not store these exported session credentials; it asks the AWS CLI profile provider when the Bedrock provider initializes.
 
 ## IAM permissions
 
@@ -85,22 +85,22 @@ Model discovery additionally uses:
 
 If you enable STS validation with `JCODE_BEDROCK_VALIDATE_STS=1`, allow `sts:GetCallerIdentity`.
 
-## Run Jcode with Bedrock
+## Run blaude with Bedrock
 
 ```bash
-jcode --provider bedrock --model anthropic.claude-3-5-sonnet-20241022-v2:0
+blaude --provider bedrock --model anthropic.claude-3-5-sonnet-20241022-v2:0
 ```
 
 or:
 
 ```bash
-jcode --model bedrock:anthropic.claude-3-5-sonnet-20241022-v2:0
+blaude --model bedrock:anthropic.claude-3-5-sonnet-20241022-v2:0
 ```
 
 Inference profile IDs/ARNs are accepted as model IDs, for example:
 
 ```bash
-jcode --model bedrock:us.anthropic.claude-3-5-sonnet-20241022-v2:0
+blaude --model bedrock:us.anthropic.claude-3-5-sonnet-20241022-v2:0
 ```
 
 Recommended active profile-style choices, when your account has access, include:
@@ -143,7 +143,7 @@ export JCODE_BEDROCK_STOP_SEQUENCES='</done>,STOP'
 
 ## Model discovery
 
-Jcode will use a static Bedrock model list immediately. When model prefetch/catalog refresh runs, it calls `ListFoundationModels` and `ListInferenceProfiles`, then caches results in Jcode's config directory. Cached Bedrock catalogs are region-scoped; if you switch `JCODE_BEDROCK_REGION`/`AWS_REGION`, Jcode ignores the old-region cache and refreshes for the new region.
+blaude will use a static Bedrock model list immediately. When model prefetch/catalog refresh runs, it calls `ListFoundationModels` and `ListInferenceProfiles`, then caches results in blaude's config directory. Cached Bedrock catalogs are region-scoped; if you switch `JCODE_BEDROCK_REGION`/`AWS_REGION`, blaude ignores the old-region cache and refreshes for the new region.
 
 ## Live smoke test
 

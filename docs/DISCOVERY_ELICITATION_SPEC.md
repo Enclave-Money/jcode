@@ -42,7 +42,7 @@ Every task declares exactly one `kind`.
 
 ### `gap`
 
-A request that cannot be completed without an external service that Jcode does
+A request that cannot be completed without an external service that blaude does
 not ship, where no credential or existing configuration is present. The correct
 agent behaviour is to browse the relevant category.
 
@@ -50,7 +50,7 @@ Scored: did a `discover_tools` browse occur, and was `category` correct.
 
 ### `control`
 
-A request fully inside Jcode's own capabilities: code, tests, docs, git, local
+A request fully inside blaude's own capabilities: code, tests, docs, git, local
 tooling. No external service is required at any point. The correct agent
 behaviour is to never call `discover_tools`.
 
@@ -189,7 +189,7 @@ Reported metrics:
   browse, and `suggest` calls with no preceding browse.
 
 Every run records the model, effort, provider route, tool mode, the exact
-system-prompt and schema hash, jcode git SHA, and the live catalog snapshot, so
+system-prompt and schema hash, blaude git SHA, and the live catalog snapshot, so
 a score is only ever compared against a run with the same model and route.
 
 ## 5. Runner requirements

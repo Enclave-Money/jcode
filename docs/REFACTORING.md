@@ -1,6 +1,6 @@
 # Refactoring Roadmap
 
-This document defines the safe, incremental path for refactoring jcode while preserving behavior.
+This document defines the safe, incremental path for refactoring blaude while preserving behavior.
 
 See also:
 

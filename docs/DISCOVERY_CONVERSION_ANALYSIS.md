@@ -96,7 +96,7 @@ an interactive `greptile login`, and a `greptile onboard` wizard the agent canno
   Greptile cannot review an uncommitted local diff without onboarding a repo.
 - 3 selects came from the queries whose wording matched "repository-aware PR review".
 
-The dominant pattern here is a failure of a jcode feature (swarm reviewer unavailable,
+The dominant pattern here is a failure of a blaude feature (swarm reviewer unavailable,
 recursive spawning disabled) leaking into discovery as a workaround attempt.
 
 ### web-data (27 units, 2 selects)

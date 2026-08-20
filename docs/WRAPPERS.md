@@ -1,13 +1,13 @@
-# jcode wrapper / scripting guide
+# blaude wrapper / scripting guide
 
-This document describes the non-interactive CLI surface intended for wrappers, scripts, and other tools that invoke `jcode`.
+This document describes the non-interactive CLI surface intended for wrappers, scripts, and other tools that invoke `blaude`.
 
 ## Recommended flags
 
 Use these flags by default in wrappers:
 
 ```bash
-jcode --quiet --no-update --no-selfdev ...
+blaude --quiet --no-update --no-selfdev ...
 ```
 
 - `--quiet` suppresses non-error CLI/status chatter
@@ -19,9 +19,9 @@ jcode --quiet --no-update --no-selfdev ...
 List model names that can be passed to `-m/--model`:
 
 ```bash
-jcode --quiet model list
-jcode --quiet model list --json
-jcode --quiet --provider openai model list --json
+blaude --quiet model list
+blaude --quiet model list --json
+blaude --quiet --provider openai model list --json
 ```
 
 ## Discover providers and current selection
@@ -29,33 +29,33 @@ jcode --quiet --provider openai model list --json
 List provider IDs you can pass to `-p/--provider`:
 
 ```bash
-jcode --quiet provider list
-jcode --quiet provider list --json
+blaude --quiet provider list
+blaude --quiet provider list --json
 ```
 
 Inspect the currently requested and resolved provider/model selection:
 
 ```bash
-jcode --quiet provider current
-jcode --quiet --provider openai --model gpt-5.4 provider current --json
+blaude --quiet provider current
+blaude --quiet --provider openai --model gpt-5.4 provider current --json
 ```
 
 Verbose human summary:
 
 ```bash
-jcode --quiet model list --verbose
+blaude --quiet model list --verbose
 ```
 
 ## Run one prompt and return JSON
 
 ```bash
-jcode --quiet run --json "Reply with exactly OK"
+blaude --quiet run --json "Reply with exactly OK"
 ```
 
 ## Stream one prompt as NDJSON
 
 ```bash
-jcode --quiet run --ndjson "Reply with exactly OK"
+blaude --quiet run --ndjson "Reply with exactly OK"
 ```
 
 Typical event types:
@@ -95,8 +95,8 @@ Example shape:
 ## Inspect authentication state
 
 ```bash
-jcode --quiet auth status
-jcode --quiet auth status --json
+blaude --quiet auth status
+blaude --quiet auth status --json
 ```
 
 JSON output includes:
@@ -113,8 +113,8 @@ JSON output includes:
 ## Inspect build/version details
 
 ```bash
-jcode --quiet version
-jcode --quiet version --json
+blaude --quiet version
+blaude --quiet version --json
 ```
 
 JSON output includes:
@@ -130,5 +130,5 @@ JSON output includes:
 
 - JSON commands are designed so the intended machine-readable result is printed to `stdout`
 - With `--quiet`, wrapper-oriented commands should keep `stderr` empty unless there is a real warning/error
-- `jcode model list` and `jcode run --json` do not require the TUI
-- `jcode model list` does not require an already-running shared server
+- `blaude model list` and `blaude run --json` do not require the TUI
+- `blaude model list` does not require an already-running shared server

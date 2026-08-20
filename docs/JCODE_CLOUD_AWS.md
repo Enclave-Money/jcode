@@ -1,22 +1,22 @@
-# Jcode Cloud on AWS
+# blaude Cloud on AWS
 
 Status: product and infrastructure direction, August 2026. The managed customer
 control plane described here is not deployed yet.
 
 ## Product decision
 
-`/remote` is the single activation entry point for Jcode Cloud. It opens the Jcode account activation page, where a user signs in, confirms the subscription entitlement, chooses a region, and creates or wakes their host. `/remote status`, `/remote on`, `/remote pair`, and `/remote revoke` remain the explicit self-hosted gateway controls.
+`/remote` is the single activation entry point for blaude Cloud. It opens the blaude account activation page, where a user signs in, confirms the subscription entitlement, chooses a region, and creates or wakes their host. `/remote status`, `/remote on`, `/remote pair`, and `/remote revoke` remain the explicit self-hosted gateway controls.
 
-Cloud access is bundled into paid Jcode subscriptions rather than sold as a second product. The subscription pays for the control plane and a bounded amount of host runtime/storage. Model-token budgets remain governed by the existing subscription tier.
+Cloud access is bundled into paid blaude subscriptions rather than sold as a second product. The subscription pays for the control plane and a bounded amount of host runtime/storage. Model-token budgets remain governed by the existing subscription tier.
 
 ### User journey
 
-1. Run `/remote` on desktop or select **Jcode Cloud** in a client.
+1. Run `/remote` on desktop or select **blaude Cloud** in a client.
 2. Browser opens `https://jcode.sh/account`. During early access, the account
    page handles sign-in and plan management but does not yet provision a host.
-3. Sign in with the existing Jcode device/account identity. If needed, subscribe or upgrade.
+3. Sign in with the existing blaude device/account identity. If needed, subscribe or upgrade.
 4. Pick the nearest supported region. Defaults are automatic and reversible.
-5. Jcode provisions an isolated host, imports only credentials or repository access the user explicitly approves, and displays progress.
+5. blaude provisions an isolated host, imports only credentials or repository access the user explicitly approves, and displays progress.
 6. The page returns a one-time deep link. Desktop and mobile store a revocable device credential.
 7. Later connections wake the host automatically. It stops after 30 idle minutes and preserves the encrypted workspace.
 
@@ -26,7 +26,7 @@ The normal path must not expose EC2, SSH, ports, pairing codes, AWS accounts, or
 
 ```mermaid
 flowchart LR
-  C[Jcode clients] -->|OAuth/device credential| CF[CloudFront]
+  C[blaude clients] -->|OAuth/device credential| CF[CloudFront]
   CF --> APIGW[API Gateway HTTP + WebSocket]
   APIGW --> CP[Lambda control plane]
   CP --> DDB[(DynamoDB accounts, hosts, devices, jobs)]
@@ -47,7 +47,7 @@ flowchart LR
 
 ### AWS services
 
-- **Identity:** Cognito user pool federated from the existing Jcode account during migration. Long term, Cognito is the account identity authority. Device authorization is implemented by Lambda/API Gateway with hashed, short-lived codes.
+- **Identity:** Cognito user pool federated from the existing blaude account during migration. Long term, Cognito is the account identity authority. Device authorization is implemented by Lambda/API Gateway with hashed, short-lived codes.
 - **API edge:** CloudFront, WAF, API Gateway HTTP APIs, and WebSocket APIs. No user host has public ingress.
 - **State:** DynamoDB with on-demand capacity, point-in-time recovery, TTL for device codes, idempotency records, and host leases.
 - **Provisioning:** SQS plus Step Functions for idempotent create, wake, stop, update, snapshot, and delete workflows.

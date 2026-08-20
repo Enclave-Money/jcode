@@ -1,6 +1,6 @@
-# jcode Docs
+# blaude Docs
 
-Reference documentation for the jcode codebase.
+Reference documentation for the blaude codebase.
 
 ## Layout
 
