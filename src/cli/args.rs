@@ -301,6 +301,10 @@ pub(crate) enum Command {
     #[command(subcommand)]
     Memory(MemoryCommand),
 
+    /// Council management: create/rename/update/delete cross-model panels
+    #[command(subcommand)]
+    Council(CouncilCommand),
+
     /// Session management commands
     #[command(subcommand)]
     Session(SessionCommand),
@@ -566,6 +570,49 @@ pub(crate) enum TelemetryCommand {
     Enable,
     /// Disable all telemetry persistently
     Disable,
+}
+
+#[derive(Subcommand, Debug)]
+pub(crate) enum CouncilCommand {
+    /// List saved councils and their members
+    List {
+        /// Emit JSON instead of human-readable output
+        #[arg(long)]
+        json: bool,
+    },
+    /// Show one council's members
+    Show {
+        /// Council name
+        name: String,
+    },
+    /// Create a council from 2–3 model ids (e.g. `claude-opus-4-8 openai:gpt-5-codex`)
+    Create {
+        /// Council name
+        name: String,
+        /// Model ids (2–3), as shown by `/model`
+        #[arg(required = true, num_args = 2..=3)]
+        models: Vec<String>,
+    },
+    /// Rename a council
+    Rename {
+        /// Current name
+        from: String,
+        /// New name
+        to: String,
+    },
+    /// Replace a council's members with a new set of 2–3 model ids
+    SetMembers {
+        /// Council name
+        name: String,
+        /// Replacement model ids (2–3)
+        #[arg(required = true, num_args = 2..=3)]
+        models: Vec<String>,
+    },
+    /// Delete a council
+    Delete {
+        /// Council name
+        name: String,
+    },
 }
 
 #[derive(Subcommand, Debug)]

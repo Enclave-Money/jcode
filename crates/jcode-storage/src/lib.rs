@@ -78,6 +78,9 @@ impl SecretHardenState {
 static SECRET_HARDEN_STATE: LazyLock<Mutex<SecretHardenState>> =
     LazyLock::new(|| Mutex::new(SecretHardenState::default()));
 
+/// Councils — blaude's cross-model panels (definitions + CRUD + persistence).
+pub mod councils;
+
 mod active_pids;
 pub use active_pids::{
     SessionCounts, SessionPresence, StreamingGuard, active_pids_dir, active_session_ids,

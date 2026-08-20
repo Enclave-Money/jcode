@@ -16,8 +16,8 @@ use crate::{
 };
 
 use super::{
-    account, acp, commands, debug, hot_exec, login, output, provider_init, selfdev, terminal,
-    tui_launch,
+    account, acp, commands, council, debug, hot_exec, login, output, provider_init, selfdev,
+    terminal, tui_launch,
 };
 use provider_init::ProviderChoice;
 
@@ -278,6 +278,9 @@ pub(crate) async fn run_main(mut args: Args) -> Result<()> {
                 },
             )
             .await?;
+        }
+        Some(Command::Council(action)) => {
+            council::run(action)?;
         }
         Some(Command::Account { action }) => match action {
             super::args::AccountCommand::Login { no_browser } => {
