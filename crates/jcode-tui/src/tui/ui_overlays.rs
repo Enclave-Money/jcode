@@ -3,8 +3,8 @@ use super::{
     header_icon_color, header_name_color, header_session_color, pending_color, queued_color,
     record_chat_overlay_copy_snapshot, rgb, tool_color, user_bg, user_color, user_text,
 };
-use crate::tui::TuiState;
 use crate::tui::info_widget::WidgetPlacement;
+use crate::tui::TuiState;
 use ratatui::{
     prelude::*,
     widgets::{Block, Borders, Paragraph},
@@ -373,11 +373,11 @@ pub(super) fn draw_help_overlay(frame: &mut Frame, area: Rect, scroll: usize, ap
     ));
     lines.push(help_entry(
         "/subscription",
-        "Inspect jcode subscription scaffold",
+        "Inspect blaude subscription scaffold",
     ));
     lines.push(help_entry(
         "/subscribe",
-        "Why and how to subscribe to jcode",
+        "Why and how to subscribe to blaude",
     ));
 
     lines.push(Line::from(""));
@@ -407,7 +407,7 @@ pub(super) fn draw_help_overlay(frame: &mut Frame, area: Rect, scroll: usize, ap
         "/debug-visual",
         "Enable visual debugging for TUI issues",
     ));
-    lines.push(help_entry("/quit", "Exit jcode"));
+    lines.push(help_entry("/quit", "Exit blaude"));
 
     // The sections above are hand-curated for ordering, but they drift as
     // commands are added. Anything registered and not already shown gets listed
@@ -606,7 +606,7 @@ pub(super) fn draw_help_overlay(frame: &mut Frame, area: Rect, scroll: usize, ap
     if let Some(label) = crate::tui::keybind::load_new_terminal_key().label {
         lines.push(key_entry(
             &label,
-            "Spawn new jcode session in a new terminal",
+            "Spawn new blaude session in a new terminal",
         ));
     }
 
@@ -667,7 +667,7 @@ pub(super) fn draw_model_status_overlay(
     let mut lines: Vec<Line<'static>> = Vec::new();
     lines.push(Line::from(Span::styled("  Model Status", title_style)));
     lines.push(Line::from(Span::styled(
-        "  Live verification evidence for provider/model behavior in jcode",
+        "  Live verification evidence for provider/model behavior in blaude",
         dim_style,
     )));
     lines.push(Line::from(""));

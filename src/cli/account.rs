@@ -9,7 +9,7 @@ pub(crate) async fn run_login(no_browser: bool) -> Result<()> {
 pub(crate) async fn run_status(json: bool) -> Result<()> {
     let Some(api_key) = crate::subscription_catalog::configured_api_key() else {
         anyhow::bail!(
-            "No Jcode account credential is configured. Run `jcode account login` to sign in."
+            "No blaude account credential is configured. Run `blaude account login` to sign in."
         );
     };
     let client = crate::provider::shared_http_client();
@@ -24,7 +24,7 @@ pub(crate) async fn run_status(json: bool) -> Result<()> {
                 .parsed_tier()
                 .map(|tier| tier.display_name().to_string())
                 .unwrap_or_else(|| me.tier.clone());
-            println!("Jcode Account");
+            println!("blaude Account");
             println!("  Email:  {}", me.email);
             println!("  Plan:   {} ({})", tier, me.status);
             println!(
@@ -41,7 +41,7 @@ pub(crate) async fn run_status(json: bool) -> Result<()> {
             crate::subscription_catalog::clear_account_credentials()
                 .context("The account key is revoked, and local credential cleanup failed")?;
             anyhow::bail!(
-                "The Jcode account key was revoked or expired. Local credentials were cleared. Run `jcode account login` to sign in again."
+                "The blaude account key was revoked or expired. Local credentials were cleared. Run `blaude account login` to sign in again."
             )
         }
         Err(error) => Err(anyhow::Error::new(error)),
@@ -50,7 +50,7 @@ pub(crate) async fn run_status(json: bool) -> Result<()> {
 
 pub(crate) fn run_manage() -> Result<()> {
     let url = crate::subscription_catalog::JCODE_ACCOUNT_URL;
-    println!("Opening Jcode account management: {url}");
+    println!("Opening blaude account management: {url}");
     if crate::auth::browser_suppressed(false) {
         println!("Browser launch is disabled. Open the URL above manually.");
         return Ok(());
@@ -76,18 +76,18 @@ pub(crate) async fn run_logout() -> Result<()> {
     // Local cleanup is unconditional, including offline and already-revoked
     // cases. This is the security boundary the CLI can always enforce.
     crate::subscription_catalog::clear_account_credentials()
-        .context("Failed to securely clear local Jcode account credentials")?;
+        .context("Failed to securely clear local blaude account credentials")?;
     crate::auth::AuthStatus::invalidate_cache();
 
     match (api_key.is_some(), remote) {
         (false, _) => {
-            println!("No local Jcode account credential was present. Local account cache is clear.")
+            println!("No local blaude account credential was present. Local account cache is clear.")
         }
         (true, Ok(())) => println!(
-            "Jcode account key revoked. Local credentials and account cache were securely cleared."
+            "blaude account key revoked. Local credentials and account cache were securely cleared."
         ),
         (true, Err(AccountApiError::Unauthorized)) => println!(
-            "The Jcode account key was already revoked. Local credentials and account cache were securely cleared."
+            "The blaude account key was already revoked. Local credentials and account cache were securely cleared."
         ),
         (true, Err(AccountApiError::Offline(_))) => println!(
             "Local credentials and account cache were securely cleared. The account API was offline, so remote key revocation could not be confirmed."

@@ -6,7 +6,7 @@
 //!
 //! Layout, top to bottom, vertically centered in the chat area:
 //!   1. Grayed telemetry notice header.
-//!   2. "Welcome to jcode onboarding" title.
+//!   2. "Welcome to blaude onboarding" title.
 //!   3. The login / getting-started prompt with suggestions.
 
 use super::dim_color;
@@ -147,7 +147,7 @@ fn import_summary_pills_line(
     spans.extend(lozenge_pill_spans("Import", focused == Pill::Continue));
     spans.push(Span::raw("   "));
     spans.extend(lozenge_pill_spans(
-        "Jcode subscription",
+        "blaude subscription",
         focused == Pill::Subscription,
     ));
     spans.push(Span::raw("   "));
@@ -357,7 +357,7 @@ fn telemetry_header_lines(width: u16) -> Vec<Line<'static>> {
     let align = Alignment::Center;
     let dim = Style::default().fg(dim_color());
     let lines = vec![
-        "jcode collects anonymous usage statistics (version, OS, session",
+        "blaude collects anonymous usage statistics (version, OS, session",
         "activity, and crash reasons). No code, prompts, or personal data.",
         "Change anytime: /telemetry (or export JCODE_NO_TELEMETRY=1)",
     ];
@@ -381,7 +381,7 @@ fn telemetry_header_lines(width: u16) -> Vec<Line<'static>> {
 /// Welcome title line, rendered above the phase body.
 fn welcome_title_line() -> Line<'static> {
     Line::from(Span::styled(
-        "Welcome to jcode onboarding",
+        "Welcome to blaude onboarding",
         Style::default()
             .fg(welcome_accent())
             .add_modifier(Modifier::BOLD),
@@ -467,7 +467,7 @@ fn welcome_body_lines(app: &dyn TuiState) -> Vec<Line<'static>> {
                     );
                     lines.push(
                         Line::from(Span::styled(
-                            "Press Enter to choose a provider (OpenAI, Anthropic, and more).",
+                            "Press Enter to sign in to your Claude and Codex accounts (add more than one to pool limits).",
                             Style::default().fg(dim_color()),
                         ))
                         .alignment(align),
@@ -497,7 +497,7 @@ fn welcome_body_lines(app: &dyn TuiState) -> Vec<Line<'static>> {
                     );
                     lines.push(
                         Line::from(Span::styled(
-                            "Press Enter to pick who to log in with (OpenAI, Anthropic, and more).",
+                            "Press Enter to sign in to Claude and Codex (add more than one of each to pool limits).",
                             Style::default().fg(dim_color()),
                         ))
                         .alignment(align),
@@ -576,7 +576,7 @@ fn welcome_body_lines(app: &dyn TuiState) -> Vec<Line<'static>> {
         OnboardingWelcomeKind::LoginOpenAi { yes_highlighted } => {
             lines.push(
                 Line::from(Span::styled(
-                    "Log in to OpenAI?",
+                    "Log in to OpenAI (Codex)?",
                     Style::default()
                         .fg(welcome_accent())
                         .add_modifier(Modifier::BOLD),

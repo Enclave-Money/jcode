@@ -174,7 +174,7 @@ pub(crate) async fn run_main(mut args: Args) -> Result<()> {
             )
             .await
             {
-                eprintln!("api-bridge: could not start the jcode server: {error:#}");
+                eprintln!("api-bridge: could not start the blaude server: {error:#}");
                 eprintln!("api-bridge: continuing; an already-running server will still be used");
             }
             let api_socket = api_socket
@@ -201,7 +201,7 @@ pub(crate) async fn run_main(mut args: Args) -> Result<()> {
                         })
                     );
                 } else {
-                    println!("Jcode server is running.");
+                    println!("blaude server is running.");
                 }
             }
             ServerCommand::Keepalive => {
@@ -623,7 +623,7 @@ fn resolve_resume_arg(args: &mut Args) -> Result<()> {
                     ResumeResolutionFailureAction::Exit => {
                         eprintln!("Error: {}", e);
                         if !output::quiet_enabled() {
-                            eprintln!("\nUse `jcode --resume` to list available sessions.");
+                            eprintln!("\nUse `blaude --resume` to list available sessions.");
                         }
                         std::process::exit(1);
                     }
@@ -919,7 +919,7 @@ async fn run_default_command(args: Args) -> Result<()> {
     }
 
     if in_jcode_repo && !already_in_selfdev && !args.no_selfdev {
-        output::stderr_info("📍 Detected jcode repository - enabling self-dev mode");
+        output::stderr_info("📍 Detected blaude repository - enabling self-dev mode");
         output::stderr_info("   Using shared server with self-dev session mode");
         output::stderr_info("   (use --no-selfdev to disable auto-detection)");
         output::stderr_blank_line();
@@ -984,7 +984,7 @@ async fn run_default_command(args: Args) -> Result<()> {
         // socket that has no live listener AND whose daemon lock is free, so it
         // can never disturb a running server.
         if server::reap_stale_socket_if_dead(&server::socket_path()).await {
-            output::stderr_info("Removed a stale jcode socket from a previous server.");
+            output::stderr_info("Removed a stale blaude socket from a previous server.");
         }
 
         maybe_prompt_server_bootstrap_login(&args.provider).await?;

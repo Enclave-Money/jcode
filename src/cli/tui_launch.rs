@@ -25,7 +25,7 @@ pub async fn run_client() -> Result<()> {
         anyhow::bail!("Failed to ping server");
     }
 
-    println!("Connected to J-Code server");
+    println!("Connected to blaude server");
     println!("Type your message, or 'quit' to exit.\n");
 
     loop {
@@ -535,7 +535,7 @@ pub fn list_sessions() -> Result<()> {
             let jcode_tui_session_picker::ResumeTarget::JcodeSession { session_id } =
                 &resolved_target
             else {
-                anyhow::bail!("Claude takeover did not produce a Jcode session");
+                anyhow::bail!("Claude takeover did not produce a blaude session");
             };
             let exe = std::env::current_exe()?;
             let mut session_cwd = std::env::current_dir()?;
@@ -722,7 +722,7 @@ pub fn list_sessions() -> Result<()> {
                             );
                             warned_no_terminal = true;
                         }
-                        eprintln!("  jcode --resume {}", session_id);
+                        eprintln!("  blaude --resume {}", session_id);
                     }
                     Err(e) => {
                         eprintln!("Failed to spawn session {}: {}", session_id, e);

@@ -576,9 +576,9 @@ fn semver_minor() -> String {
 
 #[cfg(test)]
 fn version_display_candidates() -> Vec<String> {
-    let full = format!("jcode {}", semver());
-    let core = format!("jcode {}", semver_core());
-    let minor = format!("jcode {}", semver_minor());
+    let full = format!("blaude {}", semver());
+    let core = format!("blaude {}", semver_core());
+    let minor = format!("blaude {}", semver_minor());
     let shortest = semver_minor();
     vec![full, core, minor, shortest]
 }
@@ -683,7 +683,7 @@ fn build_persistent_header_with_auth(
     // followed by any remaining status badges rendered dimly.
     {
         let mut spans = vec![Span::styled(
-            "jcode".to_string(),
+            "blaude".to_string(),
             Style::default().fg(header_name_color()).bold(),
         )];
         if is_canary {

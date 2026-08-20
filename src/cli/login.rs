@@ -174,14 +174,14 @@ pub async fn run_login(
         ProviderChoice::Auto => {
             if options.uses_scriptable_flow()? {
                 anyhow::bail!(
-                    "Scriptable login flags require an explicit provider. Use `jcode login --provider <provider> ...`."
+                    "Scriptable login flags require an explicit provider. Use `blaude login --provider <provider> ...`."
                 );
             }
             crate::telemetry::record_setup_step_once("login_picker_opened");
             let providers = crate::provider_catalog::cli_login_providers();
             if !io::stdin().is_terminal() {
                 anyhow::bail!(
-                    "`jcode login --provider auto` requires an interactive terminal. Use `jcode login --provider <provider>` in non-interactive mode."
+                    "`blaude login --provider auto` requires an interactive terminal. Use `blaude login --provider <provider>` in non-interactive mode."
                 );
             }
             if let Some(imported) =
@@ -407,7 +407,7 @@ pub async fn run_login_provider(
 }
 
 async fn login_grok_build_flow() -> Result<()> {
-    eprintln!("Preparing the Jcode-managed Grok Build backend...");
+    eprintln!("Preparing the blaude-managed Grok Build backend...");
     let cli = crate::auth::grok_build::ensure_cli().await?;
     let status = tokio::process::Command::new(&cli)
         .arg("login")
@@ -418,7 +418,7 @@ async fn login_grok_build_flow() -> Result<()> {
         .await
         .with_context(|| {
             format!(
-                "Failed to launch Jcode's managed Grok Build backend at '{}'",
+                "Failed to launch blaude's managed Grok Build backend at '{}'",
                 cli.display()
             )
         })?;
@@ -493,7 +493,7 @@ async fn notify_running_server_auth_changed_best_effort(provider: Option<&str>) 
 }
 
 async fn login_jcode_flow(no_browser: bool) -> Result<()> {
-    eprintln!("Starting jcode subscription sign-in...");
+    eprintln!("Starting blaude subscription sign-in...");
     let _ = jcode_device::login_jcode_device_flow(no_browser).await?;
     Ok(())
 }
@@ -681,7 +681,7 @@ fn login_azure_flow() -> Result<()> {
 
     eprintln!("Setting up Azure OpenAI...");
     eprintln!(
-        "Reference: OpenCode supports Azure OpenAI with Entra credentials. jcode uses Azure OpenAI's newer `/openai/v1` API with either Microsoft Entra ID or an API key.\n"
+        "Reference: OpenCode supports Azure OpenAI with Entra credentials. blaude uses Azure OpenAI's newer `/openai/v1` API with either Microsoft Entra ID or an API key.\n"
     );
 
     let endpoint_raw = read_line_trimmed(
@@ -726,7 +726,7 @@ fn login_azure_flow() -> Result<()> {
         eprintln!();
         eprintln!("Using Microsoft Entra ID via Azure's DefaultAzureCredential chain.");
         eprintln!(
-            "That means jcode can authenticate via `az login`, managed identity, or Azure environment credentials."
+            "That means blaude can authenticate via `az login`, managed identity, or Azure environment credentials."
         );
     } else {
         eprint!("Paste your Azure OpenAI API key: ");
