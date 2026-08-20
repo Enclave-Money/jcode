@@ -78,6 +78,9 @@ impl SecretHardenState {
 static SECRET_HARDEN_STATE: LazyLock<Mutex<SecretHardenState>> =
     LazyLock::new(|| Mutex::new(SecretHardenState::default()));
 
+/// Council fan-out orchestration (worktree isolation + diff capture), shared by
+/// the CLI and the interactive TUI.
+pub mod council_run;
 /// Councils — blaude's cross-model panels (definitions + CRUD + persistence).
 pub mod councils;
 

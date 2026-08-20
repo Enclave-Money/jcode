@@ -1214,6 +1214,10 @@ pub enum AgentModelTarget {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum PickerAction {
     Model,
+    /// A saved council — selecting it turns on council mode for the session.
+    Council {
+        name: String,
+    },
     Account(AccountPickerAction),
     Login(crate::provider_catalog::LoginProviderDescriptor),
     Logout(crate::provider_catalog::LoginProviderDescriptor),
@@ -1273,6 +1277,7 @@ fn estimate_picker_action_bytes(action: &PickerAction) -> usize {
         | PickerAction::AgentTarget(_)
         | PickerAction::AgentModelChoice { .. }
         | PickerAction::LogoutAll => 0,
+        PickerAction::Council { name } => name.capacity(),
         PickerAction::Account(AccountPickerAction::Switch { provider_id, label }) => {
             provider_id.capacity() + label.capacity()
         }

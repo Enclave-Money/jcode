@@ -565,6 +565,88 @@ fn model_picker_route_is_default(
     default_model == model_name
 }
 
+/// The `/council` slash-command family: list saved councils, turn council mode
+/// on with `use`, off with `off`. Returns whether the input was handled.
+pub(super) fn handle_council_command(app: &mut App, trimmed: &str) -> bool {
+    if trimmed == "/council" || trimmed == "/councils" || trimmed == "/council list" {
+        list_councils(app);
+        return true;
+    }
+    if let Some(rest) = trimmed.strip_prefix("/council use ") {
+        app.activate_council(rest.trim());
+        return true;
+    }
+    if trimmed == "/council off" || trimmed == "/council none" {
+        app.deactivate_council();
+        return true;
+    }
+    false
+}
+
+fn list_councils(app: &mut App) {
+    let councils = jcode_storage::councils::Councils::load().unwrap_or_default();
+    let active = app.active_council_clone().map(|c| c.name);
+    let mut lines = Vec::new();
+    if councils.is_empty() {
+        lines.push("No councils yet. Create one with:".to_string());
+        lines.push("  blaude council create <name> <model-a> <model-b> [model-c]".to_string());
+    } else {
+        lines.push("Councils (pick one from /model, or `/council use <name>`):".to_string());
+        for c in &councils.councils {
+            let mark = if active
+                .as_deref()
+                .is_some_and(|a| a.eq_ignore_ascii_case(&c.name))
+            {
+                " ← active"
+            } else {
+                ""
+            };
+            lines.push(format!("  ⚖ {} — {}{}", c.name, c.members.join(", "), mark));
+        }
+    }
+    if active.is_some() {
+        lines.push("`/council off` to go back to a single model.".to_string());
+    }
+    app.push_display_message(DisplayMessage::system(lines.join("\n")));
+}
+
+/// One picker row per saved council, for the top of the `/model` picker. The
+/// row carries a single benign option (so the picker's option navigation is
+/// happy) and a `Council` action that turns council mode on when selected.
+fn council_picker_entries(active: Option<&str>) -> Vec<PickerEntry> {
+    let councils = match jcode_storage::councils::Councils::load() {
+        Ok(c) => c,
+        Err(_) => return Vec::new(),
+    };
+    councils
+        .councils
+        .iter()
+        .map(|c| PickerEntry {
+            name: format!("⚖ {} (council)", c.name),
+            options: vec![PickerOption {
+                provider: "council".to_string(),
+                api_method: "council".to_string(),
+                available: true,
+                detail: c.members.join(" + "),
+                estimated_reference_cost_micros: None,
+            }],
+            action: PickerAction::Council {
+                name: c.name.clone(),
+            },
+            selected_option: 0,
+            is_current: active.is_some_and(|a| a.eq_ignore_ascii_case(&c.name)),
+            is_default: false,
+            is_favorite: false,
+            recommended: false,
+            recommendation_rank: 0,
+            usage_score: 0,
+            old: false,
+            created_date: None,
+            effort: None,
+        })
+        .collect()
+}
+
 impl App {
     pub(super) fn remote_model_catalog_snapshot(
         &self,
@@ -979,7 +1061,9 @@ impl App {
             return false;
         }
 
-        let entries = cache.entries.clone();
+        // Councils sit at the top of the picker (not in the cached routes, so
+        // they never get double-counted when the cache is re-served).
+        let entries = self.with_councils_prepended(cache.entries.clone());
         let entry_count = entries.len();
         let route_count = cache.route_count;
         let model_count = cache.model_count;
@@ -1032,6 +1116,178 @@ impl App {
 
     pub(super) fn open_model_picker(&mut self) {
         self.open_model_picker_inner(false);
+    }
+
+    /// Prepend the saved councils to a model picker's entries, so they head the
+    /// list above the single-model routes. No-op on remote sessions (a council
+    /// fan-out runs local subprocesses + git worktrees) or when none are saved.
+    fn with_councils_prepended(&self, entries: Vec<PickerEntry>) -> Vec<PickerEntry> {
+        if self.is_remote {
+            return entries;
+        }
+        let active = self.active_council.as_ref().map(|c| c.name.clone());
+        let mut out = council_picker_entries(active.as_deref());
+        if out.is_empty() {
+            return entries;
+        }
+        out.extend(entries);
+        out
+    }
+
+    /// Turn council mode on (from the `/model` picker or `/council use`): load
+    /// the council, remember it, and tell the user what changed.
+    pub(super) fn activate_council(&mut self, name: &str) {
+        let found = jcode_storage::councils::Councils::load()
+            .ok()
+            .and_then(|c| c.get(name).cloned());
+        match found {
+            Some(council) => {
+                let label = council.name.clone();
+                let members = council.members.join(", ");
+                self.active_council = Some(council);
+                self.push_display_message(DisplayMessage::system(format!(
+                    "⚖ Council mode: {label} ({members}).\nYour next prompt fans out to every \
+                     member — each answers in its own git worktree — and you'll see all their \
+                     proposals. `/council off` (or pick a single model) to leave."
+                )));
+                self.set_status_notice(format!("Council → {label}"));
+            }
+            None => {
+                self.push_display_message(DisplayMessage::error(format!(
+                    "No council named “{name}”. Create one with `blaude council create`."
+                )));
+                self.set_status_notice("Council not found");
+            }
+        }
+    }
+
+    /// Turn council mode off, back to the single active model.
+    pub(super) fn deactivate_council(&mut self) {
+        if let Some(council) = self.active_council.take() {
+            self.push_display_message(DisplayMessage::system(format!(
+                "Left council “{}”. Back to a single model.",
+                council.name
+            )));
+            self.set_status_notice("Council mode off");
+        } else {
+            self.push_display_message(DisplayMessage::system("Not in council mode.".to_string()));
+        }
+    }
+
+    /// The council currently driving the session, if any.
+    pub(super) fn active_council_clone(&self) -> Option<jcode_storage::councils::Council> {
+        self.active_council.clone()
+    }
+
+    /// A council turn: fan the prompt out to every member off the UI thread and
+    /// publish the proposals back via the bus. The caller has already echoed the
+    /// user's prompt. Requires a git repo (each member edits in its own
+    /// worktree); otherwise it reports why and does nothing.
+    pub(super) fn run_council_turn(&mut self, prompt: String) {
+        let Some(council) = self.active_council.clone() else {
+            return;
+        };
+        let working_dir = self
+            .session
+            .working_dir
+            .clone()
+            .map(std::path::PathBuf::from)
+            .unwrap_or_else(|| std::env::current_dir().unwrap_or_default());
+        let session_id = self.session.id.clone();
+
+        let repo_root = match jcode_storage::council_run::git_repo_root_from(&working_dir) {
+            Ok(root) => root,
+            Err(_) => {
+                self.push_display_message(DisplayMessage::error(
+                    "Council mode needs a git repository — each model edits in its own worktree. \
+                     cd into a repo, or `/council off` to use a single model.",
+                ));
+                self.set_status_notice("Council needs a git repo");
+                return;
+            }
+        };
+        let base_sha = match jcode_storage::council_run::git_head_sha(&repo_root) {
+            Ok(sha) => sha,
+            Err(e) => {
+                self.push_display_message(DisplayMessage::error(format!("Council: {e}")));
+                return;
+            }
+        };
+        let exe = match std::env::current_exe() {
+            Ok(exe) => exe,
+            Err(e) => {
+                self.push_display_message(DisplayMessage::error(format!(
+                    "Council: cannot locate the blaude binary: {e}"
+                )));
+                return;
+            }
+        };
+
+        self.push_display_message(DisplayMessage::system(format!(
+            "⚖ Dispatching to council “{}” ({} models, each in its own worktree)…",
+            council.name,
+            council.members.len()
+        )));
+        self.set_status_notice(format!("Council “{}” running…", council.name));
+
+        std::thread::spawn(move || {
+            let runner = |wt: &std::path::Path, model: &str, p: &str| {
+                jcode_storage::council_run::spawn_member(&exe, wt, model, p)
+            };
+            let outcomes = jcode_storage::council_run::fan_out(
+                &repo_root,
+                &base_sha,
+                &council.members,
+                &prompt,
+                false,
+                &runner,
+            );
+            let members = outcomes
+                .into_iter()
+                .map(|o| crate::bus::CouncilMemberResult {
+                    files_changed: jcode_storage::council_run::diff_file_count(&o.diff),
+                    model: o.model,
+                    answer: o.result.map_err(|e| e.to_string()),
+                })
+                .collect();
+            crate::bus::Bus::global().publish(crate::bus::BusEvent::CouncilTurnCompleted(
+                crate::bus::CouncilTurnCompleted {
+                    session_id,
+                    council: council.name,
+                    members,
+                },
+            ));
+        });
+    }
+
+    /// Render a finished council turn: each member's answer and how many files it
+    /// changed, with a pointer to the full diffs.
+    pub(super) fn handle_council_turn_completed(
+        &mut self,
+        result: crate::bus::CouncilTurnCompleted,
+    ) {
+        // A stale result from a session that has since moved on is ignored.
+        if result.session_id != self.session.id {
+            return;
+        }
+        for m in &result.members {
+            let mut body = format!("━━━ ⚖ {} ━━━\n", m.model);
+            match &m.answer {
+                Ok(text) if !text.trim().is_empty() => body.push_str(text.trim()),
+                Ok(_) => body.push_str("(no text answer)"),
+                Err(e) => body.push_str(&format!("⚠ failed: {e}")),
+            }
+            if m.files_changed > 0 {
+                body.push_str(&format!("\n\n({} file(s) changed)", m.files_changed));
+            }
+            self.push_display_message(DisplayMessage::system(body));
+        }
+        self.push_display_message(DisplayMessage::system(format!(
+            "Council “{}” done. Compare the proposals above; run \
+             `blaude council run {} \"<prompt>\" --keep` to inspect full diffs in worktrees.",
+            result.council, result.council
+        )));
+        self.set_status_notice(format!("Council “{}” done", result.council));
     }
 
     fn open_model_picker_preserving_input(&mut self) {
@@ -1882,6 +2138,9 @@ impl App {
         } else {
             self.model_picker_cache = None;
         }
+        // Prepend councils after caching the routes, so they head the list
+        // without being written into the route cache.
+        let entries = self.with_councils_prepended(entries);
         self.inline_interactive_state = Some(InlineInteractiveState {
             kind: PickerKind::Model,
             filtered: (0..entries.len()).collect(),
@@ -3323,6 +3582,15 @@ impl App {
                 let idx = picker.filtered[picker.selected];
                 let entry = picker.entries[idx].clone();
 
+                // A council row turns council mode on and closes the picker —
+                // handled before the route logic, since it has no real route.
+                if let PickerAction::Council { name } = &entry.action {
+                    let name = name.clone();
+                    self.inline_interactive_state = None;
+                    self.activate_council(&name);
+                    return Ok(());
+                }
+
                 if matches!(entry.action, PickerAction::Model) {
                     if picker.column == 0 && entry.options.len() > 1 {
                         picker.column = 1;
@@ -3421,7 +3689,13 @@ impl App {
                             }
                         }
                     }
+                    PickerAction::Council { .. } => {
+                        // Handled above, before the route logic.
+                        return Ok(());
+                    }
                     PickerAction::Model => {
+                        // Choosing a single model leaves council mode.
+                        self.active_council = None;
                         if !route.available {
                             self.push_display_message(DisplayMessage::error(
                                 crate::tui::app::model_context::unavailable_model_route_message(

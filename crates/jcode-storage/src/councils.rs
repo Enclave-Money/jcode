@@ -88,16 +88,27 @@ impl Councils {
 
     /// Load the saved councils, or an empty set if none have been created yet.
     pub fn load() -> Result<Self> {
-        let path = Self::path()?;
-        if !path.exists() {
-            return Ok(Self::default());
-        }
-        read_json(&path)
+        Self::load_from(&Self::path()?)
     }
 
     /// Persist to disk (atomically, via the storage crate's writer).
     pub fn save(&self) -> Result<()> {
-        write_json(&Self::path()?, self)
+        self.save_to(&Self::path()?)
+    }
+
+    /// Load from an explicit path (an empty set if it doesn't exist). The seam
+    /// `load`/`save` use, and what tests exercise so they never touch the real
+    /// `~/.jcode` or race on the `JCODE_HOME` env var.
+    pub fn load_from(path: &std::path::Path) -> Result<Self> {
+        if !path.exists() {
+            return Ok(Self::default());
+        }
+        read_json(path)
+    }
+
+    /// Persist to an explicit path (atomically).
+    pub fn save_to(&self, path: &std::path::Path) -> Result<()> {
+        write_json(path, self)
     }
 
     pub fn is_empty(&self) -> bool {
@@ -246,24 +257,18 @@ mod tests {
 
     #[test]
     fn save_and_load_round_trip_through_disk() {
+        // An explicit path (not JCODE_HOME) keeps this hermetic and off the
+        // global env, so it never races the other storage tests.
         let tmp = tempfile::tempdir().unwrap();
-        // JCODE_HOME redirects jcode_dir() at the temp dir for a hermetic test.
-        // SAFETY: single-threaded test; no other thread reads the env here.
-        unsafe {
-            std::env::set_var("JCODE_HOME", tmp.path());
-        }
+        let path = tmp.path().join("councils.json");
 
-        let mut cs = Councils::load().unwrap();
+        let mut cs = Councils::load_from(&path).unwrap();
         assert!(cs.is_empty(), "nothing saved yet");
         cs.create("pair", members(&["a", "b"])).unwrap();
-        cs.save().unwrap();
+        cs.save_to(&path).unwrap();
 
-        let reloaded = Councils::load().unwrap();
+        let reloaded = Councils::load_from(&path).unwrap();
         assert_eq!(reloaded, cs);
         assert!(reloaded.get("pair").is_some());
-
-        unsafe {
-            std::env::remove_var("JCODE_HOME");
-        }
     }
 }

@@ -1470,6 +1470,7 @@ pub(super) fn handle_model_command(app: &mut App, trimmed: &str) -> bool {
         let model_name = model_name.trim();
         match app.provider.set_model(model_name) {
             Ok(()) => {
+                app.active_council = None; // a single model exits council mode
                 let active_model = app.finalize_model_switch(model_name);
                 let auth_suffix = app
                     .provider

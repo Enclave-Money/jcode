@@ -3673,6 +3673,17 @@ impl App {
             return;
         }
 
+        // In council mode a plain prompt fans out to every member instead of a
+        // single-model turn. Slash commands are already handled above; `!` shell
+        // commands still fall through to the shell path below.
+        let is_council_prompt =
+            self.active_council.is_some() && !trimmed.is_empty() && !trimmed.starts_with('!');
+        if is_council_prompt {
+            self.push_display_message(DisplayMessage::user(raw_input));
+            self.run_council_turn(input);
+            return;
+        }
+
         if let Some(command) = extract_input_shell_command(&input) {
             self.push_display_message(DisplayMessage::user(raw_input));
 

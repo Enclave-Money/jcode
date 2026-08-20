@@ -189,6 +189,25 @@ pub struct ModelRefreshCompleted {
     pub result: std::result::Result<jcode_provider_core::ModelCatalogRefreshSummary, String>,
 }
 
+/// One council member's contribution to an interactive council turn.
+#[derive(Clone, Debug)]
+pub struct CouncilMemberResult {
+    pub model: String,
+    /// The model's text answer, or a failure message.
+    pub answer: std::result::Result<String, String>,
+    /// How many files it changed in its isolated worktree.
+    pub files_changed: usize,
+}
+
+/// A council fan-out started from interactive council mode finished off the UI
+/// thread; carries each member's proposal back for rendering.
+#[derive(Clone, Debug)]
+pub struct CouncilTurnCompleted {
+    pub session_id: String,
+    pub council: String,
+    pub members: Vec<CouncilMemberResult>,
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum UiActivityKind {
     Auth,
@@ -424,6 +443,8 @@ pub enum BusEvent {
     ClipboardPasteCompleted(ClipboardPasteCompleted),
     /// Local model catalog refresh completed off the UI thread
     ModelRefreshCompleted(ModelRefreshCompleted),
+    /// An interactive council fan-out completed off the UI thread
+    CouncilTurnCompleted(CouncilTurnCompleted),
     /// UI-visible runtime activity from auth/catalog/background operations.
     UiActivity(UiActivity),
     /// Local git status command completed off the UI thread

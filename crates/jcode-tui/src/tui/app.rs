@@ -834,6 +834,10 @@ pub struct App {
     mcp_manager: Arc<RwLock<McpManager>>,
     messages: Vec<Message>,
     session: Session,
+    /// When set, the session is in council mode: a prompt fans out to these
+    /// models (each in its own git worktree) instead of a single-model turn.
+    /// Chosen from the `/model` picker or `/council use`.
+    active_council: Option<jcode_storage::councils::Council>,
     display_messages: Vec<DisplayMessage>,
     display_messages_version: u64,
     display_user_message_count: usize,
