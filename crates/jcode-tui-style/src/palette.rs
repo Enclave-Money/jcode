@@ -145,29 +145,32 @@ impl Role {
 
     /// Built-in default RGB, matching jcode's historical hard-coded palette.
     pub const fn default_rgb(self) -> (u8, u8, u8) {
+        // Claude Code's palette, so blaude feels familiar to Claude Code
+        // hands: the coral brand accent on the ✳/bullets/header, warm
+        // near-white body text, restrained greys everywhere else.
         match self {
-            Role::User => (138, 180, 248),
-            Role::Ai => (129, 199, 132),
-            Role::Tool => (120, 120, 120),
+            Role::User => (152, 152, 157),
+            Role::Ai => (215, 119, 87),
+            Role::Tool => (215, 119, 87),
             Role::FileLink => (180, 200, 255),
-            Role::Dim => (80, 80, 80),
-            Role::Accent => (186, 139, 255),
-            Role::System => (255, 170, 220),
+            Role::Dim => (110, 110, 115),
+            Role::Accent => (215, 119, 87),
+            Role::System => (152, 152, 157),
             Role::Queued => (255, 193, 7),
             Role::Asap => (110, 210, 255),
             Role::Pending => (140, 140, 140),
-            Role::UserText => (245, 245, 255),
-            Role::UserBg => (35, 40, 50),
-            Role::AiText => (220, 220, 215),
-            Role::HeaderIcon => (120, 210, 230),
-            Role::HeaderName => (190, 210, 235),
+            Role::UserText => (235, 235, 238),
+            Role::UserBg => (30, 30, 33),
+            Role::AiText => (222, 220, 215),
+            Role::HeaderIcon => (215, 119, 87),
+            Role::HeaderName => (235, 230, 222),
             Role::HeaderSession => (255, 255, 255),
-            Role::Success => (100, 200, 100),
-            Role::Warning => (255, 200, 100),
-            Role::Error => (255, 100, 100),
+            Role::Success => (108, 200, 122),
+            Role::Warning => (235, 190, 110),
+            Role::Error => (235, 105, 100),
             Role::Info => (140, 180, 255),
-            Role::Border => (100, 100, 110),
-            Role::SelectionBg => (60, 60, 80),
+            Role::Border => (82, 82, 88),
+            Role::SelectionBg => (58, 58, 64),
         }
     }
 

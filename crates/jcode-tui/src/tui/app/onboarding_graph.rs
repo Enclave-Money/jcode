@@ -557,6 +557,9 @@ pub fn node_for_phase(phase: &super::onboarding_flow::OnboardingPhase) -> NodeId
         P::Login { import: Some(_) } => NodeId::LoginImport,
         P::Login { import: None } => NodeId::LoginRecovery,
         P::LoginOpenAi { .. } => NodeId::LoginOpenAi,
+        // The Claude offer is the same stage of the journey as the OpenAI one;
+        // it reuses that node so every declared transition still holds.
+        P::LoginClaude { .. } => NodeId::LoginOpenAi,
         P::ModelSelect => NodeId::ModelSelect,
         P::ContinuePrompt { .. } => NodeId::ContinuePrompt,
         P::StartChoice { .. } => NodeId::StartChoice,

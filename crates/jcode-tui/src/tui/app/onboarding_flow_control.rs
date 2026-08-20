@@ -288,7 +288,9 @@ impl App {
     pub(super) fn onboarding_after_login(&mut self) {
         if !matches!(
             self.onboarding_phase(),
-            Some(OnboardingPhase::Login { .. }) | Some(OnboardingPhase::LoginOpenAi { .. })
+            Some(OnboardingPhase::Login { .. })
+                | Some(OnboardingPhase::LoginOpenAi { .. })
+                | Some(OnboardingPhase::LoginClaude { .. })
         ) {
             return;
         }
@@ -300,6 +302,24 @@ impl App {
         if !self.onboarding_telemetry_choice_made {
             crate::telemetry::set_content_sharing_enabled(false);
         }
+        // Walk both subscription providers: after a Claude login, offer Codex
+        // (and vice versa) before moving on, so pooling is set up from day one.
+        let status = crate::auth::AuthStatus::check_fast();
+        let came_from_claude = matches!(
+            self.onboarding_phase(),
+            Some(OnboardingPhase::LoginClaude { .. })
+        );
+        if came_from_claude && status.openai_oauth_state == crate::auth::AuthState::NotConfigured {
+            self.set_onboarding_phase(OnboardingPhase::LoginOpenAi {
+                yes_highlighted: true,
+            });
+            return;
+        }
+        // Multi-account pooling is the product thesis; say how to add more.
+        self.push_display_message(DisplayMessage::system(
+            "✓ Signed in. blaude pools limits across accounts: add more with              `/login claude --account work` or `/login openai --account personal`.              The header shows every account you're signed into."
+                .to_string(),
+        ));
         self.set_onboarding_phase(OnboardingPhase::ModelSelect);
         self.onboarding_after_model_select();
     }
@@ -455,6 +475,12 @@ impl App {
                     return false;
                 }
                 self.handle_onboarding_login_openai_key(code)
+            }
+            Some(OnboardingPhase::LoginClaude { .. }) => {
+                if self.inline_interactive_state.is_some() {
+                    return false;
+                }
+                self.handle_onboarding_login_claude_key(code)
             }
             Some(OnboardingPhase::ModelSelect) => match code {
                 // Enter opens the model picker, but only from the welcome
@@ -733,6 +759,67 @@ impl App {
             };
             self.push_display_message(DisplayMessage::system(hint));
             self.set_status_notice(format!("Run {login} when you're ready"));
+        }
+    }
+
+    /// The "Log in to Claude?" yes/no — same keys as the OpenAI prompt.
+    fn handle_onboarding_login_claude_key(&mut self, code: KeyCode) -> bool {
+        let Some(flow) = self.onboarding_flow.as_mut() else {
+            return false;
+        };
+        let OnboardingPhase::LoginClaude { yes_highlighted } = &mut flow.phase else {
+            return false;
+        };
+        match code {
+            KeyCode::Left | KeyCode::Char('h') => {
+                *yes_highlighted = true;
+                true
+            }
+            KeyCode::Right | KeyCode::Char('l') => {
+                *yes_highlighted = false;
+                true
+            }
+            KeyCode::Up
+            | KeyCode::Down
+            | KeyCode::Char('k')
+            | KeyCode::Char('j')
+            | KeyCode::Tab => {
+                *yes_highlighted = !*yes_highlighted;
+                true
+            }
+            KeyCode::Char('y') | KeyCode::Char('Y') => {
+                self.onboarding_answer_login_claude(true);
+                true
+            }
+            KeyCode::Char('n') | KeyCode::Char('N') => {
+                self.onboarding_answer_login_claude(false);
+                true
+            }
+            KeyCode::Enter | KeyCode::Char(' ') => {
+                let wants = *yes_highlighted;
+                self.onboarding_answer_login_claude(wants);
+                true
+            }
+            _ => false,
+        }
+    }
+
+    pub(super) fn onboarding_answer_login_claude(&mut self, wants_claude: bool) {
+        if !matches!(
+            self.onboarding_phase(),
+            Some(OnboardingPhase::LoginClaude { .. })
+        ) {
+            return;
+        }
+        if wants_claude {
+            crate::telemetry::record_setup_step_once("login_picker_opened");
+            self.start_login_provider(crate::provider_catalog::CLAUDE_LOGIN_PROVIDER);
+            self.set_status_notice("Login: opening Claude sign-in (or type /login for others)");
+        } else {
+            // Not now — move on to the Codex half of the pair.
+            self.set_onboarding_phase(OnboardingPhase::LoginOpenAi {
+                yes_highlighted: true,
+            });
         }
     }
 

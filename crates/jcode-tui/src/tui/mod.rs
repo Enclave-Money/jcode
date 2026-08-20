@@ -954,6 +954,8 @@ pub enum OnboardingWelcomeKind {
     /// choice. Yes starts the OpenAI sign-in, No skips login and finishes
     /// onboarding (the user can run `/login` later).
     LoginOpenAi { yes_highlighted: bool },
+    /// "Log in to Claude?" — mirror of `LoginOpenAi`.
+    LoginClaude { yes_highlighted: bool },
     /// "Continue where you left off in <cli>?" with a highlightable Yes/No
     /// selector and a live decision countdown (seconds remaining).
     ContinuePrompt {

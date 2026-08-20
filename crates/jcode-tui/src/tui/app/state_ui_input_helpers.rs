@@ -1415,6 +1415,11 @@ impl App {
                     yes_highlighted: *yes_highlighted,
                 }
             }
+            Some(OnboardingPhase::LoginClaude { yes_highlighted }) => {
+                OnboardingWelcomeKind::LoginClaude {
+                    yes_highlighted: *yes_highlighted,
+                }
+            }
             Some(OnboardingPhase::ModelSelect) => OnboardingWelcomeKind::Suggestions,
             Some(OnboardingPhase::ContinuePrompt {
                 cli,

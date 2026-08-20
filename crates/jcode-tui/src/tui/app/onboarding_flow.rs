@@ -401,6 +401,13 @@ pub(crate) enum OnboardingPhase {
         /// Which option is highlighted (true = "Yes, log in to OpenAI").
         yes_highlighted: bool,
     },
+    /// Ask the user whether to log in to Claude — the mirror of `LoginOpenAi`,
+    /// so onboarding walks both subscription providers (Claude first, then
+    /// Codex) instead of only offering OpenAI.
+    LoginClaude {
+        /// Which option is highlighted (true = "Yes, log in to Claude").
+        yes_highlighted: bool,
+    },
     /// Legacy phase kept for compatibility with older replay/test fixtures.
     /// New onboarding skips explicit model selection and uses the default route;
     /// users can still run `/model` later.
@@ -508,7 +515,7 @@ impl OnboardingFlow {
             Some(review) => OnboardingPhase::Login {
                 import: Some(review),
             },
-            None => OnboardingPhase::LoginOpenAi {
+            None => OnboardingPhase::LoginClaude {
                 yes_highlighted: true,
             },
         };

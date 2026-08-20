@@ -573,6 +573,28 @@ fn welcome_body_lines(app: &dyn TuiState) -> Vec<Line<'static>> {
             push_esc_skip_hint(&mut lines, align);
             return lines;
         }
+        OnboardingWelcomeKind::LoginClaude { yes_highlighted } => {
+            lines.push(
+                Line::from(Span::styled(
+                    "Log in to Claude?",
+                    Style::default()
+                        .fg(welcome_accent())
+                        .add_modifier(Modifier::BOLD),
+                ))
+                .alignment(align),
+            );
+            lines.push(
+                Line::from(Span::styled(
+                    "Your Claude subscription powers the default model. Codex is next.",
+                    Style::default().fg(dim_color()),
+                ))
+                .alignment(align),
+            );
+            lines.push(Line::from(""));
+            lines.push(yes_no_pill_line(yes_highlighted, align));
+            push_esc_skip_hint(&mut lines, align);
+            return lines;
+        }
         OnboardingWelcomeKind::LoginOpenAi { yes_highlighted } => {
             lines.push(
                 Line::from(Span::styled(

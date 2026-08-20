@@ -55,6 +55,7 @@ fn classify_phase_surface(phase: &OnboardingPhase) -> ScreenSurface {
     match phase {
         OnboardingPhase::Login { .. } => ScreenSurface::WelcomeBody,
         OnboardingPhase::LoginOpenAi { .. } => ScreenSurface::WelcomeBody,
+        OnboardingPhase::LoginClaude { .. } => ScreenSurface::WelcomeBody,
         OnboardingPhase::ContinuePrompt { .. } => ScreenSurface::WelcomeBody,
         OnboardingPhase::Suggestions => ScreenSurface::WelcomeBody,
         OnboardingPhase::StartChoice { .. } => ScreenSurface::PickerOverlay,
@@ -601,6 +602,8 @@ enum GraphNode {
 fn phase_to_node(phase: &OnboardingPhase) -> GraphNode {
     match phase {
         OnboardingPhase::LoginOpenAi { .. } => GraphNode::LoginOpenAi,
+        // Same journey stage as the OpenAI offer (see node_for_phase).
+        OnboardingPhase::LoginClaude { .. } => GraphNode::LoginOpenAi,
         OnboardingPhase::Login { import: Some(_) } => GraphNode::LoginImport,
         OnboardingPhase::Login { import: None } => GraphNode::LoginRecovery,
         OnboardingPhase::ModelSelect => GraphNode::ModelSelect,
@@ -1419,6 +1422,7 @@ fn tier8_metrics() -> Tier8Metrics {
     fn phase_is_destructive(p: &OnboardingPhase) -> bool {
         match p {
             OnboardingPhase::LoginOpenAi { .. } => false,
+            OnboardingPhase::LoginClaude { .. } => false,
             OnboardingPhase::Login { .. } => false,
             OnboardingPhase::ModelSelect => false,
             OnboardingPhase::ContinuePrompt { .. } => false,

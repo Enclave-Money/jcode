@@ -354,16 +354,53 @@ fn auth_full_specs(
         })
     }
 
-    let anthropic_label = provider_label(
-        "anthropic",
-        auth.anthropic.state,
-        dual_method_label(jcode_provider_core::ActiveProvider::Claude, auth, active),
+    // Which accounts are signed in, so `blaude` shows at a glance what you're
+    // logged into — "claude ✓" alone doesn't answer "which account(s)?".
+    fn account_suffix(labels: Vec<String>) -> String {
+        match labels.len() {
+            0 => String::new(),
+            1 => format!(" — {}", truncate_accounts(&labels, 28)),
+            n => format!(" — {n} accounts: {}", truncate_accounts(&labels, 34)),
+        }
+    }
+    fn truncate_accounts(labels: &[String], max: usize) -> String {
+        let joined = labels.join(", ");
+        if joined.chars().count() <= max {
+            joined
+        } else {
+            let head: String = joined.chars().take(max.saturating_sub(1)).collect();
+            format!("{head}…")
+        }
+    }
+    let claude_accounts: Vec<String> = crate::auth::claude::list_accounts()
+        .map(|accs| {
+            accs.into_iter()
+                .map(|a| a.email.unwrap_or(a.label))
+                .collect()
+        })
+        .unwrap_or_default();
+    let codex_accounts: Vec<String> = crate::auth::codex::list_accounts()
+        .map(|accs| accs.into_iter().map(|a| a.label).collect())
+        .unwrap_or_default();
+
+    let anthropic_label = format!(
+        "{}{}",
+        provider_label(
+            "anthropic",
+            auth.anthropic.state,
+            dual_method_label(jcode_provider_core::ActiveProvider::Claude, auth, active),
+        ),
+        account_suffix(claude_accounts)
     );
 
-    let openai_label = provider_label(
-        "openai",
-        auth.openai,
-        dual_method_label(jcode_provider_core::ActiveProvider::OpenAI, auth, active),
+    let openai_label = format!(
+        "{}{}",
+        provider_label(
+            "openai",
+            auth.openai,
+            dual_method_label(jcode_provider_core::ActiveProvider::OpenAI, auth, active),
+        ),
+        account_suffix(codex_accounts)
     );
 
     let gemini_label = if auth.gemini != AuthState::NotConfigured {
@@ -682,10 +719,16 @@ fn build_persistent_header_with_auth(
     // First line: `jcode` (+ `self-dev` when running a dev/canary build),
     // followed by any remaining status badges rendered dimly.
     {
-        let mut spans = vec![Span::styled(
-            "blaude".to_string(),
-            Style::default().fg(header_name_color()).bold(),
-        )];
+        let mut spans = vec![
+            Span::styled(
+                "✳ ".to_string(),
+                Style::default().fg(jcode_tui_style::theme::header_icon_color()),
+            ),
+            Span::styled(
+                "blaude".to_string(),
+                Style::default().fg(header_name_color()).bold(),
+            ),
+        ];
         if is_canary {
             spans.push(Span::styled(
                 " self-dev".to_string(),
