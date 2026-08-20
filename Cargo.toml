@@ -101,6 +101,12 @@ path = "src/lib.rs"
 name = "jcode"
 path = "src/main.rs"
 
+# blaude: the same agent, under the name users type. Light rebrand — the binary
+# is what changes; internal crate names stay jcode-* so upstream merges are cheap.
+[[bin]]
+name = "blaude"
+path = "src/main.rs"
+
 [[bin]]
 name = "test_api"
 path = "src/bin/test_api.rs"
