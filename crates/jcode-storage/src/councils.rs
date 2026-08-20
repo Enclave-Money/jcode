@@ -86,9 +86,25 @@ impl Councils {
         Ok(jcode_dir()?.join("councils.json"))
     }
 
-    /// Load the saved councils, or an empty set if none have been created yet.
+    /// Load the saved councils. A brand-new install (no councils file yet)
+    /// starts with one ready-made council — "claudegpt", the best Claude and
+    /// Codex models side by side — so council mode is try-able from `/model`
+    /// without a setup step. Deleting it sticks: the file then exists.
     pub fn load() -> Result<Self> {
-        Self::load_from(&Self::path()?)
+        let path = Self::path()?;
+        if !path.exists() {
+            let mut seeded = Self::default();
+            let _ = seeded.create(
+                "claudegpt",
+                vec![
+                    "claude-oauth:claude-fable-5".to_string(),
+                    "openai-oauth:gpt-5.6-sol".to_string(),
+                ],
+            );
+            let _ = seeded.save_to(&path);
+            return Ok(seeded);
+        }
+        Self::load_from(&path)
     }
 
     /// Persist to disk (atomically, via the storage crate's writer).

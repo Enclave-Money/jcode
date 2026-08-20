@@ -973,6 +973,55 @@ async fn fetch_claude_profile_email_at_url(
     Ok(profile.account.email)
 }
 
+/// Save a fresh *interactive* Claude login. Unlike a token refresh, a login
+/// may belong to a different Anthropic account than the one at `label`: the
+/// profile email is fetched first and, when it names a different account,
+/// the stored one is left untouched and the new login lands under its own
+/// label (matching how logging into a second account is expected to add it,
+/// not silently replace the first). Returns the final label and the email.
+pub async fn save_claude_login(
+    tokens: &OAuthTokens,
+    requested_label: &str,
+) -> Result<(String, Option<String>)> {
+    let email = fetch_claude_profile_email_at_url(&tokens.access_token, claude::PROFILE_URL)
+        .await
+        .ok()
+        .flatten();
+    let accounts = claude_auth::list_accounts().unwrap_or_default();
+
+    let label = match email.as_deref() {
+        Some(new_email) => {
+            if let Some(existing) = accounts
+                .iter()
+                .find(|account| account.email.as_deref() == Some(new_email))
+            {
+                // Re-login of a known account (wherever it lives): refresh it.
+                existing.label.clone()
+            } else {
+                match accounts.iter().find(|a| a.label == requested_label) {
+                    // The requested slot belongs to a *different* email:
+                    // don't clobber it — append a new account instead.
+                    Some(target)
+                        if target.email.is_some() && target.email.as_deref() != Some(new_email) =>
+                    {
+                        claude_auth::next_free_label()?
+                    }
+                    _ => requested_label.to_string(),
+                }
+            }
+        }
+        // Profile unavailable: keep the pre-existing behavior.
+        None => requested_label.to_string(),
+    };
+
+    save_claude_tokens_for_account(tokens, &label)?;
+    if email.is_some() {
+        claude_auth::update_account_profile(&label, email.clone())?;
+    }
+    claude_auth::set_active_account(&label)?;
+    Ok((label, email))
+}
+
 /// Fetch profile metadata for a Claude account and persist any discovered fields.
 pub async fn update_claude_account_profile(
     label: &str,

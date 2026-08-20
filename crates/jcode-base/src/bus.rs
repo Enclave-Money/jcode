@@ -197,6 +197,20 @@ pub struct CouncilMemberText {
     pub text: std::result::Result<String, String>,
 }
 
+/// One member of a live council deliberation started or finished a phase —
+/// the UI narrates these so a multi-minute fan-out is observable.
+#[derive(Clone, Debug)]
+pub struct CouncilMemberProgress {
+    pub session_id: String,
+    pub council: String,
+    pub model: String,
+    /// "drafting", "critiquing", or "synthesizing".
+    pub phase: String,
+    pub done: bool,
+    /// On `done`, whether the phase produced text (vs an error).
+    pub ok: bool,
+}
+
 /// A council deliberation started from interactive council mode finished off the
 /// UI thread; carries the drafts, critiques, and the synthesized joint plan.
 #[derive(Clone, Debug)]
@@ -450,6 +464,8 @@ pub enum BusEvent {
     ModelRefreshCompleted(ModelRefreshCompleted),
     /// An interactive council fan-out completed off the UI thread
     CouncilTurnCompleted(CouncilTurnCompleted),
+    /// A council member started or finished a deliberation phase
+    CouncilMemberProgress(CouncilMemberProgress),
     /// UI-visible runtime activity from auth/catalog/background operations.
     UiActivity(UiActivity),
     /// Local git status command completed off the UI thread

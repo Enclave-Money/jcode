@@ -66,11 +66,25 @@ pub(super) fn strip_reasoning_lines(content: &str) -> String {
     result.trim_end().to_string()
 }
 
+/// Attached to every turn while plan mode (Shift+Tab) is on.
+pub(super) const PLAN_MODE_REMINDER: &str = "Plan mode is ON for this conversation. Research, read code, \
+and design — but do NOT edit files, run state-changing commands, or commit. Present a concrete plan \
+(steps, files, risks) and wait; the user toggles plan mode off (Shift+Tab) when ready to execute.";
+
 fn mission_turn_reminder(session_id: &str) -> Option<String> {
     crate::mission::active_system_reminder(session_id)
         .map_err(|err| crate::logging::warn(&format!("failed to load active mission: {err}")))
         .ok()
         .flatten()
+}
+
+/// The mission reminder plus, in plan mode, the plan-only instruction.
+fn combine_turn_reminders(mission: Option<String>, plan_mode: bool) -> Option<String> {
+    match (mission, plan_mode) {
+        (Some(m), true) => Some(format!("{m}\n\n{PLAN_MODE_REMINDER}")),
+        (None, true) => Some(PLAN_MODE_REMINDER.to_string()),
+        (mission, false) => mission,
+    }
 }
 
 fn merge_turn_reminders(a: Option<String>, b: Option<String>) -> Option<String> {
@@ -2921,7 +2935,22 @@ impl App {
         self.observe_known_hotkey(code, modifiers, false);
 
         if code == KeyCode::BackTab {
-            self.cycle_model_favorite_hotkey();
+            // Claude Code parity: Shift+Tab cycles the working mode. blaude
+            // has two today — auto (tools run) and plan (propose only).
+            self.plan_mode = !self.plan_mode;
+            if self.plan_mode {
+                self.push_display_message(DisplayMessage::system(
+                    "⏸ plan mode on — the model researches and proposes, no edits. Shift+Tab to go back to auto."
+                        .to_string(),
+                ));
+                self.set_status_notice("plan mode on");
+            } else {
+                self.push_display_message(DisplayMessage::system(
+                    "▶ auto mode on — the model executes with tools. Shift+Tab for plan mode."
+                        .to_string(),
+                ));
+                self.set_status_notice("auto mode on");
+            }
             return Ok(());
         }
 
@@ -3836,7 +3865,8 @@ impl App {
             ));
         }
         if images.is_empty() {
-            self.current_turn_system_reminder = mission_turn_reminder(&self.session.id);
+            self.current_turn_system_reminder =
+                combine_turn_reminders(mission_turn_reminder(&self.session.id), self.plan_mode);
             self.add_provider_message(Message::user(&input));
             self.session.add_message(
                 Role::User,
@@ -3846,7 +3876,8 @@ impl App {
                 }],
             );
         } else {
-            self.current_turn_system_reminder = mission_turn_reminder(&self.session.id);
+            self.current_turn_system_reminder =
+                combine_turn_reminders(mission_turn_reminder(&self.session.id), self.plan_mode);
             self.add_provider_message(Message::user_with_images(&input, images.clone()));
             let mut blocks: Vec<ContentBlock> = images
                 .into_iter()

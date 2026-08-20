@@ -847,6 +847,9 @@ pub struct App {
     /// A system reminder to attach to the next remote turn (bridge mode has no
     /// way to append a transcript message directly; `/add-dir` uses this).
     pending_remote_reminder: Option<String>,
+    /// Shift+Tab toggles plan mode: turns carry a plan-only system reminder,
+    /// so the model researches and proposes instead of editing.
+    plan_mode: bool,
     display_messages: Vec<DisplayMessage>,
     display_messages_version: u64,
     display_user_message_count: usize,

@@ -45,6 +45,18 @@ pub(crate) fn run(name: &str, prompt: &str, keep: bool) -> Result<()> {
         prompt,
         keep,
         &runner,
+        &|p| {
+            if p.done {
+                eprintln!(
+                    "  {} {} finished {}",
+                    if p.ok { "✓" } else { "✗" },
+                    p.model,
+                    p.phase
+                );
+            } else {
+                eprintln!("  ⚖ {} {}…", p.model, p.phase);
+            }
+        },
     );
     report(&d);
     Ok(())

@@ -601,6 +601,10 @@ pub(super) async fn handle_bus_event(
             app.handle_council_turn_completed(result);
             true
         }
+        Ok(BusEvent::CouncilMemberProgress(progress)) => {
+            app.handle_council_member_progress(progress);
+            true
+        }
         Ok(BusEvent::UsageReportProgress(progress)) => {
             app.handle_usage_report_progress(progress);
             true

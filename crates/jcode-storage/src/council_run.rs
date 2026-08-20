@@ -44,9 +44,23 @@ pub struct Deliberation {
     pub worktrees: Vec<PathBuf>,
 }
 
+/// One live progress tick from a deliberation, so a UI can narrate what each
+/// member is doing instead of going silent for the whole run.
+#[derive(Debug, Clone)]
+pub struct CouncilProgress {
+    pub model: String,
+    /// "drafting", "critiquing", or "synthesizing".
+    pub phase: &'static str,
+    /// false when the member starts the phase, true when it finishes.
+    pub done: bool,
+    /// On `done`, whether the phase produced text (vs an error).
+    pub ok: bool,
+}
+
 /// Run the three-stage deliberation. Pure over `runner` (model, worktree,
-/// prompt) so tests can stub the model call. Worktrees are removed afterwards
-/// unless `keep`.
+/// prompt) so tests can stub the model call; `observe` receives start/finish
+/// ticks per member per phase. Worktrees are removed afterwards unless
+/// `keep`.
 pub fn deliberate(
     repo_root: &Path,
     base_sha: &str,
@@ -54,6 +68,7 @@ pub fn deliberate(
     task: &str,
     keep: bool,
     runner: &(dyn Fn(&Path, &str, &str) -> Result<String> + Sync),
+    observe: &(dyn Fn(CouncilProgress) + Sync),
 ) -> Deliberation {
     // One worktree per member, off the base commit, reused across stages so a
     // member's stages share a cwd. Setup failures leave that slot `None`.
@@ -67,17 +82,30 @@ pub fn deliberate(
         .collect();
 
     // Stage 1: independent drafts.
-    let drafts = run_stage(members, &worktrees, runner, |_model| draft_prompt(task));
+    let drafts = run_stage(members, &worktrees, runner, observe, "drafting", |_model| {
+        draft_prompt(task)
+    });
 
     // Stage 2: each member critiques all drafts.
     let drafts_block = format_block(&drafts);
-    let critiques = run_stage(members, &worktrees, runner, |model| {
-        critique_prompt(task, model, &drafts_block)
-    });
+    let critiques = run_stage(
+        members,
+        &worktrees,
+        runner,
+        observe,
+        "critiquing",
+        |model| critique_prompt(task, model, &drafts_block),
+    );
 
     // Stage 3: the first member synthesizes the joint plan.
     let critiques_block = format_block(&critiques);
     let synthesizer = members.first().cloned().unwrap_or_default();
+    observe(CouncilProgress {
+        model: synthesizer.clone(),
+        phase: "synthesizing",
+        done: false,
+        ok: true,
+    });
     let joint_plan = match worktrees.first().and_then(|w| w.as_ref()) {
         Some(wt) => runner(
             wt,
@@ -86,6 +114,12 @@ pub fn deliberate(
         ),
         None => Err(anyhow::anyhow!("no worktree for the synthesizer")),
     };
+    observe(CouncilProgress {
+        model: synthesizer.clone(),
+        phase: "synthesizing",
+        done: true,
+        ok: joint_plan.is_ok(),
+    });
 
     let kept: Vec<PathBuf> = if keep {
         worktrees.iter().flatten().cloned().collect()
@@ -111,6 +145,8 @@ fn run_stage(
     members: &[String],
     worktrees: &[Option<PathBuf>],
     runner: &(dyn Fn(&Path, &str, &str) -> Result<String> + Sync),
+    observe: &(dyn Fn(CouncilProgress) + Sync),
+    phase: &'static str,
     prompt_for: impl Fn(&str) -> String + Sync,
 ) -> Vec<MemberText> {
     std::thread::scope(|scope| {
@@ -121,10 +157,22 @@ fn run_stage(
                 let wt = worktrees[i].clone();
                 let prompt_for = &prompt_for;
                 scope.spawn(move || {
+                    observe(CouncilProgress {
+                        model: model.clone(),
+                        phase,
+                        done: false,
+                        ok: true,
+                    });
                     let text = match wt {
                         Some(wt) => runner(&wt, model, &prompt_for(model)),
                         None => Err(anyhow::anyhow!("worktree setup failed")),
                     };
+                    observe(CouncilProgress {
+                        model: model.clone(),
+                        phase,
+                        done: true,
+                        ok: text.is_ok(),
+                    });
                     MemberText {
                         model: model.clone(),
                         text,
@@ -144,8 +192,12 @@ fn run_stage(
 fn draft_prompt(task: &str) -> String {
     format!(
         "You are one member of a council of AI models working a task together. \
-         Independently draft a concise, concrete plan to accomplish the task \
-         below. Do not modify any files; output only your plan.\n\nTASK:\n{task}"
+         Your working directory is a checkout of the user's repository: explore \
+         it first (read the layout, key modules, and any code the task touches) \
+         and ground your plan in what is actually there — cite concrete files, \
+         functions, and constraints from this codebase, not generic advice. \
+         Then independently draft a concise, concrete plan to accomplish the \
+         task below. Do not modify any files; output only your plan.\n\nTASK:\n{task}"
     )
 }
 
@@ -378,7 +430,15 @@ mod tests {
             }
         };
 
-        let d = deliberate(&root, &base, &members, "do the thing", false, &runner);
+        let d = deliberate(
+            &root,
+            &base,
+            &members,
+            "do the thing",
+            false,
+            &runner,
+            &|_| {},
+        );
         assert_eq!(d.drafts.len(), 2);
         assert_eq!(d.critiques.len(), 2);
         assert_eq!(d.synthesizer, "alpha");
@@ -411,7 +471,7 @@ mod tests {
                 Ok(format!("{model} output"))
             }
         };
-        let d = deliberate(&root, &base, &members, "task", false, &runner);
+        let d = deliberate(&root, &base, &members, "task", false, &runner, &|_| {});
         // The bad member's draft is an error, but the deliberation still yields
         // drafts, critiques, and a joint plan (synthesizer is the ok member).
         assert_eq!(d.drafts.len(), 2);

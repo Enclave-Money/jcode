@@ -3338,25 +3338,12 @@ impl App {
                 .await
                 .map_err(|e| e.to_string())?;
 
-        crate::auth::oauth::save_claude_tokens_for_account(&oauth_tokens, label)
+        let (label, email) = crate::auth::oauth::save_claude_login(&oauth_tokens, label)
+            .await
             .map_err(|e| format!("Failed to save tokens: {}", e))?;
-
-        let profile_suffix = match crate::auth::oauth::update_claude_account_profile(
-            label,
-            &oauth_tokens.access_token,
-        )
-        .await
-        {
-            Ok(Some(email)) => format!(" (email: {})", mask_email(&email)),
-            Ok(None) => String::new(),
-            Err(e) => {
-                crate::logging::warn(&format!(
-                    "Claude login [{}] profile fetch failed: {}",
-                    label, e
-                ));
-                String::new()
-            }
-        };
+        let profile_suffix = email
+            .map(|email| format!(" (email: {})", mask_email(&email)))
+            .unwrap_or_default();
 
         Ok(format!(
             "Successfully logged in to Claude! (account: {}){}",

@@ -349,6 +349,15 @@ pub fn save_auth_file(auth: &JcodeAuthFile) -> Result<()> {
     Ok(())
 }
 
+/// The next unused numbered label ("claude-2", ...) for a brand-new account.
+pub fn next_free_label() -> Result<String> {
+    let auth = load_auth_file()?;
+    Ok(crate::auth::account_store::next_account_label(
+        ACCOUNT_LABEL_PREFIX,
+        auth.anthropic_accounts.len(),
+    ))
+}
+
 /// List all configured Anthropic accounts.
 pub fn list_accounts() -> Result<Vec<AnthropicAccount>> {
     let auth = load_auth_file()?;

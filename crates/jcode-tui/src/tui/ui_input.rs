@@ -407,7 +407,9 @@ pub(super) fn input_prompt(app: &dyn TuiState) -> (&'static str, Color) {
 
 pub(crate) fn input_prompt_len(app: &dyn TuiState, next_prompt: usize) -> usize {
     let (prompt_char, _) = input_prompt(app);
-    next_prompt.to_string().chars().count() + prompt_char.chars().count()
+    // Claude Code parity: the prompt is a bare "> " — no message number.
+    let _ = next_prompt;
+    prompt_char.chars().count()
 }
 
 pub(crate) fn next_input_prompt_number(app: &dyn TuiState) -> usize {
@@ -426,7 +428,7 @@ pub(super) fn wrapped_input_line_count(
         return 1;
     }
 
-    let num_str = next_prompt.to_string();
+    let num_str = String::new();
     let (prompt_char, caret_color) = input_prompt(app);
     let (lines, _, _) = wrap_input_text(
         app.input(),
@@ -2319,6 +2321,15 @@ pub(super) fn draw_right_fact_stack(
     transcript_scrollbar_visible: bool,
     input_cursor: Option<Position>,
 ) {
+    // Claude Code parity: the floating right-side info boxes are opt-in
+    // (BLAUDE_RIGHT_PANEL=1). Everything they show remains one command away
+    // (/status, /model, /usage) without chrome floating over the transcript.
+    if !std::env::var("BLAUDE_RIGHT_PANEL")
+        .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+        .unwrap_or(false)
+    {
+        return;
+    }
     // The legacy overscroll row owns these same facts while it is visible.
     // Standing down here avoids duplicates and keeps its elastic reveal from
     // changing transcript-tail overlays mid-gesture. Users with overscroll off
@@ -2594,7 +2605,7 @@ pub(super) fn draw_input(
     let has_suggestions = command_suggestions_active(app, &app.command_suggestions());
 
     let (prompt_char, caret_color) = input_prompt(app);
-    let num_str = format!("{}", next_prompt);
+    let num_str = String::new();
     let prompt_len = input_prompt_len(app, next_prompt);
     let reserved_width = send_mode_reserved_width(app);
     let line_width = (area.width as usize).saturating_sub(prompt_len + reserved_width);

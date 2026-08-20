@@ -533,18 +533,7 @@ async fn login_claude_flow(requested_label: Option<&str>, no_browser: bool) -> R
     let label = auth::claude::login_target_label(requested_label)?;
     eprintln!("Logging in to Claude (account: {})...", label);
     let tokens = auth::oauth::login_claude(no_browser).await?;
-    auth::oauth::save_claude_tokens_for_account(&tokens, &label)?;
-    let profile_email =
-        match auth::oauth::update_claude_account_profile(&label, &tokens.access_token).await {
-            Ok(email) => email,
-            Err(e) => {
-                eprintln!(
-                    "Warning: logged in but failed to fetch profile metadata: {}",
-                    e
-                );
-                None
-            }
-        };
+    let (label, profile_email) = auth::oauth::save_claude_login(&tokens, &label).await?;
     eprintln!("Successfully logged in to Claude!");
     eprintln!(
         "Account '{}' stored at {}",

@@ -619,7 +619,7 @@ const COUNCIL_BUILDER_MARK: &str = "✓ ";
 /// Label for the "New council…" row, reflecting the builder's draft state.
 fn council_create_row_label(builder: Option<&[String]>) -> String {
     match builder {
-        None => "⚖ New council…".to_string(),
+        None => "⚖ New council… (n)".to_string(),
         Some(members) => format!(
             "⚖ Save council ({}/{} picked)",
             members.len(),
@@ -631,11 +631,13 @@ fn council_create_row_label(builder: Option<&[String]>) -> String {
 fn council_create_row_detail(builder: Option<&[String]>) -> String {
     match builder {
         None => format!(
-            "build a {}–{} model panel right here",
+            "press n: pick {}–{} models, Ctrl+S saves",
             jcode_storage::councils::MIN_MEMBERS,
             jcode_storage::councils::MAX_MEMBERS
         ),
-        Some(members) if members.is_empty() => "Enter on model rows toggles members".to_string(),
+        Some(members) if members.is_empty() => {
+            "type to search · Enter toggles · Ctrl+S saves".to_string()
+        }
         Some(members) => members.join(" + "),
     }
 }
@@ -1193,8 +1195,18 @@ impl App {
             None => {
                 self.council_builder = Some(Vec::new());
                 self.refresh_council_create_row();
+                // Land the user in browse state directly: row navigation
+                // (column 0) with a clean filter — no arrowing back out of a
+                // restored effort column first.
+                if let Some(picker) = self.inline_interactive_state.as_mut() {
+                    picker.column = 0;
+                    if !picker.filter.is_empty() {
+                        picker.filter.clear();
+                        Self::apply_inline_interactive_filter(picker);
+                    }
+                }
                 self.set_status_notice(format!(
-                    "Council builder: Enter toggles models (pick {}–{}), then Enter here to save",
+                    "Council builder: type to search, Enter toggles models ({}–{}), Ctrl+S saves",
                     jcode_storage::councils::MIN_MEMBERS,
                     jcode_storage::councils::MAX_MEMBERS
                 ));
@@ -1265,8 +1277,19 @@ impl App {
             }
             Toggled::Added(count) | Toggled::Removed(count) => {
                 self.refresh_council_create_row();
+                // Clear the search so the next model is one keystroke away,
+                // and keep the cursor on the row just toggled so the check
+                // mark (or its removal) stays visible feedback.
+                if let Some(picker) = self.inline_interactive_state.as_mut() {
+                    picker.filter.clear();
+                    Self::apply_inline_interactive_filter(picker);
+                    picker.column = 0;
+                    if let Some(pos) = picker.filtered.iter().position(|&i| i == idx) {
+                        picker.selected = pos;
+                    }
+                }
                 self.set_status_notice(format!(
-                    "Council draft: {count}/{max} picked — Enter on the save row when done"
+                    "Council draft: {count}/{max} picked — Ctrl+S saves"
                 ));
             }
         }
@@ -1437,6 +1460,20 @@ impl App {
             let runner = |wt: &std::path::Path, model: &str, p: &str| {
                 jcode_storage::council_run::spawn_member(&exe, wt, model, p)
             };
+            let progress_session = session_id.clone();
+            let progress_council = council.name.clone();
+            let observe = move |p: jcode_storage::council_run::CouncilProgress| {
+                crate::bus::Bus::global().publish(crate::bus::BusEvent::CouncilMemberProgress(
+                    crate::bus::CouncilMemberProgress {
+                        session_id: progress_session.clone(),
+                        council: progress_council.clone(),
+                        model: p.model,
+                        phase: p.phase.to_string(),
+                        done: p.done,
+                        ok: p.ok,
+                    },
+                ));
+            };
             let d = jcode_storage::council_run::deliberate(
                 &repo_root,
                 &base_sha,
@@ -1444,6 +1481,7 @@ impl App {
                 &prompt,
                 false,
                 &runner,
+                &observe,
             );
             let to_texts = |v: Vec<jcode_storage::council_run::MemberText>| {
                 v.into_iter()
@@ -1464,6 +1502,33 @@ impl App {
                 },
             ));
         });
+    }
+
+    /// Narrate one member's phase change during a live deliberation, so the
+    /// user can watch the council work instead of staring at a silent prompt.
+    pub(super) fn handle_council_member_progress(&mut self, p: crate::bus::CouncilMemberProgress) {
+        if p.session_id != self.session.id {
+            return;
+        }
+        if p.done {
+            let mark = if p.ok { "✓" } else { "✗" };
+            self.push_display_message(DisplayMessage::system(format!(
+                "⚖ {mark} {} finished {}",
+                p.model, p.phase
+            )));
+        } else {
+            self.push_display_message(DisplayMessage::system(format!(
+                "⚖ {} {}…",
+                p.model, p.phase
+            )));
+        }
+        self.set_status_notice(format!(
+            "Council “{}”: {} {}{}",
+            p.council,
+            p.model,
+            p.phase,
+            if p.done { " done" } else { "…" }
+        ));
     }
 
     /// Render a finished council deliberation: each member's draft and critique,
@@ -3787,6 +3852,14 @@ impl App {
                 }
             }
             code if modifiers.contains(KeyModifiers::CONTROL)
+                && key_char_eq_ignore_ascii_case(code, 's')
+                && self.council_builder.is_some() =>
+            {
+                // Save the council draft from anywhere in the picker — no
+                // need to navigate back to the save row first.
+                self.handle_council_create_row();
+            }
+            code if modifiers.contains(KeyModifiers::CONTROL)
                 && key_char_eq_ignore_ascii_case(code, 'n') =>
             {
                 self.toggle_selected_model_favorite();
@@ -4101,6 +4174,21 @@ impl App {
                 }
             }
             KeyCode::Char(c) => {
+                // `n` on a fresh model picker starts a new council (the row
+                // hint advertises it). Only with an empty filter: once the
+                // user is typing a search, every letter belongs to it.
+                if matches!(c, 'n' | 'N')
+                    && !modifiers.contains(KeyModifiers::CONTROL)
+                    && !modifiers.contains(KeyModifiers::ALT)
+                    && self.council_builder.is_none()
+                    && self
+                        .inline_interactive_state
+                        .as_ref()
+                        .is_some_and(|p| p.kind == PickerKind::Model && p.filter.is_empty())
+                {
+                    self.handle_council_create_row();
+                    return Ok(());
+                }
                 if let Some(ref mut picker) = self.inline_interactive_state
                     && !c.is_whitespace()
                 {

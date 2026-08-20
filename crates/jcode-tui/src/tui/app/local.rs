@@ -180,6 +180,10 @@ pub(super) fn handle_bus_event(
             app.handle_model_refresh_completed(result);
             true
         }
+        Ok(BusEvent::CouncilMemberProgress(progress)) => {
+            app.handle_council_member_progress(progress);
+            true
+        }
         Ok(BusEvent::CouncilTurnCompleted(result)) => {
             app.handle_council_turn_completed(result);
             true
