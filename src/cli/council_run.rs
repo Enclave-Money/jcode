@@ -1,19 +1,19 @@
-//! `blaude council run` — the CLI front-end for the cross-vendor fan-out.
+//! `blaude council run` — the CLI front-end for a council deliberation.
 //!
-//! The orchestration (worktrees, diffs, the runner) lives in
-//! [`jcode_storage::council_run`] so the interactive TUI council mode reuses it;
-//! this file just loads the council, wires the production runner, and prints.
+//! The orchestration (draft, critique, synthesize) lives in
+//! [`jcode_storage::council_run`] so the interactive TUI reuses it; this file
+//! loads the council, wires the production runner, and prints the deliberation.
 
 use std::path::Path;
 
 use anyhow::{Context, Result};
 
 use jcode_storage::council_run::{
-    diff_file_count, fan_out, git_head_sha, git_repo_root, spawn_member, truncate, MemberOutcome,
+    deliberate, git_head_sha, git_repo_root, spawn_member, truncate, Deliberation, MemberText,
 };
 use jcode_storage::councils::Councils;
 
-/// Load the council, resolve the repo, fan the prompt out, and print proposals.
+/// Load the council, resolve the repo, deliberate, and print the joint plan.
 pub(crate) fn run(name: &str, prompt: &str, keep: bool) -> Result<()> {
     let councils = Councils::load()?;
     let council = councils
@@ -21,24 +21,24 @@ pub(crate) fn run(name: &str, prompt: &str, keep: bool) -> Result<()> {
         .ok_or_else(|| anyhow::anyhow!("no council named “{name}” (see `blaude council list`)"))?
         .clone();
 
-    let repo_root = git_repo_root().context(
-        "`council run` needs a git repository — it isolates each model's edits in a worktree",
-    )?;
+    let repo_root = git_repo_root()
+        .context("`council run` needs a git repository — each model drafts in its own worktree")?;
     let base_sha = git_head_sha(&repo_root)?;
     let exe = std::env::current_exe().context("locating the blaude binary")?;
 
     println!(
-        "Council “{}”: fanning “{}” out to {} models from {}…\n",
+        "Council “{}”: {} models deliberating on “{}” from {}…\n\
+         (draft independently → critique each other → synthesize a joint plan)\n",
         council.name,
-        truncate(prompt, 60),
         council.members.len(),
+        truncate(prompt, 60),
         &base_sha[..base_sha.len().min(12)]
     );
 
     let runner =
         |worktree: &Path, model: &str, prompt: &str| spawn_member(&exe, worktree, model, prompt);
 
-    let outcomes = fan_out(
+    let d = deliberate(
         &repo_root,
         &base_sha,
         &council.members,
@@ -46,33 +46,37 @@ pub(crate) fn run(name: &str, prompt: &str, keep: bool) -> Result<()> {
         keep,
         &runner,
     );
-    report(&outcomes);
+    report(&d);
     Ok(())
 }
 
-fn report(outcomes: &[MemberOutcome]) {
-    for (i, o) in outcomes.iter().enumerate() {
-        if i > 0 {
+fn report(d: &Deliberation) {
+    let show = |label: &str, items: &[MemberText]| {
+        for m in items {
+            println!("━━━ {label}: {} ━━━", m.model);
+            match &m.text {
+                Ok(t) if !t.trim().is_empty() => println!("{}", t.trim()),
+                Ok(_) => println!("(no output)"),
+                Err(e) => println!("⚠ failed: {e}"),
+            }
             println!();
         }
-        println!("━━━ {} ━━━", o.model);
-        match &o.result {
-            Ok(text) if !text.trim().is_empty() => println!("{}", text.trim()),
-            Ok(_) => println!("(no text answer)"),
-            Err(e) => println!("⚠ failed: {e}"),
-        }
-        if o.diff.trim().is_empty() {
-            println!("\n(no file changes)");
-        } else {
-            println!("\n{} file(s) changed:", diff_file_count(&o.diff));
-            println!("{}", o.diff.trim_end());
-        }
-        if let Some(wt) = &o.worktree {
-            println!("\nworktree kept at {}", wt.display());
+    };
+
+    show("draft", &d.drafts);
+    show("critique", &d.critiques);
+
+    println!("═══ joint plan (synthesized by {}) ═══", d.synthesizer);
+    match &d.joint_plan {
+        Ok(t) if !t.trim().is_empty() => println!("{}", t.trim()),
+        Ok(_) => println!("(no joint plan produced)"),
+        Err(e) => println!("⚠ synthesis failed: {e}"),
+    }
+
+    if !d.worktrees.is_empty() {
+        println!("\nworktrees kept:");
+        for wt in &d.worktrees {
+            println!("  {}", wt.display());
         }
     }
-    println!(
-        "\nPick the proposal you want and apply it in your tree, or re-run with \
-         --keep to inspect the worktrees."
-    );
 }

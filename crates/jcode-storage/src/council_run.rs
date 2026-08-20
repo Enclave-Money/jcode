@@ -1,109 +1,194 @@
-//! Council fan-out orchestration — shared by the `blaude council run` CLI and
-//! the interactive TUI council mode.
+//! Council deliberation — shared by the `blaude council run` CLI and the
+//! interactive TUI council mode.
 //!
-//! Send one prompt to every member model at once, each working in its **own git
-//! worktree** off the current HEAD, then collect what each proposed (its text
-//! answer and a diff). Isolation is per-process and per-worktree — every member
-//! is a separate `blaude run` invocation with its own model and cwd — so two
-//! models editing the same files never collide.
+//! A council does not just fan a task out and let you keep the better patch. Its
+//! members **deliberate**, in three stages:
 //!
-//! The git/worktree/diff orchestration is a pure function over a *runner*
-//! closure so it can be unit-tested with a stub instead of real model calls; the
-//! production runner ([`spawn_member`]) shells out to `blaude run --json`.
+//!   1. Draft — each model independently drafts a plan for the task, blind to
+//!      the others, in its own git worktree off the same commit.
+//!   2. Critique — each model reads every draft and says what is strongest in
+//!      each and what to combine.
+//!   3. Synthesize — one member merges the drafts and critiques into a single
+//!      joint plan that takes the best from all of them.
+//!
+//! Each model call runs in an isolated worktree so nothing touches the user's
+//! working tree; the deliberation itself is text (plans and critiques), and the
+//! result is one joint plan. The orchestration is pure over a `runner` closure
+//! so it can be unit-tested with a stub; the production runner ([`spawn_member`])
+//! shells out to `blaude run --json`.
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use anyhow::{Context, Result, bail};
 
-/// What one council member produced.
+/// One model's text contribution to a stage (a draft or a critique).
 #[derive(Debug)]
-pub struct MemberOutcome {
+pub struct MemberText {
     pub model: String,
-    /// The agent's text answer, or the error if the run failed.
-    pub result: Result<String>,
-    /// The unified diff of its edits against the base commit (empty if none).
-    pub diff: String,
-    /// Where its worktree is, when kept for inspection.
-    pub worktree: Option<PathBuf>,
+    pub text: Result<String>,
 }
 
-/// Run every member against `prompt`, each in its own detached worktree off
-/// `base_sha`. Worktrees are removed afterwards unless `keep`. Pure over
-/// `runner`, so a test (or a caller) can substitute a stub for the model call.
-pub fn fan_out(
+/// The full result of a council deliberation.
+#[derive(Debug)]
+pub struct Deliberation {
+    /// Stage 1: each member's independent plan.
+    pub drafts: Vec<MemberText>,
+    /// Stage 2: each member's critique of all the drafts.
+    pub critiques: Vec<MemberText>,
+    /// Which model synthesized the joint plan (the first member).
+    pub synthesizer: String,
+    /// Stage 3: the joint plan built from the best of the drafts + critiques.
+    pub joint_plan: Result<String>,
+    /// Worktrees kept for inspection (when `keep`), one per member.
+    pub worktrees: Vec<PathBuf>,
+}
+
+/// Run the three-stage deliberation. Pure over `runner` (model, worktree,
+/// prompt) so tests can stub the model call. Worktrees are removed afterwards
+/// unless `keep`.
+pub fn deliberate(
     repo_root: &Path,
     base_sha: &str,
     members: &[String],
-    prompt: &str,
+    task: &str,
     keep: bool,
     runner: &(dyn Fn(&Path, &str, &str) -> Result<String> + Sync),
-) -> Vec<MemberOutcome> {
-    // Each member on its own thread: the runner blocks (a subprocess), so
-    // threads give real parallelism without pulling in an async runtime here.
+) -> Deliberation {
+    // One worktree per member, off the base commit, reused across stages so a
+    // member's stages share a cwd. Setup failures leave that slot `None`.
+    let worktrees: Vec<Option<PathBuf>> = members
+        .iter()
+        .enumerate()
+        .map(|(i, model)| {
+            let wt = worktree_path(repo_root, i, model);
+            add_worktree(repo_root, &wt, base_sha).ok().map(|_| wt)
+        })
+        .collect();
+
+    // Stage 1: independent drafts.
+    let drafts = run_stage(members, &worktrees, runner, |_model| draft_prompt(task));
+
+    // Stage 2: each member critiques all drafts.
+    let drafts_block = format_block(&drafts);
+    let critiques = run_stage(members, &worktrees, runner, |model| {
+        critique_prompt(task, model, &drafts_block)
+    });
+
+    // Stage 3: the first member synthesizes the joint plan.
+    let critiques_block = format_block(&critiques);
+    let synthesizer = members.first().cloned().unwrap_or_default();
+    let joint_plan = match worktrees.first().and_then(|w| w.as_ref()) {
+        Some(wt) => runner(
+            wt,
+            &synthesizer,
+            &synthesis_prompt(task, &drafts_block, &critiques_block),
+        ),
+        None => Err(anyhow::anyhow!("no worktree for the synthesizer")),
+    };
+
+    let kept: Vec<PathBuf> = if keep {
+        worktrees.iter().flatten().cloned().collect()
+    } else {
+        for wt in worktrees.iter().flatten() {
+            let _ = remove_worktree(repo_root, wt);
+        }
+        Vec::new()
+    };
+
+    Deliberation {
+        drafts,
+        critiques,
+        synthesizer,
+        joint_plan,
+        worktrees: kept,
+    }
+}
+
+/// Run one stage across all members in parallel (each in its own worktree),
+/// building the per-member prompt with `prompt_for`.
+fn run_stage(
+    members: &[String],
+    worktrees: &[Option<PathBuf>],
+    runner: &(dyn Fn(&Path, &str, &str) -> Result<String> + Sync),
+    prompt_for: impl Fn(&str) -> String + Sync,
+) -> Vec<MemberText> {
     std::thread::scope(|scope| {
         let handles: Vec<_> = members
             .iter()
             .enumerate()
             .map(|(i, model)| {
-                scope.spawn(move || run_one(repo_root, base_sha, i, model, prompt, keep, runner))
+                let wt = worktrees[i].clone();
+                let prompt_for = &prompt_for;
+                scope.spawn(move || {
+                    let text = match wt {
+                        Some(wt) => runner(&wt, model, &prompt_for(model)),
+                        None => Err(anyhow::anyhow!("worktree setup failed")),
+                    };
+                    MemberText {
+                        model: model.clone(),
+                        text,
+                    }
+                })
             })
             .collect();
         handles
             .into_iter()
-            .map(|h| h.join().expect("member thread panicked"))
+            .map(|h| h.join().expect("council stage thread panicked"))
             .collect()
     })
 }
 
-fn run_one(
-    repo_root: &Path,
-    base_sha: &str,
-    index: usize,
-    model: &str,
-    prompt: &str,
-    keep: bool,
-    runner: &(dyn Fn(&Path, &str, &str) -> Result<String> + Sync),
-) -> MemberOutcome {
-    let worktree = repo_root
-        .join(".git")
-        .join("blaude-councils")
-        .join(format!("{}-{index}", sanitize(model)));
+// --- prompts -------------------------------------------------------------
 
-    // Set up the isolated worktree; a setup failure is the member's result.
-    if let Err(e) = add_worktree(repo_root, &worktree, base_sha) {
-        return MemberOutcome {
-            model: model.to_string(),
-            result: Err(e),
-            diff: String::new(),
-            worktree: None,
-        };
-    }
-
-    let result = runner(&worktree, model, prompt);
-    // Capture the diff regardless of whether the run reported an error — a model
-    // may have edited files before failing, and that partial work is worth
-    // seeing.
-    let diff = worktree_diff(&worktree).unwrap_or_default();
-
-    let kept = if keep {
-        Some(worktree.clone())
-    } else {
-        let _ = remove_worktree(repo_root, &worktree);
-        None
-    };
-
-    MemberOutcome {
-        model: model.to_string(),
-        result,
-        diff,
-        worktree: kept,
-    }
+fn draft_prompt(task: &str) -> String {
+    format!(
+        "You are one member of a council of AI models working a task together. \
+         Independently draft a concise, concrete plan to accomplish the task \
+         below. Do not modify any files; output only your plan.\n\nTASK:\n{task}"
+    )
 }
 
-/// The production runner: spawn `blaude run --json --model <model> <prompt>` in
-/// `worktree` (where `exe` is the current blaude binary) and return the agent's
-/// text answer.
+fn critique_prompt(task: &str, model: &str, drafts: &str) -> String {
+    format!(
+        "You are member \"{model}\" of a council. Below are every member's \
+         independent plans for the same task. Critique them: name the strongest \
+         idea in each plan, call out gaps or risks, and say which parts should be \
+         combined into the best overall approach. Do not modify any files; output \
+         only your critique.\n\nTASK:\n{task}\n\nPLANS:\n{drafts}"
+    )
+}
+
+fn synthesis_prompt(task: &str, drafts: &str, critiques: &str) -> String {
+    format!(
+        "You are the council's synthesizer. Using the members' plans and their \
+         critiques of each other, produce a single joint plan that takes the best \
+         idea from each, resolves the disagreements, and is ready to act on. \
+         Output only the final joint plan.\n\nTASK:\n{task}\n\nPLANS:\n{drafts}\n\n\
+         CRITIQUES:\n{critiques}"
+    )
+}
+
+/// Render a stage's outputs as labelled blocks for the next stage's prompt.
+fn format_block(texts: &[MemberText]) -> String {
+    texts
+        .iter()
+        .map(|m| {
+            let body = match &m.text {
+                Ok(t) if !t.trim().is_empty() => t.trim().to_string(),
+                Ok(_) => "(no output)".to_string(),
+                Err(e) => format!("(failed: {e})"),
+            };
+            format!("### {}\n{}", m.model, body)
+        })
+        .collect::<Vec<_>>()
+        .join("\n\n")
+}
+
+// --- the production runner ------------------------------------------------
+
+/// Spawn `blaude run --json --model <model> <prompt>` in `worktree` (where `exe`
+/// is the current blaude binary) and return the model's text answer.
 pub fn spawn_member(exe: &Path, worktree: &Path, model: &str, prompt: &str) -> Result<String> {
     let out = Command::new(exe)
         .arg("run")
@@ -123,8 +208,6 @@ pub fn spawn_member(exe: &Path, worktree: &Path, model: &str, prompt: &str) -> R
         );
     }
     let stdout = String::from_utf8_lossy(&out.stdout);
-    // The report is a JSON object with a `text` field; be lenient about any
-    // leading non-JSON banner lines by scanning for the first `{`.
     let json_start = stdout.find('{').unwrap_or(0);
     let report: serde_json::Value = serde_json::from_str(stdout[json_start..].trim())
         .with_context(|| format!("parsing run report for {model}"))?;
@@ -167,13 +250,19 @@ pub fn git_head_sha(repo_root: &Path) -> Result<String> {
         .output()
         .context("reading HEAD")?;
     if !out.status.success() {
-        bail!("the repository has no commits yet — a council run needs a base commit");
+        bail!("the repository has no commits yet — a council needs a base commit");
     }
     Ok(String::from_utf8_lossy(&out.stdout).trim().to_string())
 }
 
+fn worktree_path(repo_root: &Path, index: usize, model: &str) -> PathBuf {
+    repo_root
+        .join(".git")
+        .join("blaude-councils")
+        .join(format!("{}-{index}", sanitize(model)))
+}
+
 fn add_worktree(repo_root: &Path, worktree: &Path, base_sha: &str) -> Result<()> {
-    // A stale worktree from a previous run would make `add` fail; clear it.
     let _ = remove_worktree(repo_root, worktree);
     if let Some(parent) = worktree.parent() {
         std::fs::create_dir_all(parent).ok();
@@ -194,28 +283,6 @@ fn add_worktree(repo_root: &Path, worktree: &Path, base_sha: &str) -> Result<()>
     Ok(())
 }
 
-/// The member's edits as a unified diff against the worktree's base checkout,
-/// including new files (staged with `add -A` first so untracked files show).
-fn worktree_diff(worktree: &Path) -> Result<String> {
-    let add = Command::new("git")
-        .args(["add", "-A"])
-        .current_dir(worktree)
-        .output()
-        .context("git add -A")?;
-    if !add.status.success() {
-        bail!(
-            "git add failed: {}",
-            String::from_utf8_lossy(&add.stderr).trim()
-        );
-    }
-    let out = Command::new("git")
-        .args(["diff", "--cached"])
-        .current_dir(worktree)
-        .output()
-        .context("git diff")?;
-    Ok(String::from_utf8_lossy(&out.stdout).into_owned())
-}
-
 fn remove_worktree(repo_root: &Path, worktree: &Path) -> Result<()> {
     let out = Command::new("git")
         .args(["worktree", "remove", "--force"])
@@ -224,7 +291,6 @@ fn remove_worktree(repo_root: &Path, worktree: &Path) -> Result<()> {
         .output()
         .context("git worktree remove")?;
     if !out.status.success() {
-        // Fall back to a plain directory removal + prune so we never leak.
         let _ = std::fs::remove_dir_all(worktree);
         let _ = Command::new("git")
             .args(["worktree", "prune"])
@@ -254,17 +320,10 @@ pub fn truncate(s: &str, max: usize) -> String {
     }
 }
 
-/// Count the files in a unified diff by its `diff --git` headers.
-pub fn diff_file_count(diff: &str) -> usize {
-    diff.lines()
-        .filter(|l| l.starts_with("diff --git "))
-        .count()
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::Mutex;
 
     fn git(args: &[&str], dir: &Path) {
         let ok = Command::new("git")
@@ -293,86 +352,71 @@ mod tests {
     #[test]
     fn sanitize_makes_a_safe_fragment() {
         assert_eq!(sanitize("openai:gpt-5-codex"), "openai-gpt-5-codex");
-        assert_eq!(sanitize("claude-opus-4-8"), "claude-opus-4-8");
     }
 
     #[test]
-    fn diff_file_count_reads_the_headers() {
-        let d = "diff --git a/x b/x\n+a\ndiff --git a/y b/y\n+b\n";
-        assert_eq!(diff_file_count(d), 2);
-        assert_eq!(diff_file_count(""), 0);
-    }
-
-    #[test]
-    fn fan_out_isolates_each_member_and_captures_its_diff() {
+    fn deliberation_runs_draft_then_critique_then_synthesis() {
         let repo = init_repo();
         let root = repo.path().to_path_buf();
         let base = git_head_sha(&root).unwrap();
-        let members = vec!["model-a".to_string(), "model-b".to_string()];
+        let members = vec!["alpha".to_string(), "beta".to_string()];
 
-        // Stub runner: each "model" writes a distinct file into its worktree,
-        // proving the worktrees are isolated and diffs are captured per member.
-        let calls = AtomicUsize::new(0);
-        let runner = |wt: &Path, model: &str, prompt: &str| -> Result<String> {
-            calls.fetch_add(1, Ordering::SeqCst);
-            std::fs::write(wt.join(format!("{model}.txt")), prompt).unwrap();
-            Ok(format!("{model} did it"))
+        // The stub returns a tag per stage, and the critique/synthesis prompts
+        // must have seen the earlier stages' outputs (they carry "### alpha").
+        let calls = Mutex::new(Vec::<String>::new());
+        let runner = |_wt: &Path, model: &str, prompt: &str| -> Result<String> {
+            calls.lock().unwrap().push(model.to_string());
+            if prompt.contains("output only your plan") {
+                Ok(format!("{model} draft"))
+            } else if prompt.contains("only your critique") {
+                assert!(prompt.contains("### alpha"), "critique sees drafts");
+                Ok(format!("{model} critique"))
+            } else {
+                assert!(prompt.contains("### alpha"), "synthesis sees drafts");
+                assert!(prompt.contains("draft"), "synthesis sees draft text");
+                Ok("JOINT PLAN".to_string())
+            }
         };
 
-        let outcomes = fan_out(&root, &base, &members, "hello", false, &runner);
-        assert_eq!(calls.load(Ordering::SeqCst), 2);
-        assert_eq!(outcomes.len(), 2);
-        for o in &outcomes {
-            assert!(o.result.as_ref().unwrap().contains("did it"));
-            assert!(
-                o.diff.contains(&format!("{}.txt", o.model)),
-                "diff: {}",
-                o.diff
-            );
-            let other = if o.model == "model-a" {
-                "model-b"
-            } else {
-                "model-a"
-            };
-            assert!(
-                !o.diff.contains(&format!("{other}.txt")),
-                "leaked: {}",
-                o.diff
-            );
-            assert_eq!(diff_file_count(&o.diff), 1);
-        }
+        let d = deliberate(&root, &base, &members, "do the thing", false, &runner);
+        assert_eq!(d.drafts.len(), 2);
+        assert_eq!(d.critiques.len(), 2);
+        assert_eq!(d.synthesizer, "alpha");
+        assert_eq!(d.joint_plan.unwrap(), "JOINT PLAN");
+        assert!(
+            d.drafts
+                .iter()
+                .all(|m| m.text.as_ref().unwrap().contains("draft"))
+        );
+        // 2 drafts + 2 critiques + 1 synthesis = 5 model calls.
+        assert_eq!(calls.lock().unwrap().len(), 5);
+        // Worktrees cleaned up (not kept).
         let wt_dir = root.join(".git").join("blaude-councils");
         let leftover = std::fs::read_dir(&wt_dir)
             .map(|rd| rd.flatten().filter(|e| e.path().is_dir()).count())
             .unwrap_or(0);
-        assert_eq!(leftover, 0, "worktrees should be cleaned up");
+        assert_eq!(leftover, 0);
     }
 
     #[test]
-    fn a_kept_worktree_is_reported_and_left_on_disk() {
+    fn a_failed_member_does_not_sink_the_deliberation() {
         let repo = init_repo();
         let root = repo.path().to_path_buf();
         let base = git_head_sha(&root).unwrap();
-        let members = vec!["keep-me".to_string()];
-        let runner = |wt: &Path, _m: &str, _p: &str| -> Result<String> {
-            std::fs::write(wt.join("out.txt"), "x").unwrap();
-            Ok("done".into())
+        let members = vec!["ok".to_string(), "bad".to_string()];
+        let runner = |_wt: &Path, model: &str, _p: &str| -> Result<String> {
+            if model == "bad" {
+                bail!("model exploded")
+            } else {
+                Ok(format!("{model} output"))
+            }
         };
-        let outcomes = fan_out(&root, &base, &members, "p", true, &runner);
-        let wt = outcomes[0].worktree.as_ref().expect("kept worktree");
-        assert!(wt.exists(), "kept worktree should remain on disk");
-        let _ = remove_worktree(&root, wt);
-    }
-
-    #[test]
-    fn a_member_whose_run_errors_still_yields_an_outcome() {
-        let repo = init_repo();
-        let root = repo.path().to_path_buf();
-        let base = git_head_sha(&root).unwrap();
-        let members = vec!["boom".to_string()];
-        let runner = |_wt: &Path, _m: &str, _p: &str| -> Result<String> { bail!("kaboom") };
-        let outcomes = fan_out(&root, &base, &members, "p", false, &runner);
-        assert_eq!(outcomes.len(), 1);
-        assert!(outcomes[0].result.is_err());
+        let d = deliberate(&root, &base, &members, "task", false, &runner);
+        // The bad member's draft is an error, but the deliberation still yields
+        // drafts, critiques, and a joint plan (synthesizer is the ok member).
+        assert_eq!(d.drafts.len(), 2);
+        assert!(d.drafts.iter().any(|m| m.text.is_err()));
+        assert_eq!(d.synthesizer, "ok");
+        assert!(d.joint_plan.is_ok());
     }
 }

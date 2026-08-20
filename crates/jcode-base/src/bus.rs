@@ -189,23 +189,28 @@ pub struct ModelRefreshCompleted {
     pub result: std::result::Result<jcode_provider_core::ModelCatalogRefreshSummary, String>,
 }
 
-/// One council member's contribution to an interactive council turn.
+/// One model's text output in a council stage (a draft or a critique).
 #[derive(Clone, Debug)]
-pub struct CouncilMemberResult {
+pub struct CouncilMemberText {
     pub model: String,
-    /// The model's text answer, or a failure message.
-    pub answer: std::result::Result<String, String>,
-    /// How many files it changed in its isolated worktree.
-    pub files_changed: usize,
+    /// The model's text, or a failure message.
+    pub text: std::result::Result<String, String>,
 }
 
-/// A council fan-out started from interactive council mode finished off the UI
-/// thread; carries each member's proposal back for rendering.
+/// A council deliberation started from interactive council mode finished off the
+/// UI thread; carries the drafts, critiques, and the synthesized joint plan.
 #[derive(Clone, Debug)]
 pub struct CouncilTurnCompleted {
     pub session_id: String,
     pub council: String,
-    pub members: Vec<CouncilMemberResult>,
+    /// Stage 1: each member's independent plan.
+    pub drafts: Vec<CouncilMemberText>,
+    /// Stage 2: each member's critique of the drafts.
+    pub critiques: Vec<CouncilMemberText>,
+    /// Which model synthesized the joint plan.
+    pub synthesizer: String,
+    /// Stage 3: the joint plan.
+    pub joint_plan: std::result::Result<String, String>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

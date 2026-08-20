@@ -1146,9 +1146,10 @@ impl App {
                 let members = council.members.join(", ");
                 self.active_council = Some(council);
                 self.push_display_message(DisplayMessage::system(format!(
-                    "⚖ Council mode: {label} ({members}).\nYour next prompt fans out to every \
-                     member — each answers in its own git worktree — and you'll see all their \
-                     proposals. `/council off` (or pick a single model) to leave."
+                    "⚖ Council mode: {label} ({members}).\nYour next prompt goes to the whole \
+                     council: each model drafts a plan independently, they critique each other, \
+                     and one joint plan is synthesized from the best of each. `/council off` (or \
+                     pick a single model) to leave."
                 )));
                 self.set_status_notice(format!("Council → {label}"));
             }
@@ -1224,17 +1225,18 @@ impl App {
         };
 
         self.push_display_message(DisplayMessage::system(format!(
-            "⚖ Dispatching to council “{}” ({} models, each in its own worktree)…",
+            "⚖ Council “{}” ({} models): drafting independently, then critiquing \
+             and synthesizing a joint plan…",
             council.name,
             council.members.len()
         )));
-        self.set_status_notice(format!("Council “{}” running…", council.name));
+        self.set_status_notice(format!("Council “{}” deliberating…", council.name));
 
         std::thread::spawn(move || {
             let runner = |wt: &std::path::Path, model: &str, p: &str| {
                 jcode_storage::council_run::spawn_member(&exe, wt, model, p)
             };
-            let outcomes = jcode_storage::council_run::fan_out(
+            let d = jcode_storage::council_run::deliberate(
                 &repo_root,
                 &base_sha,
                 &council.members,
@@ -1242,26 +1244,29 @@ impl App {
                 false,
                 &runner,
             );
-            let members = outcomes
-                .into_iter()
-                .map(|o| crate::bus::CouncilMemberResult {
-                    files_changed: jcode_storage::council_run::diff_file_count(&o.diff),
-                    model: o.model,
-                    answer: o.result.map_err(|e| e.to_string()),
-                })
-                .collect();
+            let to_texts = |v: Vec<jcode_storage::council_run::MemberText>| {
+                v.into_iter()
+                    .map(|m| crate::bus::CouncilMemberText {
+                        model: m.model,
+                        text: m.text.map_err(|e| e.to_string()),
+                    })
+                    .collect()
+            };
             crate::bus::Bus::global().publish(crate::bus::BusEvent::CouncilTurnCompleted(
                 crate::bus::CouncilTurnCompleted {
                     session_id,
                     council: council.name,
-                    members,
+                    drafts: to_texts(d.drafts),
+                    critiques: to_texts(d.critiques),
+                    synthesizer: d.synthesizer,
+                    joint_plan: d.joint_plan.map_err(|e| e.to_string()),
                 },
             ));
         });
     }
 
-    /// Render a finished council turn: each member's answer and how many files it
-    /// changed, with a pointer to the full diffs.
+    /// Render a finished council deliberation: each member's draft and critique,
+    /// then the synthesized joint plan.
     pub(super) fn handle_council_turn_completed(
         &mut self,
         result: crate::bus::CouncilTurnCompleted,
@@ -1270,23 +1275,30 @@ impl App {
         if result.session_id != self.session.id {
             return;
         }
-        for m in &result.members {
-            let mut body = format!("━━━ ⚖ {} ━━━\n", m.model);
-            match &m.answer {
+        let render = |label: &str, m: &crate::bus::CouncilMemberText| {
+            let mut body = format!("━━━ {label}: {} ━━━\n", m.model);
+            match &m.text {
                 Ok(text) if !text.trim().is_empty() => body.push_str(text.trim()),
-                Ok(_) => body.push_str("(no text answer)"),
+                Ok(_) => body.push_str("(no output)"),
                 Err(e) => body.push_str(&format!("⚠ failed: {e}")),
             }
-            if m.files_changed > 0 {
-                body.push_str(&format!("\n\n({} file(s) changed)", m.files_changed));
-            }
+            body
+        };
+        for m in &result.drafts {
+            let body = render("draft", m);
             self.push_display_message(DisplayMessage::system(body));
         }
-        self.push_display_message(DisplayMessage::system(format!(
-            "Council “{}” done. Compare the proposals above; run \
-             `blaude council run {} \"<prompt>\" --keep` to inspect full diffs in worktrees.",
-            result.council, result.council
-        )));
+        for m in &result.critiques {
+            let body = render("critique", m);
+            self.push_display_message(DisplayMessage::system(body));
+        }
+        let mut joint = format!("═══ ⚖ joint plan (synthesized by {}) ═══\n", result.synthesizer);
+        match &result.joint_plan {
+            Ok(text) if !text.trim().is_empty() => joint.push_str(text.trim()),
+            Ok(_) => joint.push_str("(no joint plan produced)"),
+            Err(e) => joint.push_str(&format!("⚠ synthesis failed: {e}")),
+        }
+        self.push_display_message(DisplayMessage::system(joint));
         self.set_status_notice(format!("Council “{}” done", result.council));
     }
 
