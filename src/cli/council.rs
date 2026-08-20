@@ -18,6 +18,7 @@ pub(crate) fn run(cmd: CouncilCommand) -> Result<()> {
         CouncilCommand::Rename { from, to } => rename(&from, to),
         CouncilCommand::SetMembers { name, models } => set_members(&name, models),
         CouncilCommand::Delete { name } => delete(&name),
+        CouncilCommand::Run { name, prompt, keep } => super::council_run::run(&name, &prompt, keep),
     }
 }
 

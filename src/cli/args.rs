@@ -613,6 +613,17 @@ pub(crate) enum CouncilCommand {
         /// Council name
         name: String,
     },
+    /// Fan a prompt out to every model in a council — each in its own git
+    /// worktree — and show their proposals and diffs side by side.
+    Run {
+        /// Council name
+        name: String,
+        /// The prompt to send to every member
+        prompt: String,
+        /// Keep the per-member git worktrees instead of removing them after.
+        #[arg(long)]
+        keep: bool,
+    },
 }
 
 #[derive(Subcommand, Debug)]
