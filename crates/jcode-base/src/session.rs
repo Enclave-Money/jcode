@@ -153,6 +153,11 @@ pub struct Session {
     /// Working directory (for self-dev detection)
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub working_dir: Option<String>,
+    /// Extra working directories granted via `/add-dir` (Claude-Code-style
+    /// multi-root sessions). Additive to `working_dir`, surfaced to the model
+    /// through the session context and mid-session reminders.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub additional_dirs: Vec<String>,
     /// Memorable short name (e.g., "fox", "oak")
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub short_name: Option<String>,
@@ -750,6 +755,7 @@ impl Session {
             is_canary: false,
             testing_build: None,
             working_dir: current_working_dir_string(),
+            additional_dirs: Vec::new(),
             short_name,
             status: SessionStatus::Active,
             last_pid: Some(std::process::id()),
@@ -804,6 +810,7 @@ impl Session {
             is_canary: false,
             testing_build: None,
             working_dir: current_working_dir_string(),
+            additional_dirs: Vec::new(),
             short_name: Some(short_name),
             status: SessionStatus::Active,
             last_pid: Some(std::process::id()),
@@ -848,6 +855,24 @@ impl Session {
     pub fn unmark_saved(&mut self) {
         self.saved = false;
         self.save_label = None;
+    }
+
+    /// Grant an extra working directory (from `/add-dir`). Returns `false`
+    /// when the directory is already covered (the primary working dir or a
+    /// previously added one), so callers can skip the no-op save + reminder.
+    pub fn add_additional_dir(&mut self, dir: &str) -> bool {
+        let dir = dir.trim_end_matches('/');
+        let already = self.working_dir.as_deref().map(|w| w.trim_end_matches('/')) == Some(dir)
+            || self
+                .additional_dirs
+                .iter()
+                .any(|d| d.trim_end_matches('/') == dir);
+        if already {
+            return false;
+        }
+        self.additional_dirs.push(dir.to_string());
+        self.updated_at = Utc::now();
+        true
     }
 
     /// Set or clear the user-provided display title.
@@ -918,8 +943,10 @@ impl Session {
             self.working_dir = current_working_dir_string();
         }
 
-        let context =
-            crate::prompt::build_session_context(self.working_dir.as_deref().map(Path::new));
+        let context = crate::prompt::build_session_context(
+            self.working_dir.as_deref().map(Path::new),
+            &self.additional_dirs,
+        );
         let wrapped = format!("<system-reminder>\n{}\n</system-reminder>", context.trim());
         self.add_message_with_display_role(
             Role::User,
@@ -950,8 +977,10 @@ impl Session {
             return false;
         };
 
-        let context =
-            crate::prompt::build_session_context(self.working_dir.as_deref().map(Path::new));
+        let context = crate::prompt::build_session_context(
+            self.working_dir.as_deref().map(Path::new),
+            &self.additional_dirs,
+        );
         let wrapped = format!("<system-reminder>\n{}\n</system-reminder>", context.trim());
         for block in &mut message.content {
             if let ContentBlock::Text { text, .. } = block

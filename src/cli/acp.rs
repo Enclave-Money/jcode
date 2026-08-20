@@ -238,8 +238,9 @@ impl DaemonSession {
         if n == 0 {
             anyhow::bail!("blaude daemon disconnected");
         }
-        let event = serde_json::from_str(&line)
-            .with_context(|| format!("failed to decode blaude daemon event: {}", line.trim_end()))?;
+        let event = serde_json::from_str(&line).with_context(|| {
+            format!("failed to decode blaude daemon event: {}", line.trim_end())
+        })?;
         Ok(event)
     }
 }

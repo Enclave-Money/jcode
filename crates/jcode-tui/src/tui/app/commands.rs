@@ -2743,6 +2743,110 @@ pub(super) fn format_todo_completion_confidence(summary: TodoConfidenceSummary) 
         .unwrap_or_else(|| "unknown".to_string())
 }
 
+/// `/add-dir <path>` — grant this session an extra working directory, the way
+/// Claude Code's `/add-dir` does. Bare `/add-dir` lists the directories the
+/// session can already use. The directory is persisted on the session, folded
+/// into the session context for future turns, and announced to the model with
+/// a system reminder so it is usable mid-conversation.
+pub(super) fn handle_add_dir_command(app: &mut App, trimmed: &str) -> bool {
+    if trimmed != "/add-dir" && !trimmed.starts_with("/add-dir ") {
+        return false;
+    }
+    let arg = trimmed.strip_prefix("/add-dir").unwrap_or_default().trim();
+
+    if arg.is_empty() {
+        let mut lines = vec!["Directories this session can work in:".to_string()];
+        match app.session.working_dir.as_deref() {
+            Some(dir) => lines.push(format!("  {dir} (primary)")),
+            None => lines.push("  (no primary working directory)".to_string()),
+        }
+        for dir in &app.session.additional_dirs {
+            lines.push(format!("  {dir}"));
+        }
+        lines.push("Add another with /add-dir <path>.".to_string());
+        app.push_display_message(DisplayMessage::system(lines.join("\n")));
+        return true;
+    }
+
+    // `~` and relative paths resolve the way the user expects from a shell:
+    // against $HOME and the session's working directory respectively.
+    let expanded = if arg == "~" {
+        dirs::home_dir().unwrap_or_else(|| PathBuf::from(arg))
+    } else if let Some(rest) = arg.strip_prefix("~/") {
+        dirs::home_dir()
+            .map(|home| home.join(rest))
+            .unwrap_or_else(|| PathBuf::from(arg))
+    } else {
+        PathBuf::from(arg)
+    };
+    let resolved = if expanded.is_absolute() {
+        expanded
+    } else {
+        app.session
+            .working_dir
+            .as_deref()
+            .map(PathBuf::from)
+            .or_else(|| std::env::current_dir().ok())
+            .unwrap_or_default()
+            .join(expanded)
+    };
+    // Canonicalize so `..`/symlink spellings of the same directory dedup, but
+    // keep the resolved spelling if canonicalization fails (e.g. permissions).
+    let resolved = resolved.canonicalize().unwrap_or(resolved);
+
+    if !resolved.is_dir() {
+        app.push_display_message(DisplayMessage::error(format!(
+            "{} is not a directory.",
+            resolved.display()
+        )));
+        return true;
+    }
+
+    let display = resolved.display().to_string();
+    if !app.session.add_additional_dir(&display) {
+        app.push_display_message(DisplayMessage::system(format!(
+            "{display} is already one of this session's working directories."
+        )));
+        return true;
+    }
+
+    // Tell the model now, not just on the next session-context rebuild.
+    let reminder = format!(
+        "<system-reminder>\nAdded additional working directory: {display}\nTreat it as part of the workspace alongside the primary working directory, which is unchanged.\n</system-reminder>"
+    );
+    if !app.is_processing {
+        app.add_provider_message(Message {
+            role: Role::User,
+            content: vec![ContentBlock::Text {
+                text: reminder.clone(),
+                cache_control: None,
+            }],
+            timestamp: Some(chrono::Utc::now()),
+            tool_duration_ms: None,
+        });
+    }
+    app.session.add_message_with_display_role(
+        Role::User,
+        vec![ContentBlock::Text {
+            text: reminder,
+            cache_control: None,
+        }],
+        Some(crate::session::StoredDisplayRole::System),
+    );
+    if let Err(e) = app.session.save() {
+        app.push_display_message(DisplayMessage::error(format!(
+            "Failed to save session: {e}"
+        )));
+        return true;
+    }
+
+    app.push_display_message(DisplayMessage::system(format!(
+        "Added {display} as a working directory."
+    )));
+    app.set_status_notice("Directory added");
+    true
+}
+
 pub(super) fn active_working_dir(app: &App) -> Option<std::path::PathBuf> {
     app.session
         .working_dir

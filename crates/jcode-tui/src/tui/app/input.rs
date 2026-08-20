@@ -3664,6 +3664,21 @@ impl App {
             return;
         }
 
+        if let Some(members) = self.pending_council_name.take() {
+            // A slash command (or something clearly a chat message, not a
+            // name) aborts the capture instead of becoming a council named
+            // "/model" or a whole sentence. Everything else is the name.
+            let aborted = input.trim_start().starts_with('/') || input.trim().len() > 60;
+            if aborted {
+                self.push_display_message(DisplayMessage::system(
+                    "Council creation cancelled.".to_string(),
+                ));
+            } else {
+                self.handle_pending_council_name(members, input);
+                return;
+            }
+        }
+
         let trimmed = input.trim();
         let handled = super::commands_dispatch::dispatch_local_command(self, trimmed);
         if handled {

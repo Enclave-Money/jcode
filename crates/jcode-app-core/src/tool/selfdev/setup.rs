@@ -108,8 +108,9 @@ impl SelfDevTool {
                         repo_dir = Some(path);
                     }
                     Err(err) => {
-                        clone_note =
-                            Some(format!("Could not clone blaude source automatically: {err}",));
+                        clone_note = Some(format!(
+                            "Could not clone blaude source automatically: {err}",
+                        ));
                     }
                 }
             }

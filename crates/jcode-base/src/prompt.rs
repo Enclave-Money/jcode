@@ -707,7 +707,7 @@ fn build_selfdev_prompt_for_context(context: SelfDevProductContext) -> String {
 }
 
 /// Build immutable session context captured once per session.
-pub fn build_session_context(working_dir: Option<&Path>) -> String {
+pub fn build_session_context(working_dir: Option<&Path>, additional_dirs: &[String]) -> String {
     let mut lines = vec!["# Session Context".to_string()];
 
     let now_utc = chrono::Utc::now();
@@ -732,6 +732,12 @@ pub fn build_session_context(working_dir: Option<&Path>) -> String {
         if let Some(git_info) = get_git_info(Some(cwd)) {
             lines.push(git_info);
         }
+    }
+    if !additional_dirs.is_empty() {
+        lines.push(format!(
+            "Additional working directories (added via /add-dir): {}",
+            additional_dirs.join(", ")
+        ));
     }
 
     lines.join("\n")

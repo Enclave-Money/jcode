@@ -21,7 +21,19 @@ fn display_message_from_stored_message(
         return None;
     }
     match message.display_role {
-        Some(crate::session::StoredDisplayRole::System) => Some(DisplayMessage::system(text)),
+        Some(crate::session::StoredDisplayRole::System) => {
+            // The /add-dir reminder is written for the model; the user only
+            // needs the one-line effect, not the raw <system-reminder> tags.
+            if let Some(rest) =
+                text.strip_prefix("<system-reminder>\nAdded additional working directory: ")
+            {
+                let dir = rest.lines().next().unwrap_or_default().to_string();
+                return Some(DisplayMessage::system(format!(
+                    "Added {dir} as a working directory."
+                )));
+            }
+            Some(DisplayMessage::system(text))
+        }
         Some(crate::session::StoredDisplayRole::BackgroundTask) => None,
         None => match message.role {
             Role::User => {

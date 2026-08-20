@@ -588,7 +588,7 @@ fn list_councils(app: &mut App) {
     let active = app.active_council_clone().map(|c| c.name);
     let mut lines = Vec::new();
     if councils.is_empty() {
-        lines.push("No councils yet. Create one with:".to_string());
+        lines.push("No councils yet. Create one from /model (“⚖ New council…”), or:".to_string());
         lines.push("  blaude council create <name> <model-a> <model-b> [model-c]".to_string());
     } else {
         lines.push("Councils (pick one from /model, or `/council use <name>`):".to_string());
@@ -613,6 +613,59 @@ fn list_councils(app: &mut App) {
 /// One picker row per saved council, for the top of the `/model` picker. The
 /// row carries a single benign option (so the picker's option navigation is
 /// happy) and a `Council` action that turns council mode on when selected.
+/// The check mark a builder-selected model row wears in the `/model` picker.
+const COUNCIL_BUILDER_MARK: &str = "✓ ";
+
+/// Label for the "New council…" row, reflecting the builder's draft state.
+fn council_create_row_label(builder: Option<&[String]>) -> String {
+    match builder {
+        None => "⚖ New council…".to_string(),
+        Some(members) => format!(
+            "⚖ Save council ({}/{} picked)",
+            members.len(),
+            jcode_storage::councils::MAX_MEMBERS
+        ),
+    }
+}
+
+fn council_create_row_detail(builder: Option<&[String]>) -> String {
+    match builder {
+        None => format!(
+            "build a {}–{} model panel right here",
+            jcode_storage::councils::MIN_MEMBERS,
+            jcode_storage::councils::MAX_MEMBERS
+        ),
+        Some(members) if members.is_empty() => "Enter on model rows toggles members".to_string(),
+        Some(members) => members.join(" + "),
+    }
+}
+
+/// The "New council…" picker row that starts (and later saves) the in-picker
+/// council builder.
+fn council_create_row(builder: Option<&[String]>) -> PickerEntry {
+    PickerEntry {
+        name: council_create_row_label(builder),
+        options: vec![PickerOption {
+            provider: "council".to_string(),
+            api_method: "council".to_string(),
+            available: true,
+            detail: council_create_row_detail(builder),
+            estimated_reference_cost_micros: None,
+        }],
+        action: PickerAction::CouncilCreate,
+        selected_option: 0,
+        is_current: false,
+        is_default: false,
+        is_favorite: false,
+        recommended: false,
+        recommendation_rank: 0,
+        usage_score: 0,
+        old: false,
+        created_date: None,
+        effort: None,
+    }
+}
+
 fn council_picker_entries(active: Option<&str>) -> Vec<PickerEntry> {
     let councils = match jcode_storage::councils::Councils::load() {
         Ok(c) => c,
@@ -1127,11 +1180,159 @@ impl App {
         }
         let active = self.active_council.as_ref().map(|c| c.name.clone());
         let mut out = council_picker_entries(active.as_deref());
-        if out.is_empty() {
-            return entries;
-        }
+        // Saved councils first, then the create row, then the model routes —
+        // so `/model` still opens with a real selection highlighted, and
+        // council creation is one row away (also when no councils exist yet).
+        out.push(council_create_row(self.council_builder.as_deref()));
         out.extend(entries);
         out
+    }
+
+    /// Enter on the "New council…" `/model` row: arm the builder, or — once
+    /// 2–3 models are picked — close the picker and ask for a name.
+    fn handle_council_create_row(&mut self) {
+        match self.council_builder.clone() {
+            None => {
+                self.council_builder = Some(Vec::new());
+                self.refresh_council_create_row();
+                self.set_status_notice(format!(
+                    "Council builder: Enter toggles models (pick {}–{}), then Enter here to save",
+                    jcode_storage::councils::MIN_MEMBERS,
+                    jcode_storage::councils::MAX_MEMBERS
+                ));
+            }
+            Some(members) if members.len() < jcode_storage::councils::MIN_MEMBERS => {
+                self.set_status_notice(format!(
+                    "Pick at least {} models first (Enter toggles them)",
+                    jcode_storage::councils::MIN_MEMBERS
+                ));
+            }
+            Some(members) => {
+                self.council_builder = None;
+                self.inline_interactive_state = None;
+                self.push_display_message(DisplayMessage::system(format!(
+                    "New council: {}.\nType a name for it and press Enter (empty cancels).",
+                    members.join(" + ")
+                )));
+                self.pending_council_name = Some(members);
+                self.set_status_notice("Name the council");
+            }
+        }
+    }
+
+    /// Toggle the model row at `idx` in or out of the draft council, keeping
+    /// the row's check mark and the create-row counter in sync.
+    fn toggle_council_builder_member(&mut self, idx: usize) {
+        let max = jcode_storage::councils::MAX_MEMBERS;
+        enum Toggled {
+            Added(usize),
+            Removed(usize),
+            Full,
+        }
+        let outcome = {
+            let Some(members) = self.council_builder.as_mut() else {
+                return;
+            };
+            let Some(picker) = self.inline_interactive_state.as_mut() else {
+                return;
+            };
+            let Some(entry) = picker.entries.get_mut(idx) else {
+                return;
+            };
+            if let Some(unmarked) = entry.name.strip_prefix(COUNCIL_BUILDER_MARK) {
+                entry.name = unmarked.to_string();
+                let model = model_entry_base_name(entry);
+                members.retain(|m| m != &model);
+                Toggled::Removed(members.len())
+            } else {
+                let model = model_entry_base_name(entry);
+                if let Some(pos) = members.iter().position(|m| m == &model) {
+                    // The same model reached via another route row.
+                    members.remove(pos);
+                    Toggled::Removed(members.len())
+                } else if members.len() >= max {
+                    Toggled::Full
+                } else {
+                    members.push(model);
+                    entry.name = format!("{COUNCIL_BUILDER_MARK}{}", entry.name);
+                    Toggled::Added(members.len())
+                }
+            }
+        };
+        match outcome {
+            Toggled::Full => {
+                self.set_status_notice(format!("A council holds at most {max} models"));
+            }
+            Toggled::Added(count) | Toggled::Removed(count) => {
+                self.refresh_council_create_row();
+                self.set_status_notice(format!(
+                    "Council draft: {count}/{max} picked — Enter on the save row when done"
+                ));
+            }
+        }
+    }
+
+    /// Re-render the "New council…"/"Save council" row from the builder state.
+    fn refresh_council_create_row(&mut self) {
+        let label = council_create_row_label(self.council_builder.as_deref());
+        let detail = council_create_row_detail(self.council_builder.as_deref());
+        if let Some(picker) = self.inline_interactive_state.as_mut() {
+            for entry in &mut picker.entries {
+                if matches!(entry.action, PickerAction::CouncilCreate) {
+                    entry.name = label.clone();
+                    if let Some(option) = entry.options.first_mut() {
+                        option.detail = detail.clone();
+                    }
+                }
+            }
+        }
+    }
+
+    /// The input submitted right after the builder closed is the new council's
+    /// name: create, persist, and activate it.
+    pub(super) fn handle_pending_council_name(&mut self, members: Vec<String>, input: String) {
+        let name = input.trim().to_string();
+        if name.is_empty() || name.eq_ignore_ascii_case("cancel") {
+            self.push_display_message(DisplayMessage::system(
+                "Council creation cancelled.".to_string(),
+            ));
+            self.set_status_notice("Council cancelled");
+            return;
+        }
+        let mut councils = match jcode_storage::councils::Councils::load() {
+            Ok(c) => c,
+            Err(e) => {
+                self.push_display_message(DisplayMessage::error(format!(
+                    "Failed to load councils: {e}"
+                )));
+                return;
+            }
+        };
+        match councils.create(name.clone(), members.clone()) {
+            Ok(_) => match councils.save() {
+                Ok(()) => {
+                    self.push_display_message(DisplayMessage::system(format!(
+                        "Created council “{name}” ({}).",
+                        members.join(" + ")
+                    )));
+                    self.activate_council(&name);
+                }
+                Err(e) => {
+                    self.push_display_message(DisplayMessage::error(format!(
+                        "Failed to save council: {e}"
+                    )));
+                }
+            },
+            Err(e) => {
+                // A bad name (taken, blank) should not throw the picks away:
+                // re-arm the capture so the user can just type another name.
+                self.pending_council_name = Some(members);
+                self.push_display_message(DisplayMessage::error(format!(
+                    "{e}. Type another name (empty cancels)."
+                )));
+                self.set_status_notice("Pick another council name");
+            }
+        }
     }
 
     /// Turn council mode on (from the `/model` picker or `/council use`): load
@@ -1343,6 +1544,8 @@ impl App {
     }
 
     fn open_model_picker_inner(&mut self, preserve_input: bool) {
+        // A fresh `/model` always starts outside the council builder.
+        self.council_builder = None;
         let picker_started = std::time::Instant::now();
         const RECENT_AUTH_BOOST_TTL: std::time::Duration = std::time::Duration::from_secs(5 * 60);
         if self
@@ -3384,6 +3587,7 @@ impl App {
                     return Ok(());
                 }
                 self.inline_interactive_state = None;
+                self.council_builder = None;
             }
             KeyCode::Up | KeyCode::Char('k') => {
                 let vim_nav = self
@@ -3597,6 +3801,20 @@ impl App {
                 let idx = picker.filtered[picker.selected];
                 let entry = picker.entries[idx].clone();
 
+                // The "New council…" row drives the in-picker council builder:
+                // first Enter arms it, Enter again (with 2–3 picks) saves.
+                if matches!(entry.action, PickerAction::CouncilCreate) {
+                    self.handle_council_create_row();
+                    return Ok(());
+                }
+
+                // While the builder is armed, Enter on a model row toggles it
+                // in or out of the draft instead of switching models.
+                if self.council_builder.is_some() && matches!(entry.action, PickerAction::Model) {
+                    self.toggle_council_builder_member(idx);
+                    return Ok(());
+                }
+
                 // A council row turns council mode on and closes the picker —
                 // handled before the route logic, since it has no real route.
                 if let PickerAction::Council { name } = &entry.action {
@@ -3704,7 +3922,7 @@ impl App {
                             }
                         }
                     }
-                    PickerAction::Council { .. } => {
+                    PickerAction::Council { .. } | PickerAction::CouncilCreate => {
                         // Handled above, before the route logic.
                         return Ok(());
                     }

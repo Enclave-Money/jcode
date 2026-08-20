@@ -287,7 +287,7 @@ fn agents_md_symlink_alias_is_deduplicated_by_canonical_file_path() {
 
 #[test]
 fn test_session_context_includes_time_timezone_and_system_info() {
-    let context = build_session_context(None);
+    let context = build_session_context(None, &[]);
     assert!(context.contains("# Session Context"));
     assert!(context.contains("Time: "));
     assert!(context.contains("Timezone: UTC"));

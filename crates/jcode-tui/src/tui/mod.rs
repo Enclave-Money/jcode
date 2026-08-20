@@ -1220,6 +1220,9 @@ pub enum PickerAction {
     Council {
         name: String,
     },
+    /// The "New council…" row — first Enter starts the in-picker council
+    /// builder (model rows toggle membership), second Enter saves the draft.
+    CouncilCreate,
     Account(AccountPickerAction),
     Login(crate::provider_catalog::LoginProviderDescriptor),
     Logout(crate::provider_catalog::LoginProviderDescriptor),
@@ -1276,6 +1279,7 @@ impl InlineInteractiveState {
 fn estimate_picker_action_bytes(action: &PickerAction) -> usize {
     match action {
         PickerAction::Model
+        | PickerAction::CouncilCreate
         | PickerAction::AgentTarget(_)
         | PickerAction::AgentModelChoice { .. }
         | PickerAction::LogoutAll => 0,

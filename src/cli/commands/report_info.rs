@@ -687,7 +687,10 @@ mod tests {
         assert_eq!(before_doctor_provider.status, "not_configured");
         assert!(before_doctor_provider.needs_attention);
         assert!(before_doctor_provider.diagnostics.iter().any(|line| {
-            line == &format!("{} is not configured for blaude yet.", provider.display_name)
+            line == &format!(
+                "{} is not configured for blaude yet.",
+                provider.display_name
+            )
         }));
         assert!(
             before_doctor_provider

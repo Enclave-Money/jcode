@@ -1373,8 +1373,8 @@ impl BridgeState {
     }
 
     fn save_archive_state(state: &ArchiveState) -> Result<(), String> {
-        let path =
-            Self::archive_state_path().ok_or_else(|| "could not resolve blaude home".to_string())?;
+        let path = Self::archive_state_path()
+            .ok_or_else(|| "could not resolve blaude home".to_string())?;
         let parent = path
             .parent()
             .ok_or_else(|| "invalid archive path".to_string())?;

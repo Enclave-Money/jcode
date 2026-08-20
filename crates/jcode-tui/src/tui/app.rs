@@ -838,6 +838,12 @@ pub struct App {
     /// models (each in its own git worktree) instead of a single-model turn.
     /// Chosen from the `/model` picker or `/council use`.
     active_council: Option<jcode_storage::councils::Council>,
+    /// While `Some`, the `/model` picker is in council-builder mode: Enter on
+    /// model rows toggles membership in this draft council.
+    council_builder: Option<Vec<String>>,
+    /// Members captured from the council builder, waiting for the name the
+    /// user types next (consumed by the next input submit).
+    pending_council_name: Option<Vec<String>>,
     display_messages: Vec<DisplayMessage>,
     display_messages_version: u64,
     display_user_message_count: usize,

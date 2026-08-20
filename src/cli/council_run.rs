@@ -9,7 +9,7 @@ use std::path::Path;
 use anyhow::{Context, Result};
 
 use jcode_storage::council_run::{
-    deliberate, git_head_sha, git_repo_root, spawn_member, truncate, Deliberation, MemberText,
+    Deliberation, MemberText, deliberate, git_head_sha, git_repo_root, spawn_member, truncate,
 };
 use jcode_storage::councils::Councils;
 

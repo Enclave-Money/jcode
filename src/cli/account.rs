@@ -81,7 +81,9 @@ pub(crate) async fn run_logout() -> Result<()> {
 
     match (api_key.is_some(), remote) {
         (false, _) => {
-            println!("No local blaude account credential was present. Local account cache is clear.")
+            println!(
+                "No local blaude account credential was present. Local account cache is clear."
+            )
         }
         (true, Ok(())) => println!(
             "blaude account key revoked. Local credentials and account cache were securely cleared."

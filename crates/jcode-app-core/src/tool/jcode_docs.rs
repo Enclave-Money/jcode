@@ -169,7 +169,8 @@ fn search(query: &str, limit: Option<usize>) -> String {
     matches
         .sort_by_key(|(score, section)| (Reverse(*score), section.path, section.heading.clone()));
     let limit = limit.unwrap_or(DEFAULT_LIMIT).clamp(1, MAX_LIMIT);
-    let mut output = format!("blaude docs results for {query:?} (bundled with this blaude build):\n");
+    let mut output =
+        format!("blaude docs results for {query:?} (bundled with this blaude build):\n");
     for (index, (_, section)) in matches.into_iter().take(limit).enumerate() {
         let excerpt = relevant_excerpt(&section.body, &terms);
         output.push_str(&format!(
