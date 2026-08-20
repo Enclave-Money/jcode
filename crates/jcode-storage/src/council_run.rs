@@ -220,6 +220,12 @@ pub fn spawn_member(exe: &Path, worktree: &Path, model: &str, prompt: &str) -> R
 
 // --- git helpers ---------------------------------------------------------
 
+/// The git repository root of the current directory, or an error if not in one.
+pub fn git_repo_root() -> Result<PathBuf> {
+    let dir = std::env::current_dir().context("resolving the current directory")?;
+    git_repo_root_from(&dir)
+}
+
 /// The git repository root containing `dir` — used by the TUI, whose process cwd
 /// may not be the session's working directory.
 pub fn git_repo_root_from(dir: &Path) -> Result<PathBuf> {
