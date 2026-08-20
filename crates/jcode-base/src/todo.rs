@@ -278,7 +278,8 @@ pub fn build_todo_ownership_continuation_message(todos: &[TodoItem], goals: &[To
 const LEGACY_TODO_OWNERSHIP_CONTINUATION_MESSAGE: &str = "[automated todo completion gate - not a user message] Your end-to-end ownership is not high enough to finish this goal.";
 
 /// Model-facing continuation for private completion-confidence checks.
-pub const TODO_COMPLETION_CONTINUATION_MESSAGE: &str = "[automated follow-up - not a user message] Do more validation on the work below. Keep the todo up to date; do not reply or wait for the user.";
+pub const TODO_COMPLETION_CONTINUATION_MESSAGE: &str = "[automated follow-up - not a user message] Do more validation on the work below: its completion confidence is missing or not yet independently validated. Keep the todo up to date; do not reply or wait for the user.";
+const LEGACY_TODO_COMPLETION_CONTINUATION_MESSAGE_V2: &str = "[automated follow-up - not a user message] Do more validation on the work below. Keep the todo up to date; do not reply or wait for the user.";
 
 /// Model-facing continuation requesting an independent recheck without saying
 /// why the private evaluator selected it.
@@ -742,6 +743,7 @@ pub fn is_auto_poke_message(message: &str) -> bool {
         || trimmed.starts_with(TODO_OWNERSHIP_CONTINUATION_MESSAGE)
         || trimmed.starts_with(LEGACY_TODO_OWNERSHIP_CONTINUATION_MESSAGE)
         || trimmed.starts_with(TODO_COMPLETION_CONTINUATION_MESSAGE)
+        || trimmed.starts_with(LEGACY_TODO_COMPLETION_CONTINUATION_MESSAGE_V2)
         || trimmed.starts_with(TODO_CONFIDENCE_SPIKE_CONTINUATION_MESSAGE)
         || trimmed.starts_with(TODO_FINAL_RESPONSE_CONTINUATION_MESSAGE)
         || trimmed.starts_with(LEGACY_TODO_COMPLETION_CONTINUATION_MESSAGE)

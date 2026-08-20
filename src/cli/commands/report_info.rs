@@ -188,7 +188,11 @@ fn build_auth_status_report() -> AuthStatusReport {
         .collect::<Vec<_>>();
 
     AuthStatusReport {
-        any_available: status.has_any_available(),
+        // Derived from the per-provider rows, not the cached fixed-field
+        // summary: an openai-compatible profile login (cerebras, zai, ...)
+        // never flips the struct fields, so `has_any_available()` said "no
+        // providers available" right after a successful login.
+        any_available: reports.iter().any(|r| r.status == "available"),
         providers: reports,
     }
 }

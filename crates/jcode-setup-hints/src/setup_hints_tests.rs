@@ -32,6 +32,9 @@ fn first_three_launches_can_include_hotkey_notice_too() {
     let state = SetupHintsState {
         launch_count: 2,
         hotkey_configured: true,
+        // The default flips this on (no nagging for existing users); the test
+        // exercises the notice, so opt back in.
+        startup_spawn_hint_dismissed: false,
         ..SetupHintsState::default()
     };
 
