@@ -2743,6 +2743,31 @@ pub(super) fn format_todo_completion_confidence(summary: TodoConfidenceSummary) 
         .unwrap_or_else(|| "unknown".to_string())
 }
 
+/// Resolve an `/add-dir` argument the way a shell would: `~` against $HOME,
+/// relative paths against `base` (the session's working directory), then
+/// canonicalized so different spellings of one directory dedup. Falls back to
+/// the resolved spelling when canonicalization fails (e.g. permissions).
+pub(in crate::tui::app) fn resolve_add_dir_target(arg: &str, base: Option<&str>) -> PathBuf {
+    let expanded = if arg == "~" {
+        dirs::home_dir().unwrap_or_else(|| PathBuf::from(arg))
+    } else if let Some(rest) = arg.strip_prefix("~/") {
+        dirs::home_dir()
+            .map(|home| home.join(rest))
+            .unwrap_or_else(|| PathBuf::from(arg))
+    } else {
+        PathBuf::from(arg)
+    };
+    let resolved = if expanded.is_absolute() {
+        expanded
+    } else {
+        base.map(PathBuf::from)
+            .or_else(|| std::env::current_dir().ok())
+            .unwrap_or_default()
+            .join(expanded)
+    };
+    resolved.canonicalize().unwrap_or(resolved)
+}
+
 /// `/add-dir <path>` — grant this session an extra working directory, the way
 /// Claude Code's `/add-dir` does. Bare `/add-dir` lists the directories the
 /// session can already use. The directory is persisted on the session, folded
@@ -2768,31 +2793,7 @@ pub(super) fn handle_add_dir_command(app: &mut App, trimmed: &str) -> bool {
         return true;
     }
 
-    // `~` and relative paths resolve the way the user expects from a shell:
-    // against $HOME and the session's working directory respectively.
-    let expanded = if arg == "~" {
-        dirs::home_dir().unwrap_or_else(|| PathBuf::from(arg))
-    } else if let Some(rest) = arg.strip_prefix("~/") {
-        dirs::home_dir()
-            .map(|home| home.join(rest))
-            .unwrap_or_else(|| PathBuf::from(arg))
-    } else {
-        PathBuf::from(arg)
-    };
-    let resolved = if expanded.is_absolute() {
-        expanded
-    } else {
-        app.session
-            .working_dir
-            .as_deref()
-            .map(PathBuf::from)
-            .or_else(|| std::env::current_dir().ok())
-            .unwrap_or_default()
-            .join(expanded)
-    };
-    // Canonicalize so `..`/symlink spellings of the same directory dedup, but
-    // keep the resolved spelling if canonicalization fails (e.g. permissions).
-    let resolved = resolved.canonicalize().unwrap_or(resolved);
+    let resolved = resolve_add_dir_target(arg, app.session.working_dir.as_deref());
 
     if !resolved.is_dir() {
         app.push_display_message(DisplayMessage::error(format!(

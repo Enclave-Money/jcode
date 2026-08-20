@@ -126,7 +126,9 @@ impl App {
         images: Vec<(String, String)>,
         is_system: bool,
     ) -> Result<u64> {
-        remote::begin_remote_send(self, remote, content, images, is_system, None, false, 0).await
+        let reminder = self.pending_remote_reminder.take();
+        remote::begin_remote_send(self, remote, content, images, is_system, reminder, false, 0)
+            .await
     }
 
     pub(super) fn schedule_pending_remote_retry(&mut self, reason: &str) -> bool {
@@ -407,6 +409,7 @@ impl App {
             active_council: None,
             council_builder: None,
             pending_council_name: None,
+            pending_remote_reminder: None,
             display_messages: Vec::new(),
             display_messages_version: 0,
             display_user_message_count: 0,
@@ -855,6 +858,7 @@ impl App {
             active_council: None,
             council_builder: None,
             pending_council_name: None,
+            pending_remote_reminder: None,
             display_messages: Vec::new(),
             display_messages_version: 0,
             display_user_message_count: 0,

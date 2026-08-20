@@ -1172,12 +1172,10 @@ impl App {
     }
 
     /// Prepend the saved councils to a model picker's entries, so they head the
-    /// list above the single-model routes. No-op on remote sessions (a council
-    /// fan-out runs local subprocesses + git worktrees) or when none are saved.
+    /// list above the single-model routes. Works in bridge mode too: the
+    /// fan-out spawns local subprocesses in worktrees, independent of the
+    /// shared server that hosts the ordinary single-model turns.
     fn with_councils_prepended(&self, entries: Vec<PickerEntry>) -> Vec<PickerEntry> {
-        if self.is_remote {
-            return entries;
-        }
         let active = self.active_council.as_ref().map(|c| c.name.clone());
         let mut out = council_picker_entries(active.as_deref());
         // Saved councils first, then the create row, then the model routes —
@@ -1241,11 +1239,13 @@ impl App {
             };
             if let Some(unmarked) = entry.name.strip_prefix(COUNCIL_BUILDER_MARK) {
                 entry.name = unmarked.to_string();
-                let model = model_entry_base_name(entry);
+                let e: &PickerEntry = entry;
+                let model = picker_route_model_spec(e, &e.options[e.selected_option]);
                 members.retain(|m| m != &model);
                 Toggled::Removed(members.len())
             } else {
-                let model = model_entry_base_name(entry);
+                let e: &PickerEntry = entry;
+                let model = picker_route_model_spec(e, &e.options[e.selected_option]);
                 if let Some(pos) = members.iter().position(|m| m == &model) {
                     // The same model reached via another route row.
                     members.remove(pos);

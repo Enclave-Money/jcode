@@ -597,6 +597,10 @@ pub(super) async fn handle_bus_event(
             true
         }
         Ok(BusEvent::MermaidRenderCompleted) => true,
+        Ok(BusEvent::CouncilTurnCompleted(result)) => {
+            app.handle_council_turn_completed(result);
+            true
+        }
         Ok(BusEvent::UsageReportProgress(progress)) => {
             app.handle_usage_report_progress(progress);
             true

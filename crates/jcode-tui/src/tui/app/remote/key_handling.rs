@@ -888,6 +888,22 @@ async fn handle_remote_key_internal(
                 let prepared = input::take_prepared_input(app);
                 let trimmed = prepared.expanded.trim();
 
+                // The council builder's name capture must run before anything
+                // else: without it the typed name would be sent to the model
+                // as an ordinary prompt. Mirrors the local submit path — a
+                // slash command (or a whole sentence) cancels instead.
+                if let Some(members) = app.pending_council_name.take() {
+                    let aborted = trimmed.starts_with('/') || trimmed.len() > 60;
+                    if aborted {
+                        app.push_display_message(DisplayMessage::system(
+                            "Council creation cancelled.".to_string(),
+                        ));
+                    } else {
+                        app.handle_pending_council_name(members, prepared.expanded.clone());
+                        return Ok(());
+                    }
+                }
+
                 if let Some(topic) = trimmed
                     .strip_prefix("/help ")
                     .or_else(|| trimmed.strip_prefix("/? "))
@@ -1860,6 +1876,80 @@ async fn handle_remote_key_internal(
                     return Ok(());
                 }
 
+                if trimmed == "/add-dir" || trimmed.starts_with("/add-dir ") {
+                    let arg = trimmed.strip_prefix("/add-dir").unwrap_or_default().trim();
+                    if arg.is_empty() {
+                        // List from the on-disk session, which the server keeps
+                        // current between turns.
+                        let session_id = app
+                            .remote_session_id
+                            .as_deref()
+                            .or(app.resume_session_id.as_deref())
+                            .unwrap_or(app.session.id.as_str());
+                        let (primary, dirs) = match crate::session::Session::load(session_id) {
+                            Ok(s) => (s.working_dir.clone(), s.additional_dirs.clone()),
+                            Err(_) => (
+                                app.session.working_dir.clone(),
+                                app.session.additional_dirs.clone(),
+                            ),
+                        };
+                        let mut lines = vec!["Directories this session can work in:".to_string()];
+                        match primary.as_deref() {
+                            Some(dir) => lines.push(format!("  {dir} (primary)")),
+                            None => lines.push("  (no primary working directory)".to_string()),
+                        }
+                        for dir in &dirs {
+                            lines.push(format!("  {dir}"));
+                        }
+                        lines.push("Add another with /add-dir <path>.".to_string());
+                        app.push_display_message(DisplayMessage::system(lines.join("\n")));
+                        return Ok(());
+                    }
+
+                    let resolved = crate::tui::app::commands::resolve_add_dir_target(
+                        arg,
+                        app.session.working_dir.as_deref(),
+                    );
+                    if !resolved.is_dir() {
+                        app.push_display_message(DisplayMessage::error(format!(
+                            "{} is not a directory.",
+                            resolved.display()
+                        )));
+                        return Ok(());
+                    }
+                    let display = resolved.display().to_string();
+
+                    // Load-fresh → mutate → save, like /rename: saving the
+                    // client's stale session mirror wholesale could clobber
+                    // the server's transcript on disk.
+                    let mut added = false;
+                    if let Err(e) = persist_remote_session_metadata(app, |session| {
+                        added = session.add_additional_dir(&display);
+                    }) {
+                        app.push_display_message(DisplayMessage::error(format!(
+                            "Failed to save session: {e}"
+                        )));
+                        return Ok(());
+                    }
+                    if !added {
+                        app.push_display_message(DisplayMessage::system(format!(
+                            "{display} is already one of this session's working directories."
+                        )));
+                        return Ok(());
+                    }
+
+                    // The bridge cannot append a transcript message directly;
+                    // ride the reminder in with the next prompt instead.
+                    app.pending_remote_reminder = Some(format!(
+                        "Added additional working directory: {display}\nTreat it as part of the workspace alongside the primary working directory, which is unchanged."
+                    ));
+                    app.push_display_message(DisplayMessage::system(format!(
+                        "Added {display} as a working directory."
+                    )));
+                    app.set_status_notice("Directory added");
+                    return Ok(());
+                }
+
                 if trimmed == "/rename" || trimmed.starts_with("/rename ") {
                     let title = trimmed.strip_prefix("/rename").unwrap_or_default().trim();
                     if title.is_empty() {
@@ -2567,6 +2657,16 @@ async fn handle_remote_key_internal(
 
                 if trimmed.starts_with('/') {
                     submit_remote_slash_input(app, remote, prepared).await?;
+                    return Ok(());
+                }
+
+                // Council mode: a plain prompt fans out to every member via
+                // local subprocesses in git worktrees — independent of the
+                // bridge, which only hosts single-model turns.
+                if app.active_council.is_some() && !trimmed.is_empty() && !trimmed.starts_with('!')
+                {
+                    app.push_display_message(DisplayMessage::user(prepared.raw_input.clone()));
+                    app.run_council_turn(prepared.expanded);
                     return Ok(());
                 }
 
