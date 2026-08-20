@@ -332,7 +332,7 @@ fn test_build_ambient_system_prompt_minimal() {
     let prompt =
         build_ambient_system_prompt(&state, &queue, &health, &sessions, &feedback, &budget, 0);
 
-    assert!(prompt.contains("ambient agent for jcode"));
+    assert!(prompt.contains("ambient agent for blaude"));
     assert!(prompt.contains("## Current State"));
     assert!(prompt.contains("never (first run)"));
     assert!(prompt.contains("Active user sessions: none"));

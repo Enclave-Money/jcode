@@ -1,6 +1,6 @@
 //! Environment capability probing for login flows.
 //!
-//! Historically jcode discovered environment limitations *by failing*: it would
+//! Historically blaude discovered environment limitations *by failing*: it would
 //! open a browser that does not exist, wait 60 seconds for a callback that can
 //! never arrive, then string-match the resulting English error message in
 //! [`crate::auth::login_diagnostics::classify_auth_failure_message`] to guess
@@ -72,7 +72,7 @@ pub struct EnvFacts {
     pub browser: Tri,
     /// We can bind a loopback socket for an OAuth callback.
     pub loopback_bind: Tri,
-    /// The jcode config directory exists (or can be created) and is writable.
+    /// The blaude config directory exists (or can be created) and is writable.
     pub config_writable: Tri,
     /// Running inside a container/SSH/remote shell, where browser-based OAuth
     /// redirects usually land on the wrong machine.
@@ -174,10 +174,10 @@ impl AuthMethodChoice {
     pub fn precondition_message(self) -> Option<&'static str> {
         match self {
             AuthMethodChoice::BlockedConfigUnwritable => Some(
-                "jcode cannot write its config directory, so a login could not be saved. Fix directory permissions (or set JCODE_HOME) and try again.",
+                "blaude cannot write its config directory, so a login could not be saved. Fix directory permissions (or set JCODE_HOME) and try again.",
             ),
             AuthMethodChoice::ApiKeyNonInteractive => Some(
-                "This terminal is not interactive. Provide an API key via the provider's environment variable or `jcode provider add --api-key-stdin`.",
+                "This terminal is not interactive. Provide an API key via the provider's environment variable or `blaude provider add --api-key-stdin`.",
             ),
             _ => None,
         }

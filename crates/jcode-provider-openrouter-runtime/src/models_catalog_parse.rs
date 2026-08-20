@@ -1,7 +1,7 @@
 //! Parsing of OpenAI-compatible `/v1/models` catalog responses.
 //!
 //! Kept separate from the provider runtime so the shape-tolerance rules for the
-//! many gateways jcode speaks to (vLLM, llama.cpp, Ollama, LM Studio, vendor
+//! many gateways blaude speaks to (vLLM, llama.cpp, Ollama, LM Studio, vendor
 //! clouds) live in one small, testable place.
 
 use anyhow::{Context, Result};

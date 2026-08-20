@@ -187,7 +187,7 @@ pub fn set_permissions_executable(path: &Path) -> std::io::Result<()> {
 
 /// Best-effort increase of the current process soft `RLIMIT_NOFILE` on Unix.
 ///
-/// This helps jcode survive short-lived reload/connect spikes even when it was
+/// This helps blaude survive short-lived reload/connect spikes even when it was
 /// launched from a shell with a conservative `ulimit -n` like 1024.
 pub fn raise_nofile_limit_best_effort(minimum_soft_limit: u64) {
     #[cfg(unix)]

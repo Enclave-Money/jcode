@@ -36,7 +36,7 @@ pub async fn run() -> Result<()> {
         .name("jcode-session-bak-prune".to_string())
         .spawn(crate::session::prune_old_session_backups)
         .ok();
-    logging::info("jcode starting");
+    logging::info("blaude starting");
 
     // Wire config-reload reactions without making config depend on auth/bus:
     // when the config cache reloads, invalidate the auth-status cache and
@@ -114,7 +114,7 @@ pub async fn run() -> Result<()> {
     startup_profile::mark("perf_init");
 
     // Telemetry settings commands must run before they can cause telemetry. In
-    // particular, a first-ever `jcode telemetry disable` must not emit the
+    // particular, a first-ever `blaude telemetry disable` must not emit the
     // install event that the command is trying to opt out of. Keep the normal
     // startup ordering unchanged for every other invocation.
     if !is_telemetry_subcommand_invocation(std::env::args_os()) {
@@ -421,7 +421,7 @@ fn spawn_background_update_check(args: &Args) {
                         }
                     } else {
                         logging::info(
-                            "Update available! Run `jcode update` or `/reload` to update.",
+                            "Update available! Run `blaude update` or `/reload` to update.",
                         );
                     }
                 }
@@ -466,7 +466,7 @@ fn report_main_error(error: &anyhow::Error) {
     if let Some(session_id) = terminal::get_current_session() {
         output::stderr_blank_line();
         output::stderr_info("\x1b[33mTo restore this session, run:\x1b[0m");
-        output::stderr_info(format!("  jcode --resume {}", session_id));
+        output::stderr_info(format!("  blaude --resume {}", session_id));
         output::stderr_blank_line();
     }
 }

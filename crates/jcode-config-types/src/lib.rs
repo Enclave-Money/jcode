@@ -510,7 +510,7 @@ impl Default for NamedProviderConfig {
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(default)]
 pub struct AuthConfig {
-    /// External auth source ids that the user has approved jcode to read/use.
+    /// External auth source ids that the user has approved blaude to read/use.
     pub trusted_external_sources: Vec<String>,
     /// Path-bound approvals for external auth sources managed by other tools.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -725,7 +725,7 @@ pub struct TerminalConfig {
     /// External command that takes over headed session spawns (new terminal
     /// windows for swarm agents, resume-in-new-terminal, self-dev, restarts).
     ///
-    /// When set, jcode runs `<spawn_hook> <jcode-binary> <args...>` instead of
+    /// When set, blaude runs `<spawn_hook> <jcode-binary> <args...>` instead of
     /// opening a terminal emulator itself, with `JCODE_SPAWN_*` metadata env
     /// vars describing the spawn (kind, session id, title, cwd, full command).
     /// This lets multiplexers and wrappers (tmux, kitty remote, zellij, herd
@@ -739,7 +739,7 @@ pub struct TerminalConfig {
     pub spawn_hook: Option<String>,
     /// External command used to focus/raise an existing session window.
     ///
-    /// When set, jcode runs the hook (instead of wmctrl/xdotool) whenever it
+    /// When set, blaude runs the hook (instead of wmctrl/xdotool) whenever it
     /// wants to bring a session's window to the foreground, with
     /// `JCODE_FOCUS_SESSION_ID` and `JCODE_FOCUS_TITLE` env vars. Pair this
     /// with `spawn_hook` so wrappers that own placement (tmux, kitty remote,
@@ -752,24 +752,24 @@ pub struct TerminalConfig {
     ///
     /// One of: `ghostty`, `iterm2`, `wezterm`, `warp`, `alacritty`, `vscode`,
     /// `terminal` (Apple Terminal). When set, this is the source of truth for
-    /// which terminal jcode launches into and is preferred over the legacy
-    /// `~/.jcode/preferred_terminal.json` file. Re-run `jcode setup-hotkey`
+    /// which terminal blaude launches into and is preferred over the legacy
+    /// `~/.jcode/preferred_terminal.json` file. Re-run `blaude setup-hotkey`
     /// after changing it so the generated launcher script picks up the change.
     ///
     /// macOS only; ignored on other platforms.
     pub preferred: Option<String>,
 }
 
-/// Lifecycle hooks: external commands jcode runs at well-defined points.
+/// Lifecycle hooks: external commands blaude runs at well-defined points.
 ///
 /// Hook commands are parsed shell-style (quotes work) but executed directly,
 /// with `JCODE_HOOK_*` env vars describing the event (`JCODE_HOOK_EVENT`,
 /// `JCODE_HOOK_SESSION_ID`, `JCODE_HOOK_CWD`, event-specific fields, and a
 /// `JCODE_HOOK_PAYLOAD` JSON mirror). Hook processes get
-/// `JCODE_HOOKS_DISABLED=1` so nested jcode invocations don't recurse.
+/// `JCODE_HOOKS_DISABLED=1` so nested blaude invocations don't recurse.
 ///
 /// All hooks except `pre_tool` are observers: detached, fire-and-forget,
-/// failures only logged. `pre_tool` is a gate: jcode waits for it and exit
+/// failures only logged. `pre_tool` is a gate: blaude waits for it and exit
 /// code 2 blocks the tool call (stderr becomes the error shown to the model);
 /// exit 0 allows; anything else fails open.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -887,7 +887,7 @@ pub struct AutoReviewConfig {
 ///
 /// Integration discovery makes third-party developer tools discoverable to
 /// the agent via a `discover_tools` tool backed by a hosted directory. Some
-/// providers may share revenue with Jcode when a referred user becomes a
+/// providers may share revenue with blaude when a referred user becomes a
 /// customer, but partnership status never influences recommendations.
 /// See <https://jcode.sh/discovery-tools>.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -895,7 +895,7 @@ pub struct AutoReviewConfig {
 pub struct SponsorsConfig {
     /// Enable integration discovery. Enabled by default; set to false to opt
     /// out. When false, no discovery categories are added to the prompt, the
-    /// `discover_tools` tool is not registered, and jcode never contacts the
+    /// `discover_tools` tool is not registered, and blaude never contacts the
     /// discovery endpoint.
     pub enabled: bool,
     /// Base URL of the discovery endpoint.
@@ -986,7 +986,7 @@ pub struct KeybindingsConfig {
     /// prompt, esc exits). Active only when `agents.swarm_spawn_mode = "inline"`
     /// and the session manages swarm agents.
     pub swarm_panel_focus: String,
-    /// Spawn a fresh jcode session in a new terminal window (default: unbound).
+    /// Spawn a fresh blaude session in a new terminal window (default: unbound).
     /// Example: "alt+enter".
     pub new_terminal: String,
     /// Open the `/resume` session picker (default: "cmd+b" on macOS, "alt+r"
@@ -1073,7 +1073,7 @@ fn default_true() -> bool {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct FeatureConfig {
-    /// Check for and install jcode updates during startup (default: true).
+    /// Check for and install blaude updates during startup (default: true).
     /// Set this to false for the persistent equivalent of `--no-update`.
     pub check_updates: bool,
     /// Enable memory retrieval/extraction features (default: true)
@@ -1211,7 +1211,7 @@ pub struct ProviderConfig {
     pub preserve_reasoning_context: bool,
     /// How to handle cross-provider failover when the same input would be resent elsewhere.
     pub cross_provider_failover: CrossProviderFailoverMode,
-    /// Whether jcode should automatically try another account on the same provider
+    /// Whether blaude should automatically try another account on the same provider
     /// before falling back to a different provider.
     pub same_provider_account_failover: bool,
     /// Copilot premium request mode: "normal", "one", or "zero"
@@ -1473,13 +1473,13 @@ impl Default for GatewayConfig {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct PowerConfig {
-    /// Prevent automatic system sleep while any jcode session is actively
+    /// Prevent automatic system sleep while any blaude session is actively
     /// streaming/processing. Linux also asks logind to block lid-switch suspend.
     /// Windows cannot override a user-initiated lid close or power-button action;
     /// those remain controlled by the active Windows power plan. The display is
     /// still allowed to sleep. Default: true.
     ///
-    /// Honored by the shared `jcode serve` daemon. The `JCODE_DISABLE_POWER_INHIBIT`
+    /// Honored by the shared `blaude serve` daemon. The `JCODE_DISABLE_POWER_INHIBIT`
     /// environment variable forces this off regardless of the config value.
     pub prevent_sleep_while_streaming: bool,
 }
@@ -1492,13 +1492,13 @@ impl Default for PowerConfig {
     }
 }
 
-/// A single global launch hotkey: a chord plus the directory it opens jcode in.
+/// A single global launch hotkey: a chord plus the directory it opens blaude in.
 ///
 /// `dir` is usually an absolute path, but a few sentinels keep dynamic targets
 /// working without rewriting config on every launch:
 /// - `$HOME` -> the user's home directory.
-/// - `$LAST_DIR` -> the most recent non-home project directory jcode ran in.
-/// - `$LAST_REPO` -> the most recent jcode repo (for self-dev).
+/// - `$LAST_DIR` -> the most recent non-home project directory blaude ran in.
+/// - `$LAST_REPO` -> the most recent blaude repo (for self-dev).
 ///
 /// `self_dev = true` opens the directory as a self-dev session (passes the
 /// `self-dev` subcommand). `label` is an optional human name used in notices.
@@ -1517,9 +1517,9 @@ pub struct LaunchHotkeyEntry {
     pub self_dev: bool,
 }
 
-/// Configuration for the global "launch a new jcode" hotkeys (macOS).
+/// Configuration for the global "launch a new blaude" hotkeys (macOS).
 ///
-/// When `entries` is empty, jcode uses its built-in defaults (`Cmd+;` -> home,
+/// When `entries` is empty, blaude uses its built-in defaults (`Cmd+;` -> home,
 /// `Cmd+'` -> last project, `Cmd+Shift+'` -> self-dev). Auto-import can bake a
 /// richer, per-repo mapping here once: the top repo on `Cmd+;`, home on
 /// `Cmd+'`, and the next repos on `Cmd+[` / `Cmd+]` / `Cmd+\`. Once baked the

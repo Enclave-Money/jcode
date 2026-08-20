@@ -50,7 +50,7 @@ impl Tool for JcodeDocsTool {
     }
 
     fn description(&self) -> &str {
-        "Search bundled, version-matched Jcode documentation. Use this first for questions about Jcode features, configuration, architecture, tools, or behavior."
+        "Search bundled, version-matched blaude documentation. Use this first for questions about blaude features, configuration, architecture, tools, or behavior."
     }
 
     fn parameters_schema(&self) -> Value {
@@ -104,13 +104,13 @@ impl Tool for JcodeDocsTool {
                 ));
             }
         };
-        Ok(ToolOutput::new(output).with_title(format!("jcode docs {}", params.action)))
+        Ok(ToolOutput::new(output).with_title(format!("blaude docs {}", params.action)))
     }
 }
 
 fn list_docs() -> String {
     let mut output = format!(
-        "Bundled Jcode documentation ({} files):\n",
+        "Bundled blaude documentation ({} files):\n",
         JCODE_DOCS.len()
     );
     for (path, body) in JCODE_DOCS {
@@ -131,7 +131,7 @@ fn read_doc(path: &str) -> Result<String> {
             anyhow!("documentation path not found: {path}. Use action=list to see available paths.")
         })?;
     Ok(format!(
-        "Source: `{path}` (bundled with this Jcode build)\n\n{body}"
+        "Source: `{path}` (bundled with this blaude build)\n\n{body}"
     ))
 }
 
@@ -169,7 +169,7 @@ fn search(query: &str, limit: Option<usize>) -> String {
     matches
         .sort_by_key(|(score, section)| (Reverse(*score), section.path, section.heading.clone()));
     let limit = limit.unwrap_or(DEFAULT_LIMIT).clamp(1, MAX_LIMIT);
-    let mut output = format!("Jcode docs results for {query:?} (bundled with this Jcode build):\n");
+    let mut output = format!("blaude docs results for {query:?} (bundled with this blaude build):\n");
     for (index, (_, section)) in matches.into_iter().take(limit).enumerate() {
         let excerpt = relevant_excerpt(&section.body, &terms);
         output.push_str(&format!(
@@ -274,12 +274,12 @@ mod tests {
     fn search_finds_relevant_version_matched_documentation() {
         let output = search("How does swarm task graph work?", Some(3));
         assert!(output.contains("docs/SWARM_TASK_GRAPH.md"), "{output}");
-        assert!(output.contains("bundled with this Jcode build"));
+        assert!(output.contains("bundled with this blaude build"));
     }
 
     #[test]
     fn exact_document_can_be_read() {
         let output = read_doc("docs/README.md").unwrap();
-        assert!(output.contains("# jcode Docs"));
+        assert!(output.contains("# blaude Docs"));
     }
 }

@@ -154,7 +154,7 @@ pub(crate) struct ImportReview {
 pub(crate) enum SummaryPill {
     /// Import every detected login and move on.
     Continue,
-    /// Skip importing and sign in with a Jcode subscription instead (default).
+    /// Skip importing and sign in with a blaude subscription instead (default).
     Subscription,
     /// Open the per-login checkbox list to import fewer logins.
     ImportLess,
@@ -188,7 +188,7 @@ impl SummaryPill {
 
 impl ImportReview {
     /// Create a review for the given candidates with every login pre-checked,
-    /// starting on the summary screen with the Jcode subscription preselected.
+    /// starting on the summary screen with the blaude subscription preselected.
     /// Returns `None` if there are no candidates.
     pub(crate) fn new(
         candidates: Vec<crate::external_auth::ExternalAuthReviewCandidate>,

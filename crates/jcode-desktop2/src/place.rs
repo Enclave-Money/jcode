@@ -44,12 +44,12 @@ pub fn home() -> Option<String> {
 /// Window title for a session in `working_dir`.
 ///
 /// The directory leads: a taskbar or an alt-tab list truncates the tail, and
-/// which checkout this window is for is what distinguishes two jcode windows
+/// which checkout this window is for is what distinguishes two blaude windows
 /// from each other.
 pub fn window_title(working_dir: Option<&str>) -> String {
     match working_dir {
-        Some(dir) => format!("{} - jcode", display_path(dir, home().as_deref())),
-        None => "jcode desktop2".to_string(),
+        Some(dir) => format!("{} - blaude", display_path(dir, home().as_deref())),
+        None => "blaude desktop2".to_string(),
     }
 }
 
@@ -90,6 +90,6 @@ mod tests {
         let title = window_title(Some("/srv/site"));
         assert!(title.starts_with("/srv/site"), "{title}");
         assert!(title.ends_with("jcode"), "{title}");
-        assert_eq!(window_title(None), "jcode desktop2");
+        assert_eq!(window_title(None), "blaude desktop2");
     }
 }

@@ -203,7 +203,7 @@ impl GmailClient {
     pub fn not_configured_message(&self) -> &'static str {
         match &self.backend {
             GmailBackend::Direct => {
-                "Gmail is not configured. Run `jcode login google` to set up Gmail access."
+                "Gmail is not configured. Run `blaude login google` to set up Gmail access."
             }
             GmailBackend::Composio(_) => {
                 "Gmail (Composio backend) is not configured. Set COMPOSIO_API_KEY and connect your \

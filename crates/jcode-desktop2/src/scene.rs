@@ -327,7 +327,7 @@ fn draw_hero_text(
 ///
 /// Purely geometric: the group's name used to be spelled out beside its bars,
 /// which turned the chrome row into a line of prose that had to be *read*
-/// (`jcode-website jcode jcode-desktop2 ...`) and grew with every checkout.
+/// (`jcode-website blaude jcode-desktop2 ...`) and grew with every checkout.
 /// The enclosure carries the same information as shape, so the row is scanned
 /// rather than read, and stays the same width whatever the directories are
 /// called. Which place is which is answered by the overview, where there is
@@ -1694,7 +1694,7 @@ pub fn build_scene(
         }
 
         // An empty field carries a rotating invitation rather than a label:
-        // "message jcode" is a caption you stop seeing, while a prompt you
+        // "message blaude" is a caption you stop seeing, while a prompt you
         // could actually type teaches what the thing is for.
         //
         // The field never carries the turn's status: liveness belongs to the

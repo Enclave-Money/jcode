@@ -2,7 +2,7 @@
 //!
 //! # The recurring bug
 //!
-//! jcode sends its entire tool array on every request. Providers each accept a
+//! blaude sends its entire tool array on every request. Providers each accept a
 //! different subset of JSON Schema, so a single construct emitted by one MCP
 //! server does not degrade one tool: it 400s every turn and takes the provider
 //! offline. Issues #446, #495, #543, #655, #687, #711, #713 and #754 are all
@@ -20,7 +20,7 @@
 //!    retried without it, instead of failing in front of the user.
 //! 3. **Memory** ([`quirks`]) - the learned rejection is persisted, so it costs
 //!    one wasted round trip ever, not one per request, and the fix propagates
-//!    without waiting for a jcode release.
+//!    without waiting for a blaude release.
 //!
 //! # Adding a provider
 //!
@@ -69,7 +69,7 @@ pub enum RecoveryAction {
         description: String,
     },
     /// A schema rejection that retrying cannot fix, either because it names
-    /// something jcode already strips or because it names nothing actionable.
+    /// something blaude already strips or because it names nothing actionable.
     /// The message explains what to add to the dialect.
     Unrecoverable { hint: String },
 }

@@ -5,7 +5,7 @@ pub struct ProviderUsage {
     pub extra_info: Vec<(String, String)>,
     pub hard_limit_reached: bool,
     pub error: Option<String>,
-    /// When jcode last successfully used this login/credential (unix seconds).
+    /// When blaude last successfully used this login/credential (unix seconds).
     /// Drives most-recently-used-first ordering in `/usage`. `None` sorts last.
     pub last_used_unix_secs: Option<u64>,
 }
@@ -919,7 +919,7 @@ mod telemetry_helper_tests {
     fn detects_test_runs_from_tool_input() {
         assert!(looks_like_telemetry_test_run(
             "bash",
-            &serde_json::json!({ "command": "cargo test -p jcode" })
+            &serde_json::json!({ "command": "cargo test -p blaude" })
         ));
         assert!(looks_like_telemetry_test_run(
             "schedule",

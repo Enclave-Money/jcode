@@ -2481,7 +2481,7 @@ fn show_first_run_notice() {
         ("", "")
     };
     eprintln!("{dim}");
-    eprintln!("  jcode collects anonymous usage statistics (install count, version, OS,");
+    eprintln!("  blaude collects anonymous usage statistics (install count, version, OS,");
     eprintln!("  session activity, tool counts, and crash/exit reasons). No code, filenames,");
     eprintln!("  prompts, or personal data is sent.");
     eprintln!("  To opt out: export JCODE_NO_TELEMETRY=1");

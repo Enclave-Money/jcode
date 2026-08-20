@@ -178,19 +178,19 @@ pub fn build_control_master_script(profile: &SshRemoteProfile) -> Result<String>
     let target = &profile.ssh_target;
     Ok(format!(
         r#"printf '%s\n' '========================================'
-printf '%s\n' 'Jcode SSH login for {name}'
+printf '%s\n' 'blaude SSH login for {name}'
 printf '%s\n' '========================================'
 printf '%s\n' ''
 printf '%s\n' 'Step 2/4: Authenticate with your system SSH client'
 printf '%s\n' ''
 printf '%s\n' 'What is happening:'
-printf '%s\n' '  - This terminal is running OpenSSH, not a Jcode password form.'
+printf '%s\n' '  - This terminal is running OpenSSH, not a blaude password form.'
 printf '%s\n' '  - If a password or two-factor prompt appears, type it here.'
-printf '%s\n' '  - Jcode cannot read or store what you type in this terminal.'
+printf '%s\n' '  - blaude cannot read or store what you type in this terminal.'
 printf '%s\n' ''
 printf '%s\n' 'After authentication:'
 printf '%s\n' '  - SSH will create a temporary background control socket.'
-printf '%s\n' '  - Jcode will verify that socket before this terminal closes.'
+printf '%s\n' '  - blaude will verify that socket before this terminal closes.'
 printf '%s\n' '  - If anything fails, this terminal stays open with the reason.'
 printf '%s\n' ''
 ssh -f -M -S {socket} -N {target}
@@ -214,7 +214,7 @@ for i in 1 2 3 4 5 6 7 8 9 10; do
   if ssh -S {socket} -O check {target} >/dev/null 2>&1; then
     printf '%s\n' ''
     printf '%s\n' 'Step 4/4: Connected and verified.'
-    printf '%s\n' 'Jcode can now use this SSH connection headlessly.'
+    printf '%s\n' 'blaude can now use this SSH connection headlessly.'
     printf '%s\n' 'This terminal will close automatically.'
     sleep 1
     exit 0
@@ -223,12 +223,12 @@ for i in 1 2 3 4 5 6 7 8 9 10; do
 done
 
 printf '%s\n' ''
-printf '%s\n' 'Step 3/4 failed: Jcode could not verify the background control socket.'
+printf '%s\n' 'Step 3/4 failed: blaude could not verify the background control socket.'
 printf '%s\n' ''
 printf '%s\n' 'What this means:'
 printf '%s\n' '  - SSH login may have succeeded, but multiplexing did not stay available.'
 printf '%s\n' '  - The server may disallow SSH ControlMaster, or the connection closed immediately.'
-printf '%s\n' '  - Jcode is keeping this terminal open so you can read the reason.'
+printf '%s\n' '  - blaude is keeping this terminal open so you can read the reason.'
 printf '%s' 'Press Enter to close this terminal... '
 read _
 exit 1
@@ -245,7 +245,7 @@ pub fn spawn_control_master_terminal(profile: &SshRemoteProfile) -> Result<bool>
         "sh".to_string(),
         vec!["-c".to_string(), script],
     )
-    .title(format!("jcode ssh · {}", profile.name));
+    .title(format!("blaude ssh · {}", profile.name));
     crate::terminal_launch::spawn_command_in_new_terminal(&command, Path::new("."))
 }
 
@@ -304,6 +304,6 @@ mod tests {
         assert!(script.contains("ssh -S"));
         assert!(script.contains("-O check"));
         assert!(script.contains("Press Enter to close this terminal"));
-        assert!(script.contains("Jcode cannot read or store"));
+        assert!(script.contains("blaude cannot read or store"));
     }
 }

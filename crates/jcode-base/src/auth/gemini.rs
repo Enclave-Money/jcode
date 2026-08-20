@@ -252,7 +252,7 @@ pub fn load_tokens() -> Result<GeminiTokens> {
         });
     }
 
-    anyhow::bail!("No Gemini OAuth tokens found. Run `jcode login --provider gemini`.")
+    anyhow::bail!("No Gemini OAuth tokens found. Run `blaude login --provider gemini`.")
 }
 
 pub fn save_tokens(tokens: &GeminiTokens) -> Result<()> {
@@ -352,7 +352,7 @@ pub async fn login(no_browser: bool) -> Result<GeminiTokens> {
                 redirect_uri
             );
             eprintln!(
-                "If the page says sign-in succeeded but jcode does not continue within a few seconds, press Ctrl+C and retry with `--no-browser` to use the manual code flow."
+                "If the page says sign-in succeeded but blaude does not continue within a few seconds, press Ctrl+C and retry with `--no-browser` to use the manual code flow."
             );
             match tokio::time::timeout(
                 std::time::Duration::from_secs(300),

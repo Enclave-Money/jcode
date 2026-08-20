@@ -658,7 +658,7 @@ fn handle_openai_image_generation_item(
                 err
             ));
             return Some(StreamEvent::TextDelta(
-                "\n[Generated image received, but Jcode could not decode it.]\n".to_string(),
+                "\n[Generated image received, but blaude could not decode it.]\n".to_string(),
             ));
         }
     };
@@ -697,7 +697,7 @@ fn handle_openai_image_generation_item(
             err
         ));
         return Some(StreamEvent::TextDelta(format!(
-            "\n[Generated image received ({} bytes), but Jcode could not save it.]\n",
+            "\n[Generated image received ({} bytes), but blaude could not save it.]\n",
             image_bytes.len()
         )));
     }
@@ -707,7 +707,7 @@ fn handle_openai_image_generation_item(
     if let Err(err) = std::fs::write(&path, image_bytes) {
         jcode_logging::warn(&format!("Failed to save OpenAI generated image: {}", err));
         return Some(StreamEvent::TextDelta(
-            "\n[Generated image received, but Jcode could not save it.]\n".to_string(),
+            "\n[Generated image received, but blaude could not save it.]\n".to_string(),
         ));
     }
 

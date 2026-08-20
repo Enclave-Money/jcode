@@ -259,7 +259,7 @@ mod transcript_routing_tests {
     #[tokio::test]
     async fn resolve_transcript_target_session_prefers_last_focused_live_session() {
         let _guard = crate::storage::lock_test_env();
-        let jcode_dir = crate::storage::jcode_dir().expect("jcode dir");
+        let jcode_dir = crate::storage::jcode_dir().expect("blaude dir");
         let active_dir = jcode_dir.join("active_pids");
         std::fs::create_dir_all(&active_dir).expect("create active_pids");
         std::fs::write(active_dir.join("session_focus"), "12345").expect("write active pid");
@@ -316,7 +316,7 @@ mod transcript_routing_tests {
     async fn resolve_transcript_target_session_falls_back_to_most_recent_live_tui_when_last_focused_not_connected()
      {
         let _guard = crate::storage::lock_test_env();
-        let jcode_dir = crate::storage::jcode_dir().expect("jcode dir");
+        let jcode_dir = crate::storage::jcode_dir().expect("blaude dir");
         let active_dir = jcode_dir.join("active_pids");
         std::fs::create_dir_all(&active_dir).expect("create active_pids");
         std::fs::write(active_dir.join("session_stale"), "12345").expect("write active pid");
@@ -414,7 +414,7 @@ mod transcript_routing_tests {
         std::fs::write(active_dir.join(swan), "222").expect("write swan active pid");
         crate::dictation::remember_last_focused_session(fox).expect("remember fox session");
 
-        let focused_process = ChildGuard::spawn_named("jcode:d:swan");
+        let focused_process = ChildGuard::spawn_named("blaude:d:swan");
         let bin_dir = temp.path().join("bin");
         install_fake_niri(
             &bin_dir,

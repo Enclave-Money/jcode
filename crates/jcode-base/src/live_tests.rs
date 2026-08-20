@@ -65,7 +65,7 @@ const END_TO_END_CHECKPOINTS: &[LiveVerificationCheckpointDefinition] = &[
         category: "auth",
         required_for_user_ready: true,
         spends_balance: false,
-        description: "Jcode can load the credential from the expected env/config source and records only a fingerprint.",
+        description: "blaude can load the credential from the expected env/config source and records only a fingerprint.",
     },
     LiveVerificationCheckpointDefinition {
         id: checkpoints::CREDENTIAL_PERSISTENCE,
@@ -145,7 +145,7 @@ const END_TO_END_CHECKPOINTS: &[LiveVerificationCheckpointDefinition] = &[
         category: "tools",
         required_for_user_ready: true,
         spends_balance: true,
-        description: "A full Jcode turn executes a harmless local tool requested by the model.",
+        description: "A full blaude turn executes a harmless local tool requested by the model.",
     },
     LiveVerificationCheckpointDefinition {
         id: checkpoints::TOOL_RESULT_FOLLOWUP,
@@ -157,11 +157,11 @@ const END_TO_END_CHECKPOINTS: &[LiveVerificationCheckpointDefinition] = &[
     },
     LiveVerificationCheckpointDefinition {
         id: checkpoints::REAL_JCODE_TOOL_SMOKE,
-        label: "Real Jcode tool smoke",
+        label: "Real blaude tool smoke",
         category: "tools",
         required_for_user_ready: true,
         spends_balance: true,
-        description: "A normal Jcode agent turn uses the real streamed parser, advertised tool schema, registry execution, tool-result followup, and transcript validation without malformed tool calls.",
+        description: "A normal blaude agent turn uses the real streamed parser, advertised tool schema, registry execution, tool-result followup, and transcript validation without malformed tool calls.",
     },
     LiveVerificationCheckpointDefinition {
         id: checkpoints::REASONING_CAPABILITY,
@@ -768,7 +768,7 @@ pub struct LiveProviderModelCoveragePair {
     pub source_provider_ids: Vec<String>,
     pub covered: bool,
     pub latest_recorded_at: DateTime<Utc>,
-    /// jcode version string that produced the most recent entry for this pair.
+    /// blaude version string that produced the most recent entry for this pair.
     #[serde(default)]
     pub latest_jcode_version: String,
     /// Whether the most recent run came from a dirty (dev) build. Used to label
@@ -861,7 +861,7 @@ pub struct LiveProviderModelCoverageSummary {
     /// ledger (e.g. provider-doctor full-tier runs).
     #[serde(default)]
     pub recorded_spend: LiveCoverageRecordedSpend,
-    /// Full monitoring roster: every provider jcode knows about (OpenAI-compatible
+    /// Full monitoring roster: every provider blaude knows about (OpenAI-compatible
     /// profiles + login providers), whether `provider-doctor` can drive it, whether
     /// a credential is present, and how much live READY evidence exists. Lets the
     /// report enumerate *every* provider, not just ones with ledger evidence.
@@ -880,7 +880,7 @@ pub struct ProviderMonitorEntry {
     /// subscription) vs `anthropic-api` (direct API key).
     #[serde(default)]
     pub auth_method: String,
-    /// True when `jcode provider-doctor <id>` can drive this provider today
+    /// True when `blaude provider-doctor <id>` can drive this provider today
     /// (OpenAI-compatible profile exists for the id).
     pub doctor_drivable: bool,
     /// True when an API key is present in env or the provider's `.env` file.
@@ -1011,7 +1011,7 @@ pub fn format_provider_test_coverage_report(
 ) -> String {
     let mut out = String::new();
     out.push_str("# Provider test coverage\n\n");
-    out.push_str("Developer/live verification evidence recorded by jcode. This is evidence, not a guarantee of future provider availability.\n\n");
+    out.push_str("Developer/live verification evidence recorded by blaude. This is evidence, not a guarantee of future provider availability.\n\n");
     out.push_str(&format!("Provider: {}\n", provider_query));
     out.push_str(&format!("Model: {}\n\n", model_query));
 
@@ -1020,11 +1020,11 @@ pub fn format_provider_test_coverage_report(
         Err(err) => {
             out.push_str("Status: No verification ledger found on this install\n\n");
             out.push_str("No local or bundled developer live-test coverage file could be loaded. ");
-            out.push_str("Once jcode ships a curated developer coverage snapshot, this command should prefer that snapshot and separately show local evidence.\n\n");
+            out.push_str("Once blaude ships a curated developer coverage snapshot, this command should prefer that snapshot and separately show local evidence.\n\n");
             out.push_str(&format!("Ledger error: {}\n\n", err));
             out.push_str("You can generate local evidence with:\n\n");
             out.push_str(&format!(
-                "  jcode auth-test --provider {} --model {}",
+                "  blaude auth-test --provider {} --model {}",
                 provider_query, model_query
             ));
             return out;
@@ -1067,9 +1067,9 @@ pub fn format_provider_test_coverage_report(
     matches.sort_by_key(|entry| entry.recorded_at);
 
     let Some(entry) = matches.last() else {
-        out.push_str("Status: Not yet covered by this jcode verification ledger\n\n");
+        out.push_str("Status: Not yet covered by this blaude verification ledger\n\n");
         out.push_str(&format!("Ledger: {}\n\n", path.display()));
-        out.push_str("This does not mean the provider/model is broken. It only means jcode has no recorded live verification evidence for this exact provider/model pair.\n");
+        out.push_str("This does not mean the provider/model is broken. It only means blaude has no recorded live verification evidence for this exact provider/model pair.\n");
         return out;
     };
 
@@ -1116,7 +1116,7 @@ pub fn format_provider_test_coverage_report(
     out.push_str(&format!("Matching evidence entries: {}\n", matches.len()));
     out.push_str(&format!("Test name: {}\n", entry.test_name));
     out.push_str(&format!(
-        "Tested with: jcode {} ({}){}\n\n",
+        "Tested with: blaude {} ({}){}\n\n",
         entry.jcode_version,
         entry.jcode_git_hash,
         if entry.jcode_git_dirty { ", dirty" } else { "" }
@@ -1154,7 +1154,7 @@ pub fn format_provider_test_coverage_report(
     }
 
     out.push_str("\n## What this means\n\n");
-    out.push_str("These checks exercise real jcode runtime paths, including basic chat and tool-use smoke tests when present. Missing evidence should be read as 'not yet recorded', not as a failure.\n");
+    out.push_str("These checks exercise real blaude runtime paths, including basic chat and tool-use smoke tests when present. Missing evidence should be read as 'not yet recorded', not as a failure.\n");
     out
 }
 
@@ -1203,7 +1203,7 @@ fn provider_test_coverage_checkpoint_label(checkpoint: &str) -> String {
         checkpoints::TOOL_CALL_PARSE => "Tool call parsed".to_string(),
         checkpoints::TOOL_EXECUTION_LOOP => "Tool execution loop".to_string(),
         checkpoints::TOOL_RESULT_FOLLOWUP => "Tool result follow-up".to_string(),
-        checkpoints::REAL_JCODE_TOOL_SMOKE => "Real jcode tool smoke".to_string(),
+        checkpoints::REAL_JCODE_TOOL_SMOKE => "Real blaude tool smoke".to_string(),
         other => other.replace('_', " "),
     }
 }
@@ -1446,7 +1446,7 @@ pub fn strict_live_provider_model_coverage_summary(
         coverage_source: coverage_source.into(),
         denominator: "observed canonical provider/model pairs in the live verification coverage ledger"
             .to_string(),
-        covered_definition: "covered means every strict provider/model E2E checkpoint passed for the exact canonical provider id and model after login-provider alias normalization: live catalog, current-session catalog refresh, TUI picker visibility/fallback labeling, model switch route, non-streaming completion, streaming completion, tool-call parse, tool execution loop, tool-result followup, and real Jcode tool smoke".to_string(),
+        covered_definition: "covered means every strict provider/model E2E checkpoint passed for the exact canonical provider id and model after login-provider alias normalization: live catalog, current-session catalog refresh, TUI picker visibility/fallback labeling, model switch route, non-streaming completion, streaming completion, tool-call parse, tool execution loop, tool-result followup, and real blaude tool smoke".to_string(),
         total_provider_model_pairs,
         covered_provider_model_pairs,
         coverage_percent: percent(covered_provider_model_pairs, total_provider_model_pairs),
@@ -1863,7 +1863,7 @@ pub fn format_strict_live_provider_model_coverage_summary(
         summary.coverage_percent,
         stage_count,
     ));
-    out.push_str("A pair is READY only after every stage below passes in a real Jcode runtime.\n");
+    out.push_str("A pair is READY only after every stage below passes in a real blaude runtime.\n");
     out.push_str("Anything short of READY is work-in-progress, not necessarily broken -- the\n");
     out.push_str("list below shows exactly how far each pair got and what to run next.\n\n");
 
@@ -1957,7 +1957,7 @@ pub fn format_strict_live_provider_model_coverage_summary(
 
     if all_pairs.is_empty() {
         out.push_str("No provider+model pairs have live evidence yet. Run\n");
-        out.push_str("`jcode provider-doctor <provider> --tier full` to record one.\n\n");
+        out.push_str("`blaude provider-doctor <provider> --tier full` to record one.\n\n");
     } else {
         // `gap_limit == 0` means "no cap": show every pair.
         let cap = if gap_limit == 0 {
@@ -2021,7 +2021,7 @@ pub fn format_strict_live_provider_model_coverage_summary(
         out.push('\n');
     }
 
-    // -- Full provider monitoring roster: EVERY provider jcode knows about. ----
+    // -- Full provider monitoring roster: EVERY provider blaude knows about. ----
     if !summary.provider_roster.is_empty() {
         let roster = &summary.provider_roster;
         let ready = roster.iter().filter(|e| e.status == "READY").count();
@@ -2144,9 +2144,9 @@ pub fn format_strict_live_provider_model_coverage_summary(
     // -- Footer: how to act on this report. ------------------------------------
     out.push_str("Next steps:\n");
     out.push_str("  Drive any OpenAI-compatible pair through the pipeline (records evidence):\n");
-    out.push_str("    jcode provider-doctor <provider> --tier full   # spends balance\n");
+    out.push_str("    blaude provider-doctor <provider> --tier full   # spends balance\n");
     out.push_str(
-        "    jcode provider-doctor <provider> --tier offline # wiring only, no key/spend\n",
+        "    blaude provider-doctor <provider> --tier offline # wiring only, no key/spend\n",
     );
     out.push_str("  See docs/PROVIDER_DOCTOR.md for the full guide.\n");
     out.push_str(&format!("\nLedger: {}\n", summary.coverage_source));
@@ -2226,7 +2226,7 @@ fn coverage_actor_label(dirty: bool, version: &str) -> &'static str {
 fn pair_fix_hint(provider_id: &str, model: &str, stage_id: &str) -> String {
     if doctor_supports_provider(provider_id) {
         let tier = doctor_tier_for_stage(stage_id);
-        format!("run `jcode provider-doctor {provider_id} --model {model} --tier {tier}`")
+        format!("run `blaude provider-doctor {provider_id} --model {model} --tier {tier}`")
     } else {
         // opencode and other non-OpenAI-compatible providers are recorded by their
         // own live suites, not provider-doctor.

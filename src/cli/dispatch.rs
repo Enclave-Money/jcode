@@ -608,7 +608,7 @@ fn resolve_resume_arg(args: &mut Args) -> Result<()> {
                     // for session lifecycle, so an id that is not in the local store
                     // can still be valid server-side. Hard-exiting here dumped the
                     // user back to a shell with "No session found matching ...",
-                    // making jcode unusable after an auto-update (issue #328).
+                    // making blaude unusable after an auto-update (issue #328).
                     // Instead, keep the raw id and let the remote connection resolve
                     // it; if the server cannot find it either, the TUI surfaces a
                     // recoverable message and falls back to a fresh session rather
@@ -910,8 +910,8 @@ async fn run_default_command(args: Args) -> Result<()> {
     let already_in_selfdev = crate::cli::selfdev::client_selfdev_requested();
 
     // Record where this interactive launch happened so the system-wide launch
-    // hotkeys can reopen jcode in the last project directory (Cmd+') and the
-    // last jcode repo for self-dev (Cmd+Shift+'). Best-effort; ignored unless a
+    // hotkeys can reopen blaude in the last project directory (Cmd+') and the
+    // last blaude repo for self-dev (Cmd+Shift+'). Best-effort; ignored unless a
     // real TTY and not a fresh-spawn re-entry.
     if !args.fresh_spawn && std::io::IsTerminal::is_terminal(&std::io::stdin()) {
         let repo_dir = build::get_repo_dir();

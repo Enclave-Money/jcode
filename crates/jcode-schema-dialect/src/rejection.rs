@@ -4,7 +4,7 @@
 //! construct, but it cannot be complete: a provider may reject something jcode
 //! believed was fine. When that happens the failure is currently a hard 400 the
 //! user reports as a GitHub issue days later. Parsing the error instead lets the
-//! same turn recover, and lets jcode report exactly which keyword to add.
+//! same turn recover, and lets blaude report exactly which keyword to add.
 //!
 //! The three shapes below are verbatim from the filed issues, so the parser is
 //! tested against real provider output rather than invented strings.
@@ -98,7 +98,7 @@ pub fn classify(message: &str) -> Option<SchemaRejection> {
     // schema error. That labels the failure for the user instead of surfacing a
     // raw 400, and keeps the caller from retrying a byte-identical request.
     // Prevention already handles this by declining strict mode, so a rejection
-    // reaching here means a schema jcode did not expect.
+    // reaching here means a schema blaude did not expect.
     if message.contains("must have a 'type' key") || message.contains("is not of type") {
         return Some(SchemaRejection {
             keywords: Vec::new(),
@@ -188,7 +188,7 @@ fn extract_quoted_before(message: &str, marker: &str) -> Option<String> {
 }
 
 /// Whether a schema still contains the construct a provider rejected. Used to
-/// avoid a pointless retry when the rejection names something jcode did not
+/// avoid a pointless retry when the rejection names something blaude did not
 /// send (which would otherwise loop).
 pub fn schema_contains_keyword(schema: &Value, keyword: &str) -> bool {
     match schema {

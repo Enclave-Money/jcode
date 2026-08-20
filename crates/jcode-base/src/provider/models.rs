@@ -63,7 +63,7 @@ pub(crate) fn ensure_model_allowed_for_subscription(model: &str) -> Result<()> {
     match crate::subscription_catalog::find_curated_model(model) {
         None => {
             anyhow::bail!(
-                "Model '{}' is not included in the current jcode subscription catalog",
+                "Model '{}' is not included in the current blaude subscription catalog",
                 model
             );
         }
@@ -71,7 +71,7 @@ pub(crate) fn ensure_model_allowed_for_subscription(model: &str) -> Result<()> {
             let tier = crate::subscription_catalog::effective_tier();
             if !tier.allows(curated.min_tier) {
                 anyhow::bail!(
-                    "Model '{}' requires the {} tier (current tier: {}). Upgrade your jcode subscription to use it.",
+                    "Model '{}' requires the {} tier (current tier: {}). Upgrade your blaude subscription to use it.",
                     curated.display_name,
                     curated.min_tier.display_name(),
                     tier.display_name()

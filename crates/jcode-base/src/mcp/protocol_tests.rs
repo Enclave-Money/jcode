@@ -578,7 +578,7 @@ fn claude_json_http_entry_does_not_displace_jcode_stdio_server() {
         home.path().join("mcp.json"),
         r#"{"mcpServers":{"github":{"type":"stdio","command":"npx","args":["-y","mcp-remote"]}}}"#,
     )
-    .expect("write jcode mcp config");
+    .expect("write blaude mcp config");
     // `user_home_path()` maps external configs under JCODE_HOME to an
     // `external/` subdirectory, so this is where ~/.claude.json is read from.
     let external = home.path().join("external");
@@ -697,7 +697,7 @@ fn claude_only_config_never_creates_a_jcode_snapshot() {
         assert!(config.servers.contains_key("private"));
         assert!(
             !home.path().join("mcp.json").exists(),
-            "a live Claude source must not be persisted into jcode config"
+            "a live Claude source must not be persisted into blaude config"
         );
     });
 
@@ -771,13 +771,13 @@ fn disabling_claude_mcp_skips_both_live_sources_but_preserves_jcode_sources() {
         home.path().join("mcp.json"),
         r#"{"mcpServers":{"jcode-global":{"command":"jcode-global"}}}"#,
     )
-    .expect("write jcode global config");
-    std::fs::create_dir_all(project.path().join(".jcode")).expect("create jcode project dir");
+    .expect("write blaude global config");
+    std::fs::create_dir_all(project.path().join(".jcode")).expect("create blaude project dir");
     std::fs::write(
         project.path().join(".jcode/mcp.json"),
         r#"{"mcpServers":{"jcode-project":{"command":"jcode-project"}}}"#,
     )
-    .expect("write jcode project config");
+    .expect("write blaude project config");
 
     let external = home.path().join("external");
     std::fs::create_dir_all(external.join(".claude")).expect("create Claude config dirs");

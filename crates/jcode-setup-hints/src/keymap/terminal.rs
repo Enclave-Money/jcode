@@ -58,7 +58,7 @@ fn parse_trigger(trigger: &str) -> Option<KeyChord> {
     }
     // Ghostty exposes a few logical triggers (mapped to the platform's native
     // shortcut) that are not real key chords. They can never collide with a
-    // jcode binding, so drop them to keep the snapshot clean.
+    // blaude binding, so drop them to keep the snapshot clean.
     if matches!(
         trigger.to_ascii_lowercase().as_str(),
         "copy" | "paste" | "unbind" | "ignore"

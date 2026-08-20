@@ -552,11 +552,11 @@ fn format_background_task_notification_markdown_highlights_failure_reason() -> R
     let rendered = format_background_task_notification_markdown(&BackgroundTaskCompleted {
         task_id: "build123".to_string(),
         tool_name: "selfdev-build".to_string(),
-        display_name: Some("Build jcode".to_string()),
+        display_name: Some("Build blaude".to_string()),
         session_id: "session".to_string(),
         status: BackgroundTaskStatus::Failed,
         exit_code: Some(101),
-        output_preview: "[stderr]    Compiling jcode\nsccache: Compile terminated by signal 15\n[stderr] error: could not compile `jcode` (lib)".to_string(),
+        output_preview: "[stderr]    Compiling blaude\nsccache: Compile terminated by signal 15\n[stderr] error: could not compile `blaude` (lib)".to_string(),
         output_file: std::path::PathBuf::from("/tmp/output.log"),
         duration_secs: 62.5,
         notify: true,

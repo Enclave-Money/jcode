@@ -8,9 +8,9 @@ use crate::{build, update};
 pub fn hot_rebuild(session_id: &str) -> Result<()> {
     let cwd = std::env::current_dir()?;
     let repo_dir =
-        build::get_repo_dir().ok_or_else(|| anyhow::anyhow!("Could not find jcode repository"))?;
+        build::get_repo_dir().ok_or_else(|| anyhow::anyhow!("Could not find blaude repository"))?;
 
-    eprintln!("Rebuilding jcode with session {}...", session_id);
+    eprintln!("Rebuilding blaude with session {}...", session_id);
     pull_latest_changes_for_rebuild(&repo_dir);
     run_release_build(&repo_dir)?;
     run_release_tests(&repo_dir)?;
@@ -94,7 +94,7 @@ fn exec_rebuilt_session(exe: &Path, session_id: &str, cwd: &Path, is_selfdev: bo
 fn run_background_session_rebuild(session_id: String) {
     let publisher = BackgroundRebuildPublisher::new(session_id);
     let Some(repo_dir) = build::get_repo_dir() else {
-        publisher.error("Rebuild failed: could not find the jcode repository.");
+        publisher.error("Rebuild failed: could not find the blaude repository.");
         return;
     };
 

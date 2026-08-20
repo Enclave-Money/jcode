@@ -1404,7 +1404,7 @@ impl App {
     }
 
     /// Put the session's directory in the window title, so the compositor's
-    /// window list distinguishes two jcode windows on different checkouts.
+    /// window list distinguishes two blaude windows on different checkouts.
     fn retitle(&self) {
         if let Some(state) = self.state.as_ref() {
             state.set_title(&place::window_title(self.model.working_dir.as_deref()));

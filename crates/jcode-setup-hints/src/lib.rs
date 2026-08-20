@@ -2,7 +2,7 @@
 //!
 //! - Windows: suggest native Alt launch hotkeys plus Copilot-key setup and terminal setup.
 //! - macOS: if the user is on the default built-in Terminal.app, show a one-time
-//!   notice that it renders jcode poorly and suggest a modern terminal (Ghostty).
+//!   notice that it renders blaude poorly and suggest a modern terminal (Ghostty).
 //! - Linux: create a .desktop launcher file.
 //!
 //! Each nudge can be dismissed permanently with "Don't ask again".
@@ -163,9 +163,9 @@ impl Default for SetupHintsState {
 ///   process is actually eligible to receive `RegisterEventHotKey` events.
 ///   Version 1 still never fired because the process had no window-server
 ///   connection.
-/// - 3: register three launch hotkeys instead of one. `Cmd+;` opens jcode in
+/// - 3: register three launch hotkeys instead of one. `Cmd+;` opens blaude in
 ///   `$HOME`, `Cmd+'` opens it in the last project directory, and `Cmd+Shift+'`
-///   opens a self-dev session in the last jcode repo. Existing users are
+///   opens a self-dev session in the last blaude repo. Existing users are
 ///   migrated so the extra scripts/registrations are installed on update.
 /// - 4: hotkeys are config-driven. The installer resolves `[launch_hotkeys]`
 ///   from config (empty -> the same three built-ins) into per-entry scripts and
@@ -175,7 +175,7 @@ impl Default for SetupHintsState {
 /// - 5: the listener launches configured repos directly through
 ///   `jcode-terminal-launch`, avoiding the generated shell-script hop on hotkey
 ///   press. Scripts/plan are still written for compatibility and diagnostics.
-/// - 6: direct launches pass `--spawn-hotkey` into the new Jcode process so
+/// - 6: direct launches pass `--spawn-hotkey` into the new blaude process so
 ///   global shortcut proficiency is recorded by the same cross-platform path.
 #[cfg(any(test, target_os = "macos"))]
 pub const HOTKEY_LISTENER_VERSION: u32 = 6;
@@ -284,8 +284,8 @@ fn mac_hotkey_support_dir() -> Result<PathBuf> {
     Ok(storage::jcode_dir()?.join("hotkey"))
 }
 
-/// File holding the last project directory jcode was launched from. The `Cmd+'`
-/// global hotkey reads this at fire time to reopen jcode there.
+/// File holding the last project directory blaude was launched from. The `Cmd+'`
+/// global hotkey reads this at fire time to reopen blaude there.
 #[cfg(any(test, target_os = "macos", target_os = "linux", windows))]
 fn mac_hotkey_last_dir_file() -> Result<PathBuf> {
     Ok(mac_hotkey_support_dir()?.join("last_dir"))
@@ -334,7 +334,7 @@ fn load_launch_hotkeys_config() -> jcode_config_types::LaunchHotkeysConfig {
 /// Called once per interactive launch with the process's working directory.
 /// `$HOME` launches are ignored for the "last project" file so the `Cmd+'`
 /// hotkey keeps pointing at a real project rather than home (which already has
-/// its own `Cmd+;` hotkey). When `dir` is inside a jcode repo, the repo root is
+/// its own `Cmd+;` hotkey). When `dir` is inside a blaude repo, the repo root is
 /// recorded for the self-dev hotkey.
 ///
 /// Best-effort and side-effect-only: failures are logged, never propagated, so
@@ -432,8 +432,8 @@ fn mac_hotkey_launch_agent_plist(
     )
 }
 
-/// Launch a new jcode window in the user's preferred macOS terminal, passing
-/// `extra_args` (e.g. `["--resume", "<session-id>"]`) to the jcode invocation.
+/// Launch a new blaude window in the user's preferred macOS terminal, passing
+/// `extra_args` (e.g. `["--resume", "<session-id>"]`) to the blaude invocation.
 ///
 /// This reuses the same terminal detection as the global Cmd+; hotkey, but
 /// deliberately avoids AppleScript automation: callers like the menu bar
@@ -477,7 +477,7 @@ pub fn launch_jcode_in_macos_terminal(extra_args: &[String]) -> Result<()> {
         .arg("-c")
         .arg(&command)
         .status()
-        .context("failed to launch terminal for jcode")?;
+        .context("failed to launch terminal for blaude")?;
     if !status.success() {
         anyhow::bail!(
             "terminal launch command exited with status {:?}",
@@ -573,7 +573,7 @@ fn install_macos_hotkey_listener(
     let status = std::process::Command::new("launchctl")
         .args(["load", "-w", plist_path.to_string_lossy().as_ref()])
         .status()
-        .context("failed to load jcode LaunchAgent")?;
+        .context("failed to load blaude LaunchAgent")?;
     if !status.success() {
         anyhow::bail!("launchctl load failed with exit code {:?}", status.code());
     }
@@ -587,7 +587,7 @@ fn startup_hints_for_launch(_state: &SetupHintsState) -> Option<StartupHints> {
         None
     } else {
         Some(format!(
-            "Cmd+; launches a new jcode in your home directory from anywhere, system-wide (opens in {}). Cmd+' reopens your last project; Cmd+Shift+' opens a self-dev session.",
+            "Cmd+; launches a new blaude in your home directory from anywhere, system-wide (opens in {}). Cmd+' reopens your last project; Cmd+Shift+' opens a self-dev session.",
             effective_macos_terminal().label()
         ))
     };
@@ -626,10 +626,10 @@ fn macos_terminal_notice(
         return None;
     }
 
-    let message = "The built-in macOS Terminal.app renders jcode poorly (slow, limited colors, no inline images). Consider a modern terminal such as Ghostty, iTerm2, or Alacritty for a much better experience.".to_string();
+    let message = "The built-in macOS Terminal.app renders blaude poorly (slow, limited colors, no inline images). Consider a modern terminal such as Ghostty, iTerm2, or Alacritty for a much better experience.".to_string();
 
     Some(StartupHints::with_status_and_display(
-        "Tip: Terminal.app renders jcode poorly. Try Ghostty, iTerm2, or Alacritty.".to_string(),
+        "Tip: Terminal.app renders blaude poorly. Try Ghostty, iTerm2, or Alacritty.".to_string(),
         "Terminal",
         message,
     ))
@@ -644,7 +644,7 @@ fn nudge_macos_ghostty(state: &mut SetupHintsState) -> Option<StartupHints> {
     hints
 }
 
-/// Manual `jcode setup-hotkey` command.
+/// Manual `blaude setup-hotkey` command.
 ///
 /// Runs the full interactive setup flow regardless of launch count.
 #[cfg_attr(
@@ -682,7 +682,7 @@ pub fn run_setup_hotkey(
         eprintln!("\x1b[1mjcode setup-hotkey\x1b[0m");
         eprintln!();
         eprintln!("  Preferred terminal: {}", terminal.label());
-        eprintln!("  Installing a LaunchAgent with three system-wide jcode launch hotkeys.");
+        eprintln!("  Installing a LaunchAgent with three system-wide blaude launch hotkeys.");
         eprintln!();
 
         match install_macos_hotkey_listener(Some(terminal)) {
@@ -693,15 +693,17 @@ pub fn run_setup_hotkey(
                 state.launch_hotkey_tracking_version = LAUNCH_HOTKEY_TRACKING_VERSION;
                 let _ = state.save();
                 eprintln!(
-                    "  \x1b[32m✓\x1b[0m Created launch hotkeys → {} + jcode",
+                    "  \x1b[32m✓\x1b[0m Created launch hotkeys → {} + blaude",
                     installed_terminal.label()
                 );
                 eprintln!();
                 eprintln!("  Press these anywhere, system-wide:");
-                eprintln!("    \x1b[1mCmd+;\x1b[0m       new jcode in your home directory");
-                eprintln!("    \x1b[1mCmd+'\x1b[0m       new jcode in your last project directory");
+                eprintln!("    \x1b[1mCmd+;\x1b[0m       new blaude in your home directory");
                 eprintln!(
-                    "    \x1b[1mCmd+Shift+'\x1b[0m new jcode self-dev session (last jcode repo)"
+                    "    \x1b[1mCmd+'\x1b[0m       new blaude in your last project directory"
+                );
+                eprintln!(
+                    "    \x1b[1mCmd+Shift+'\x1b[0m new blaude self-dev session (last blaude repo)"
                 );
                 install_cli_launch_hints_notice();
                 return Ok(());
@@ -728,12 +730,12 @@ pub fn run_setup_hotkey(
                 Ok(changed) => {
                     if changed {
                         eprintln!(
-                            "  \x1b[32m✓\x1b[0m Installed jcode launch hotkeys into your {} config.",
+                            "  \x1b[32m✓\x1b[0m Installed blaude launch hotkeys into your {} config.",
                             comp.name()
                         );
                     } else {
                         eprintln!(
-                            "  \x1b[32m✓\x1b[0m jcode launch hotkeys already up to date in your {} config.",
+                            "  \x1b[32m✓\x1b[0m blaude launch hotkeys already up to date in your {} config.",
                             comp.name()
                         );
                     }
@@ -984,15 +986,15 @@ fn run_macos_hotkey_listener() -> Result<()> {
     //
     // This function is invoked directly from `main()` before the tokio runtime is
     // built, so it runs on the real main thread. We install an event handler that
-    // launches jcode on key-down, then hand the thread to the event loop so the
+    // launches blaude on key-down, then hand the thread to the event loop so the
     // handler is invoked whenever the hotkey fires. Using the event handler
     // (rather than polling the channel) avoids both busy-spinning and latency.
 
     // The listener runs as its own launchd process and never goes through the
     // normal startup path, so initialize logging here. Diagnostics land in the
-    // standard jcode log plus the plist's StandardOut/ErrorPath.
+    // standard blaude log plus the plist's StandardOut/ErrorPath.
     jcode_logging::init();
-    macos_hotkey_log("starting macOS jcode launch hotkey listener");
+    macos_hotkey_log("starting macOS blaude launch hotkey listener");
 
     let status = macos_run_loop::promote_to_ui_element();
     if status != 0 {
@@ -1006,7 +1008,7 @@ fn run_macos_hotkey_listener() -> Result<()> {
         GlobalHotKeyManager::new().context("failed to initialize global hotkey manager")?;
 
     // Register each configured launch hotkey and map its registration id directly
-    // to a cwd + jcode argv. Older versions dispatched through generated shell
+    // to a cwd + blaude argv. Older versions dispatched through generated shell
     // scripts; keeping this direct avoids a shell/AppleScript hop and prevents
     // stale script contents from disagreeing with the live config.
     let launches = load_direct_hotkey_launches();
@@ -1039,7 +1041,7 @@ fn run_macos_hotkey_listener() -> Result<()> {
     }
 
     if launch_for_id.is_empty() {
-        anyhow::bail!("failed to register any jcode launch hotkey");
+        anyhow::bail!("failed to register any blaude launch hotkey");
     }
 
     let exe_path = std::env::current_exe()
@@ -1074,14 +1076,14 @@ fn run_macos_hotkey_listener() -> Result<()> {
         }
     }));
 
-    macos_hotkey_log("macOS jcode launch hotkeys registered; entering event loop");
+    macos_hotkey_log("macOS blaude launch hotkeys registered; entering event loop");
     // Keep the manager alive for the lifetime of the event loop so the hotkey
     // registration and event handler stay installed.
     let _manager = manager;
     // Hand the main thread to the Carbon event loop so hotkey events are
     // delivered. This normally never returns for our long-lived listener.
     macos_run_loop::run_forever();
-    macos_hotkey_log("macOS jcode launch hotkey event loop exited");
+    macos_hotkey_log("macOS blaude launch hotkey event loop exited");
     Ok(())
 }
 
@@ -1154,7 +1156,7 @@ pub fn record_launch_hotkey_use(chord: &str) {
     }
 }
 
-/// Log a hotkey-listener diagnostic to both the jcode log and stderr.
+/// Log a hotkey-listener diagnostic to both the blaude log and stderr.
 ///
 /// The LaunchAgent redirects stdout/stderr to log files in the hotkey support
 /// dir, so emitting to stderr here makes the listener's lifecycle observable
@@ -1162,7 +1164,7 @@ pub fn record_launch_hotkey_use(chord: &str) {
 #[cfg(target_os = "macos")]
 fn macos_hotkey_log(message: &str) {
     jcode_logging::info(message);
-    eprintln!("[jcode hotkey] {message}");
+    eprintln!("[blaude hotkey] {message}");
 }
 
 /// Decide what macOS hotkey listener action a launch should take, given the
@@ -1323,7 +1325,7 @@ pub fn maybe_show_setup_hints() -> Option<StartupHints> {
     // On Windows, desktop shortcut creation shells out to PowerShell/COM and can
     // take tens of seconds or hang in some Windows Terminal/WSL launch contexts.
     // Do not run it on the critical startup path. Users can still run
-    // `jcode setup-launcher` explicitly.
+    // `blaude setup-launcher` explicitly.
 
     let startup_hints = startup_hints_for_launch(&state);
 
@@ -1418,7 +1420,7 @@ fn macos_launch_hotkeys_notice(state: &SetupHintsState) -> Option<StartupHints> 
     Some(StartupHints::with_status_and_display(
         "Launch hotkeys available".to_string(),
         "Launch hotkeys",
-        format!("Configured Jcode launch hotkeys:\n{}", lines.join("\n")),
+        format!("Configured blaude launch hotkeys:\n{}", lines.join("\n")),
     ))
 }
 
@@ -1450,7 +1452,7 @@ fn xdg_config_home() -> Option<PathBuf> {
         .or_else(|| dirs::home_dir().map(|h| h.join(".config")))
 }
 
-/// Config file jcode manages for a flat (`#`-commented) compositor config.
+/// Config file blaude manages for a flat (`#`-commented) compositor config.
 /// For i3 the legacy `~/.i3/config` location is honored when the XDG path is
 /// missing. GNOME/KDE do not use a spliceable config file and return `None`.
 #[cfg(target_os = "linux")]
@@ -1488,7 +1490,7 @@ fn kde_globalshortcutsrc_path() -> Option<PathBuf> {
     Some(xdg_config_home()?.join("kglobalshortcutsrc"))
 }
 
-/// Directory for jcode's hidden KDE launcher desktop files.
+/// Directory for blaude's hidden KDE launcher desktop files.
 #[cfg(target_os = "linux")]
 fn kde_applications_dir() -> Option<PathBuf> {
     let base = std::env::var_os("XDG_DATA_HOME")
@@ -1497,7 +1499,7 @@ fn kde_applications_dir() -> Option<PathBuf> {
     Some(base.join("applications"))
 }
 
-/// The config file jcode would manage for the *current* session's compositor.
+/// The config file blaude would manage for the *current* session's compositor.
 #[cfg(target_os = "linux")]
 fn linux_hotkey_config_path(comp: linux_env::LinuxCompositor) -> Option<PathBuf> {
     match comp {
@@ -1526,7 +1528,7 @@ fn linux_hotkey_target_description(comp: linux_env::LinuxCompositor) -> String {
     }
 }
 
-/// The sentinel that marks jcode's managed region in `path` for `comp`.
+/// The sentinel that marks blaude's managed region in `path` for `comp`.
 #[cfg(target_os = "linux")]
 fn linux_hotkey_sentinel(comp: linux_env::LinuxCompositor) -> &'static str {
     match comp {
@@ -1535,7 +1537,7 @@ fn linux_hotkey_sentinel(comp: linux_env::LinuxCompositor) -> &'static str {
     }
 }
 
-/// Whether jcode's launch hotkeys are already installed for `comp`.
+/// Whether blaude's launch hotkeys are already installed for `comp`.
 #[cfg(target_os = "linux")]
 fn linux_hotkeys_installed(comp: linux_env::LinuxCompositor) -> bool {
     use linux_env::LinuxCompositor;
@@ -1584,7 +1586,7 @@ fn linux_hotkey_setup_action(
     }
 }
 
-/// Pick a terminal emulator to launch jcode in on Linux. Honors `$TERMINAL`,
+/// Pick a terminal emulator to launch blaude in on Linux. Honors `$TERMINAL`,
 /// otherwise probes common emulators on `PATH`, falling back to `kitty`.
 #[cfg(any(test, target_os = "linux"))]
 fn linux_launch_terminal() -> String {
@@ -1978,7 +1980,7 @@ fn xfce_shortcut_commands_text() -> String {
 }
 
 /// Install (or refresh) the launch hotkeys as XFCE keyboard shortcuts via
-/// xfconf-query. Stale jcode entries bound to accelerators we no longer use
+/// xfconf-query. Stale blaude entries bound to accelerators we no longer use
 /// are removed so a re-baked chord layout never leaves orphaned bindings.
 #[cfg(target_os = "linux")]
 fn install_xfce_launch_hotkeys() -> Result<bool> {
@@ -1997,7 +1999,7 @@ fn install_xfce_launch_hotkeys() -> Result<bool> {
     let existing = xfce_shortcut_commands_text();
     let mut changed = false;
 
-    // Remove stale jcode entries bound to accelerators we no longer use.
+    // Remove stale blaude entries bound to accelerators we no longer use.
     for line in existing.lines() {
         let Some((prop, value)) = line.split_once(char::is_whitespace) else {
             continue;
@@ -2096,7 +2098,7 @@ fn install_kde_launch_hotkeys() -> Result<bool> {
 /// Write one executable launch script per resolved hotkey to
 /// `~/.jcode/hotkey/` and return the chord -> script binds. The scripts `cd`
 /// into the target (with `$HOME` fallback for stale/dynamic dirs) and exec the
-/// user's terminal running jcode, so compositor bind lines stay trivial.
+/// user's terminal running blaude, so compositor bind lines stay trivial.
 #[cfg(target_os = "linux")]
 fn write_linux_launch_scripts() -> Result<Vec<linux_env::ScriptBind>> {
     let hotkey_dir = mac_hotkey_support_dir()?;
@@ -2121,7 +2123,7 @@ fn write_linux_launch_scripts() -> Result<Vec<linux_env::ScriptBind>> {
         let self_dev = entry.args.iter().any(|a| a == "self-dev");
         let exec = linux_env::terminal_exec_command(&terminal, &exe_path, &entry.chord, self_dev);
         let script_body = format!(
-            "#!/bin/sh\n# Auto-generated by jcode setup-hotkey; re-run it to refresh.\n{cd}exec {exec}\n",
+            "#!/bin/sh\n# Auto-generated by blaude setup-hotkey; re-run it to refresh.\n{cd}exec {exec}\n",
             cd = entry.cd_prefix,
         );
         let script_path = hotkey_dir.join(&entry.script_file_name);
@@ -2234,7 +2236,7 @@ fn linux_launch_hotkeys_notice(state: &SetupHintsState) -> Option<StartupHints> 
         "Launch hotkeys available".to_string(),
         "Launch hotkeys",
         format!(
-            "Configured Jcode launch hotkeys ({}): {} {}",
+            "Configured blaude launch hotkeys ({}): {} {}",
             comp.name(),
             lines.join("; "),
             footer
@@ -2261,7 +2263,7 @@ pub(crate) struct LaunchHotkeyRow {
 /// Policy:
 /// - Hide a per-repo binding once it has been used `LAUNCH_HOTKEY_LEARNED_USES`
 ///   times (the user has clearly internalized it).
-/// - Once the user has learned at least one binding and has launched jcode at
+/// - Once the user has learned at least one binding and has launched blaude at
 ///   least `LAUNCH_HOTKEY_NOTICE_MIN_LAUNCHES_TO_STOP` times, drop the whole
 ///   notice so it never lingers for an experienced user.
 /// - Returns `None` when nothing should be shown.
@@ -2325,7 +2327,7 @@ pub(crate) fn conflict_hint_decision(signature: &str, previous: &str) -> Conflic
     }
 }
 
-/// Check whether jcode's keybindings conflict with shortcuts owned by the
+/// Check whether blaude's keybindings conflict with shortcuts owned by the
 /// terminal or the OS, and return a one-time startup notice when the set of
 /// conflicts has changed since we last warned.
 ///
@@ -2383,7 +2385,7 @@ pub(crate) fn keymap_conflict_hint_for(
     }
 }
 
-/// Whether the current terminal triggers jcode's glyph-safe color quantization
+/// Whether the current terminal triggers blaude's glyph-safe color quantization
 /// (macOS VS Code integrated terminal / Apple Terminal). Mirrors the detection
 /// in `jcode-tui-style`'s color module and `jcode-app-core::perf` so the
 /// disclosure fires exactly when the behavior is active. Overridable with
@@ -2409,7 +2411,7 @@ fn glyph_safe_mode_active() -> bool {
 }
 
 /// One-time disclosure that glyph-safe mode (256-color quantization) is active,
-/// shown the first time jcode launches in a fragile-glyph terminal. Discloses
+/// shown the first time blaude launches in a fragile-glyph terminal. Discloses
 /// the tradeoff (slightly reduced color fidelity) and how to opt out.
 pub fn maybe_show_glyph_safe_notice() -> Option<StartupHints> {
     if !io::stdin().is_terminal() || !io::stderr().is_terminal() {
@@ -2438,7 +2440,7 @@ pub(crate) fn glyph_safe_notice_for(
             .to_string();
     let display = "This terminal (VS Code integrated terminal / Apple Terminal on macOS) corrupts \
 its glyph cache under jcode's full-color animations, rendering letters as boxes. \
-jcode automatically quantizes colors to the 256-palette here to keep text readable; \
+blaude automatically quantizes colors to the 256-palette here to keep text readable; \
 the only tradeoff is slightly reduced color fidelity. Animations still run. \
 For full color, use Ghostty, iTerm2, kitty, or WezTerm, or set JCODE_GLYPH_SAFE_MODE=off."
         .to_string();
@@ -2450,7 +2452,7 @@ For full color, use Ghostty, iTerm2, kitty, or WezTerm, or set JCODE_GLYPH_SAFE_
     )
 }
 
-/// Manual `jcode setup-launcher` command.
+/// Manual `blaude setup-launcher` command.
 pub fn run_setup_launcher() -> Result<()> {
     #[cfg(target_os = "macos")]
     {
@@ -2467,7 +2469,7 @@ pub fn run_setup_launcher() -> Result<()> {
                     app_dir.display()
                 );
                 eprintln!(
-                    "  \x1b[32m✓\x1b[0m Spotlight/Launchpad/Dock will launch jcode in {}",
+                    "  \x1b[32m✓\x1b[0m Spotlight/Launchpad/Dock will launch blaude in {}",
                     terminal.label()
                 );
                 eprintln!();
@@ -2505,11 +2507,11 @@ pub fn run_setup_launcher() -> Result<()> {
     }
 }
 
-/// Create a desktop shortcut/launcher for jcode.
+/// Create a desktop shortcut/launcher for blaude.
 ///
-/// - macOS: creates a jcode.app bundle in ~/Applications/
+/// - macOS: creates a blaude.app bundle in ~/Applications/
 /// - Windows uses [`windows_setup::create_windows_desktop_shortcut`] via
-///   `jcode setup-launcher` instead (PowerShell/COM is too slow for the
+///   `blaude setup-launcher` instead (PowerShell/COM is too slow for the
 ///   startup path).
 #[cfg(any(test, not(windows)))]
 fn create_desktop_shortcut(state: &mut SetupHintsState) -> Result<()> {
@@ -2544,7 +2546,8 @@ fn uninstall_macos_hotkey_listener() -> Result<()> {
     let _ = std::process::Command::new("launchctl")
         .args(["unload", plist_path.to_string_lossy().as_ref()])
         .status();
-    std::fs::remove_file(&plist_path).context("failed to remove jcode hotkey LaunchAgent plist")?;
+    std::fs::remove_file(&plist_path)
+        .context("failed to remove blaude hotkey LaunchAgent plist")?;
     jcode_logging::info("Removed macOS launch-hotkey LaunchAgent (launch_hotkeys.enabled = false)");
     Ok(())
 }

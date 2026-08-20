@@ -74,7 +74,7 @@ pub fn setup() -> Result<ToolOutput> {
     ));
 
     // Trigger the Screen Recording prompt by attempting a capture (already done
-    // in screen_recording_ok). For Accessibility, prompt + pre-add jcode by
+    // in screen_recording_ok). For Accessibility, prompt + pre-add blaude by
     // opening the pane; the trust prompt itself is shown by the host process the
     // first time it calls an AX API.
     if !ax0 {

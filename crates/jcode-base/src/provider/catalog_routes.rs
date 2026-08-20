@@ -861,7 +861,7 @@ pub fn remote_model_routes_fallback(
                 provider: crate::subscription_catalog::JCODE_PROVIDER_DISPLAY_NAME.to_string(),
                 api_method: crate::subscription_catalog::JCODE_ROUTE_API_METHOD.to_string(),
                 available: true,
-                detail: "jcode subscription routing · managed server-side".to_string(),
+                detail: "blaude subscription routing · managed server-side".to_string(),
                 cheapness: None,
             })
             .collect();
@@ -1092,7 +1092,7 @@ pub fn remote_model_routes_lightweight_fallback(
             },
             available: true,
             detail: if is_jcode_subscription {
-                "jcode subscription routing · managed server-side".to_string()
+                "blaude subscription routing · managed server-side".to_string()
             } else {
                 "refreshing route details…".to_string()
             },

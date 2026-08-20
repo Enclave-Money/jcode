@@ -12,15 +12,15 @@ fn set_or_clear_env(key: &str, value: Option<std::ffi::OsString>) {
 fn scriptable_resume_command_matches_input_kind() {
     assert_eq!(
         scriptable_resume_command("openai", "callback_url"),
-        "jcode login --provider openai --callback-url '<url-or-query>'"
+        "blaude login --provider openai --callback-url '<url-or-query>'"
     );
     assert_eq!(
         scriptable_resume_command("gemini", "auth_code"),
-        "jcode login --provider gemini --auth-code '<code>'"
+        "blaude login --provider gemini --auth-code '<code>'"
     );
     assert_eq!(
         scriptable_resume_command("copilot", "complete"),
-        "jcode login --provider copilot --complete"
+        "blaude login --provider copilot --complete"
     );
 }
 

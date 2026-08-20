@@ -3,7 +3,7 @@
 //!
 //! The motivating use case is one-time keybinding setup: during auto-import we
 //! want to guess a user's top project directories so we can offer to bind global
-//! launch hotkeys (e.g. `Cmd+[`, `Cmd+]`) to "open jcode here". The ranking is a
+//! launch hotkeys (e.g. `Cmd+[`, `Cmd+]`) to "open blaude here". The ranking is a
 //! pure function over `(working_dir, last_used)` observations so it can be unit
 //! tested without touching the filesystem, and a thin [`resolve_git_root`]
 //! helper folds subdirectories into their repository root.
@@ -63,7 +63,7 @@ pub struct RankOptions {
     /// sessions) so old-but-frequent repos still register.
     pub floor_weight: f64,
     /// Paths to exclude entirely (exact match after normalization). Typically
-    /// the user's home directory, which is noise from launching jcode at `$HOME`.
+    /// the user's home directory, which is noise from launching blaude at `$HOME`.
     pub excluded_paths: Vec<PathBuf>,
     /// When true, only keep candidates whose resolved path is an actual git
     /// root (i.e. [`resolve_git_root`] found a `.git`). Raw, non-repo working
@@ -297,13 +297,13 @@ pub fn half_life_from_duration(d: Duration) -> f64 {
 }
 
 /// A planned global launch hotkey: a chord plus the directory it should open
-/// jcode in. Produced by [`build_launch_hotkey_plan`] from a ranking, then
+/// blaude in. Produced by [`build_launch_hotkey_plan`] from a ranking, then
 /// persisted to config so the mapping is baked once and does not move around.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PlannedHotkey {
     /// jcode-style chord string, e.g. `cmd+;` or `cmd+[`.
     pub chord: String,
-    /// Absolute directory the hotkey opens jcode in.
+    /// Absolute directory the hotkey opens blaude in.
     pub dir: String,
     /// Short human label (usually the repo's directory name) for notices.
     pub label: String,
@@ -368,7 +368,7 @@ fn dir_label(path: &str) -> String {
         .unwrap_or_else(|| path.to_string())
 }
 
-/// Scan a jcode sessions directory and extract one [`SessionLocation`] per
+/// Scan a blaude sessions directory and extract one [`SessionLocation`] per
 /// session file that records a `working_dir`.
 ///
 /// This is deliberately lightweight: it reads each `*.json` (skipping `.bak`
@@ -412,7 +412,7 @@ pub fn collect_jcode_session_locations(sessions_dir: &Path) -> Vec<SessionLocati
     out
 }
 
-/// Compute the baked launch-hotkey plan from a jcode sessions directory.
+/// Compute the baked launch-hotkey plan from a blaude sessions directory.
 ///
 /// Convenience wrapper that scans `sessions_dir`, ranks the repos (excluding
 /// `home`, requiring real git roots), and assigns the default chord layout. Pass

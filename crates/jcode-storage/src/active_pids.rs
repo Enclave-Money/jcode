@@ -150,9 +150,9 @@ fn process_is_running(pid: u32) -> bool {
     pid != 0
 }
 
-/// Live snapshot of how many jcode sessions are running, and how many of those
+/// Live snapshot of how many blaude sessions are running, and how many of those
 /// are actively streaming a model response right now. Used by the menu bar
-/// indicator (`jcode menubar`) and any other presence UI.
+/// indicator (`blaude menubar`) and any other presence UI.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct SessionCounts {
     /// Number of live sessions (registered PID is still running).

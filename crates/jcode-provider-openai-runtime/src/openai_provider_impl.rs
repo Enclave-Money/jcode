@@ -706,7 +706,7 @@ impl Provider for OpenAIProvider {
         let model = model.trim();
         if self.is_browser_only() && !is_chatgpt_web_model(model) {
             anyhow::bail!(
-                "OpenAI API credentials are not available for '{}'. The browser-only runtime can use '{}'; run `jcode login --provider openai` before selecting API models.",
+                "OpenAI API credentials are not available for '{}'. The browser-only runtime can use '{}'; run `blaude login --provider openai` before selecting API models.",
                 model,
                 CHATGPT_WEB_MODEL,
             );

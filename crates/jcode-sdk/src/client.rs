@@ -76,8 +76,8 @@ impl UnixTransport {
                 ErrorKind::ConnectFailed,
                 match cause.kind() {
                     std::io::ErrorKind::NotFound => format!(
-                        "no harness API socket at {}: the jcode harness is not running. \
-                         Start it with `jcode serve` and `jcode-harness-api-bridge`, or \
+                        "no harness API socket at {}: the blaude harness is not running. \
+                         Start it with `blaude serve` and `jcode-harness-api-bridge`, or \
                          connect with ensure_runtime enabled.",
                         path.display()
                     ),
@@ -351,7 +351,7 @@ impl Drop for JcodeClient {
 }
 
 impl JcodeClient {
-    /// Start and own a private jcode instance, then connect to it.
+    /// Start and own a private blaude instance, then connect to it.
     ///
     /// Its state and sockets are isolated from the user's interactive jcode.
     /// The last clone of this client shuts the instance down through Drop.
@@ -369,9 +369,9 @@ impl JcodeClient {
         Ok(client)
     }
 
-    /// Connect to the jcode running on this machine.
+    /// Connect to the blaude running on this machine.
     ///
-    /// Use this to automate the user's own jcode: a desktop app, an editor
+    /// Use this to automate the user's own blaude: a desktop app, an editor
     /// plugin, a status dashboard. It shares the user's live sessions.
     pub fn connect(options: ConnectOptions) -> Result<Self> {
         let path = options.socket_path.clone().unwrap_or_else(api_socket_path);
@@ -809,7 +809,7 @@ impl JcodeClient {
         }
     }
 
-    /// Persist an API key in jcode's owner-only provider store and hot-reload
+    /// Persist an API key in blaude's owner-only provider store and hot-reload
     /// provider credentials.
     pub fn set_api_key(&self, provider: &str, api_key: &str) -> Result<()> {
         match self

@@ -1,5 +1,5 @@
 //! Harness API bridge: exposes the stable versioned harness API on its own
-//! Unix socket and translates to the internal (legacy) jcode protocol.
+//! Unix socket and translates to the internal (legacy) blaude protocol.
 //!
 //! Architecture (milestone 2 of docs/HARNESS_API_AND_DESKTOP_REWRITE.md):
 //! - Listens on `~/.jcode/jcode-api.sock` (or `JCODE_API_SOCKET`).

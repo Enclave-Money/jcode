@@ -353,7 +353,7 @@ fn enqueue_provider_usage_tasks(tasks: &mut tokio::task::JoinSet<Option<Provider
 
 /// Source-key prefixes that already get a dedicated `/usage` report; the
 /// sweeper skips these so used-but-unreported logins (Cursor, Bedrock,
-/// Azure, jcode subscription, ...) still show recency + local spend without
+/// Azure, blaude subscription, ...) still show recency + local spend without
 /// double-listing covered providers.
 fn activity_source_has_dedicated_report(source_key: &str) -> bool {
     // Dual-auth and OAuth surfaces always reported above.

@@ -9,9 +9,9 @@ use tokio::sync::mpsc;
 fn repository_commands_export_a_logged_cargo_function() {
     let repo =
         crate::build::find_repo_in_ancestors(std::path::Path::new(env!("CARGO_MANIFEST_DIR")))
-            .expect("test runs inside the jcode repository");
+            .expect("test runs inside the blaude repository");
     let wrapped = wrap_repo_cargo_commands("cargo test -p demo && echo done", Some(&repo))
-        .expect("jcode repository has dev_cargo.sh");
+        .expect("blaude repository has dev_cargo.sh");
 
     assert!(wrapped.contains("export JCODE_DEV_CARGO_SCRIPT="));
     assert!(wrapped.contains("JCODE_IN_DEV_CARGO=1 \"$JCODE_DEV_CARGO_SCRIPT\" \"$@\""));
@@ -485,13 +485,13 @@ fn test_parse_heuristic_progress_handles_percent_output() {
 
 #[test]
 fn test_parse_heuristic_progress_handles_phase_output() {
-    let progress = parse_heuristic_progress("Compiling jcode v0.10.2")
+    let progress = parse_heuristic_progress("Compiling blaude v0.10.2")
         .expect("heuristic parser should not fail")
         .expect("phase progress should parse");
 
     assert_eq!(progress.kind, BackgroundTaskProgressKind::Indeterminate);
     assert_eq!(progress.percent, None);
-    assert_eq!(progress.message.as_deref(), Some("Compiling jcode v0.10.2"));
+    assert_eq!(progress.message.as_deref(), Some("Compiling blaude v0.10.2"));
     assert_eq!(progress.source, BackgroundTaskProgressSource::ParsedOutput);
 }
 

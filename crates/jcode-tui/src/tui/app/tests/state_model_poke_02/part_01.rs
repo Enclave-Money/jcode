@@ -1323,7 +1323,7 @@ fn test_swarm_prompt_command_is_discoverable_in_suggestions_and_help() {
         .expect("/swarm-prompt should have detailed help");
     assert!(help.contains("/swarm-prompt"));
     assert!(help.contains(".jcode/swarm-prompt.md"));
-    assert!(help.contains("Restart or reload Jcode"));
+    assert!(help.contains("Restart or reload blaude"));
 }
 
 #[test]

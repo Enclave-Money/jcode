@@ -42,7 +42,7 @@ pub async fn send_email(request: SendEmailRequest<'_>) -> Result<()> {
         .header(ContentType::TEXT_HTML);
 
     if let Some(cid) = request.cycle_id {
-        let msg_id = format!("<ambient-{}@jcode>", cid);
+        let msg_id = format!("<ambient-{}@blaude>", cid);
         builder = builder.message_id(Some(msg_id));
     }
 
@@ -70,7 +70,7 @@ pub fn poll_imap_once(host: &str, port: u16, user: &str, pass: &str) -> Result<V
 
     session.select("INBOX")?;
 
-    let reply_search = session.search("UNSEEN HEADER In-Reply-To \"@jcode>\"")?;
+    let reply_search = session.search("UNSEEN HEADER In-Reply-To \"@blaude>\"")?;
     let button_search = session.search("UNSEEN SUBJECT \"[jcode-perm:\"")?;
 
     let mut all_seqs: Vec<_> = reply_search.into_iter().chain(button_search).collect();
@@ -97,10 +97,10 @@ pub fn poll_imap_once(host: &str, port: u16, user: &str, pass: &str) -> Result<V
             let in_reply_to = parsed.in_reply_to().as_text().unwrap_or("").to_string();
             let subject = parsed.subject().unwrap_or("");
 
-            let cycle_id = if in_reply_to.contains("@jcode>") {
+            let cycle_id = if in_reply_to.contains("@blaude>") {
                 in_reply_to
                     .trim_start_matches("<ambient-")
-                    .trim_end_matches("@jcode>")
+                    .trim_end_matches("@blaude>")
                     .to_string()
             } else if let Some(start) = subject.find("[jcode-perm:") {
                 let rest = &subject[start + "[jcode-perm:".len()..];
@@ -316,7 +316,7 @@ pub fn build_permission_email_html(
   <div class="timestamp">Sent at {timestamp}</div>
 </div>
 <div class="footer">
-  Sent by jcode ambient mode
+  Sent by blaude ambient mode
 </div>
 </body>
 </html>"#
@@ -409,7 +409,7 @@ fn markdown_to_html_email(markdown: &str) -> String {
 {html_content}
 </div>
 <div class="footer">
-  Sent by jcode ambient mode
+  Sent by blaude ambient mode
 </div>
 </body>
 </html>"#
@@ -440,12 +440,12 @@ mod tests {
         let html = markdown_to_html_email(md);
         assert!(html.contains("<strong>Ambient Cycle Summary:</strong>"));
         assert!(html.contains("<li>"));
-        assert!(html.contains("jcode ambient mode"));
+        assert!(html.contains("blaude ambient mode"));
     }
 
     #[test]
     fn test_strip_quoted_reply() {
-        let email = "Thanks, please clean up the test data.\n\n> On Mon, Feb 9, 2026 jcode wrote:\n> Ambient cycle complete.\n";
+        let email = "Thanks, please clean up the test data.\n\n> On Mon, Feb 9, 2026 blaude wrote:\n> Ambient cycle complete.\n";
         let stripped = strip_quoted_reply(email);
         assert!(stripped.contains("clean up the test data"));
         assert!(!stripped.contains("Ambient cycle complete"));
@@ -520,10 +520,10 @@ mod tests {
             "apply patch",
             "Touch Cargo.toml",
             "req_123",
-            "jcode@example.com",
+            "blaude@example.com",
         );
         assert!(html.contains("Permission Request"));
         assert!(html.contains("req_123"));
-        assert!(html.contains("mailto:jcode@example.com"));
+        assert!(html.contains("mailto:blaude@example.com"));
     }
 }

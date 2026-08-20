@@ -82,7 +82,7 @@ pub(crate) fn metadata_path(socket_path: &Path) -> PathBuf {
     let filename = socket_path
         .file_name()
         .and_then(|name| name.to_str())
-        .unwrap_or("jcode.sock");
+        .unwrap_or("blaude.sock");
     socket_path.with_file_name(format!("{filename}.server.json"))
 }
 

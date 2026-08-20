@@ -71,7 +71,7 @@ impl Meta {
     /// states that need an action survive here.
     pub fn alert(&self) -> Option<String> {
         if self.account.is_none() {
-            return Some("not signed in: run `jcode` and use /login".into());
+            return Some("not signed in: run `blaude` and use /login".into());
         }
         if self.update == UpdateState::Available {
             return Some("update ready: restart to apply".into());

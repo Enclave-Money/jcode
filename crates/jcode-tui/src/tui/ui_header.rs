@@ -740,7 +740,7 @@ fn build_persistent_header_with_auth(
     } else if server_name.is_none() {
         lines.push(
             Line::from(Span::styled(
-                "JCode".to_string(),
+                "blaude".to_string(),
                 Style::default().fg(header_name_color()),
             ))
             .alignment(align),
@@ -806,7 +806,7 @@ fn build_persistent_header_with_auth(
     }
 
     // When there is no server/client version labeling (standalone mode),
-    // still surface the running version on the jcode line's own row.
+    // still surface the running version on the blaude line's own row.
     if client_version_label.is_none() {
         let version_text = if is_running_stable_release() {
             let tag = jcode_build_meta::git_tag();
@@ -1324,7 +1324,7 @@ mod tests {
     #[test]
     fn header_model_display_name_sweeps_real_model_catalog() {
         // End-to-end through shorten_model_name + format_model_name +
-        // prettify_model_id, over the model ids jcode actually routes.
+        // prettify_model_id, over the model ids blaude actually routes.
         let cases = [
             // Anthropic
             ("claude-opus-4-5-20251101", "Claude 4.5 Opus"),

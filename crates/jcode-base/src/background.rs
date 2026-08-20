@@ -111,7 +111,7 @@ impl BackgroundTaskManager {
         Bus::global().publish(BusEvent::UiActivity(crate::bus::UiActivity::background(
             Some(session_id.to_string()),
             format!(
-                "**Background task started** `{}` · `{}`\n\nJcode is running this in the background. Progress, checkpoints, and completion will appear here.",
+                "**Background task started** `{}` · `{}`\n\nblaude is running this in the background. Progress, checkpoints, and completion will appear here.",
                 task_id, safe_label
             ),
             Some(format!("Background task started · {}", label)),
@@ -222,7 +222,7 @@ impl BackgroundTaskManager {
     /// process image that no longer exists, so no future can ever finalize it.
     ///
     /// Rules, deliberately conservative because the task dir is shared by
-    /// every jcode process on the machine:
+    /// every blaude process on the machine:
     /// - Terminal, detached, or pid-bearing files are never orphans here
     ///   (detached reconciliation is `finalize_detached_status_if_needed`).
     /// - Files owned by this exact process image are never orphans: the

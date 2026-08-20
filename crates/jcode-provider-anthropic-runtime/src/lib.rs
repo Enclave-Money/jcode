@@ -934,7 +934,7 @@ impl AnthropicProvider {
 
         // Auto mode prefers OAuth (Claude subscription), but only while those
         // credentials can actually produce a usable access token. A stale
-        // jcode OAuth account may still deserialize successfully even after its
+        // blaude OAuth account may still deserialize successfully even after its
         // refresh token has been revoked. Treating that as "OAuth available"
         // prevented the configured API key from ever being tried and made
         // imported Claude Code sessions fail with a 401 on their first turn.
@@ -977,7 +977,7 @@ impl AnthropicProvider {
             && !oauth::claude_scopes_have_inference(&fresh_creds.scopes)
         {
             anyhow::bail!(
-                "Claude OAuth credentials are missing the required user:inference scope (scopes: {}). Run `jcode login --provider claude` to mint a fresh Claude.ai OAuth token, or import/use a fresh Claude Code login.",
+                "Claude OAuth credentials are missing the required user:inference scope (scopes: {}). Run `blaude login --provider claude` to mint a fresh Claude.ai OAuth token, or import/use a fresh Claude Code login.",
                 fresh_creds.scopes.join(" ")
             );
         }
@@ -995,7 +995,7 @@ impl AnthropicProvider {
                 &fresh_creds.refresh_token,
             ) {
                 anyhow::bail!(
-                    "Claude OAuth refresh token was previously rejected by Anthropic and cannot be refreshed. Run `jcode login --provider claude` to mint a fresh token."
+                    "Claude OAuth refresh token was previously rejected by Anthropic and cannot be refreshed. Run `blaude login --provider claude` to mint a fresh token."
                 );
             }
 
@@ -1039,7 +1039,7 @@ impl AnthropicProvider {
 
         if fresh_creds.expires_at <= now {
             anyhow::bail!(
-                "Claude OAuth token is expired and no usable refresh token is available. Run `jcode login --provider claude` to refresh OAuth credentials"
+                "Claude OAuth token is expired and no usable refresh token is available. Run `blaude login --provider claude` to refresh OAuth credentials"
             );
         }
 
@@ -1766,7 +1766,7 @@ async fn run_stream_with_retries(
                         Err(refresh_err) => {
                             let _ = tx
                                 .send(Err(anyhow::anyhow!(
-                                    "{}\n\nAutomatic Claude OAuth refresh failed: {}\nRun `jcode login --provider claude` (preferred) or `claude`, then retry.",
+                                    "{}\n\nAutomatic Claude OAuth refresh failed: {}\nRun `blaude login --provider claude` (preferred) or `claude`, then retry.",
                                     e,
                                     refresh_err
                                 )))
@@ -1900,7 +1900,7 @@ async fn run_stream_with_retries(
                 if is_oauth && is_oauth_auth_error(&error_str) {
                     let _ = tx
                         .send(Err(anyhow::anyhow!(
-                            "{}\n\nClaude OAuth authentication failed. Run `jcode login --provider claude` (preferred) or `claude`, then retry.",
+                            "{}\n\nClaude OAuth authentication failed. Run `blaude login --provider claude` (preferred) or `claude`, then retry.",
                             e
                         )))
                         .await;

@@ -189,7 +189,7 @@ pub struct NodeProps {
     pub is_terminal: bool,
     /// This node represents something having gone wrong. Failure nodes are held
     /// to a stricter standard: they must have a recovery edge that is not
-    /// "restart jcode".
+    /// "restart blaude".
     pub is_failure: bool,
     /// The user never rests here: it auto-advances before a frame is drawn.
     /// Transient nodes are exempt from the escape-hatch rule because there is
@@ -609,7 +609,7 @@ pub fn check_invariants() -> Vec<Violation> {
             });
         }
 
-        // 2. Every failure node recovers. "Restart jcode" is not a recovery, so
+        // 2. Every failure node recovers. "Restart blaude" is not a recovery, so
         //    we require an edge that either retries or hands off to a fix.
         if props.is_failure {
             let recovers = outs.iter().any(|e| {

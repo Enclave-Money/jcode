@@ -1033,7 +1033,7 @@ pub(super) async fn handle_notify_auth_changed(
             return;
         }
         let activation = crate::auth::lifecycle::activate_auth_change(&activation_request);
-        // Snapshot which providers jcode now believes are configured right after
+        // Snapshot which providers blaude now believes are configured right after
         // an auth change activates. This is the cornerstone for diagnosing
         // "logged in but model picker still empty / only OpenAI+Anthropic" and
         // "paste key silently returns to menu" reports (#312, #292, #304): if a

@@ -5,7 +5,7 @@
 //!   - Key validity (cheap, free endpoint probes such as `GET /v1/models`).
 //!   - Real balance / spend APIs where they exist (DeepSeek, Moonshot,
 //!     Anthropic/OpenAI admin cost reports when an admin key is configured).
-//!   - Locally tracked spend from [`crate::provider_activity`] (jcode prices
+//!   - Locally tracked spend from [`crate::provider_activity`] (blaude prices
 //!     every API-key call it makes, so this is a per-machine estimate).
 //!   - Last-used recency from the activity ledger.
 
@@ -100,7 +100,7 @@ pub(super) fn enqueue_api_key_usage_tasks(
 
         let source_key = format!("openai-compatible:{}", profile.id);
         let has_balance_api = matches!(profile.id, "deepseek" | "moonshotai");
-        // Only surface profiles jcode has actually used (or that expose a real
+        // Only surface profiles blaude has actually used (or that expose a real
         // balance API); listing every configured-but-idle key is noise.
         let used_before = provider_activity::last_used_unix_secs(&source_key).is_some()
             || provider_activity::spend_snapshot(&source_key).is_some();

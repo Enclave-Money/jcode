@@ -1,6 +1,6 @@
 //! User-configurable lifecycle hooks.
 //!
-//! Hooks are external commands that jcode runs at well-defined lifecycle
+//! Hooks are external commands that blaude runs at well-defined lifecycle
 //! points so other programs can observe or gate agent behavior without
 //! forking jcode. They are configured in `[hooks]` in config.toml (or
 //! `JCODE_HOOK_*` env vars) and follow the same command-line conventions as
@@ -13,13 +13,13 @@
 //! - **Observers** (`turn_start`, `turn_end`, `session_start`, `session_end`,
 //!   `post_tool`): spawned detached, fire-and-forget. Failures are logged and
 //!   never affect the agent.
-//! - **Gate** (`pre_tool`): jcode waits (with a timeout) for the hook to
+//! - **Gate** (`pre_tool`): blaude waits (with a timeout) for the hook to
 //!   exit. Exit 0 allows the tool call, exit 2 blocks it and the hook's
 //!   stderr is fed back to the model as the tool error. Any other outcome
 //!   (other exit codes, timeout, spawn failure) fails open with a warning.
 //!
 //! Hook processes get `JCODE_HOOKS_DISABLED=1` in their environment so a
-//! hook that itself invokes jcode does not recursively trigger hooks.
+//! hook that itself invokes blaude does not recursively trigger hooks.
 
 use std::path::PathBuf;
 

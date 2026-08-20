@@ -5,7 +5,7 @@ pub fn enter_selfdev_session(
     working_dir: Option<&Path>,
 ) -> Result<SelfDevLaunchResult> {
     let repo_dir = SelfDevTool::resolve_repo_dir(working_dir).ok_or_else(|| {
-        anyhow::anyhow!("Could not find the jcode repository to enter self-dev mode")
+        anyhow::anyhow!("Could not find the blaude repository to enter self-dev mode")
     })?;
 
     let mut inherited_context = false;
@@ -167,7 +167,7 @@ impl SelfDevTool {
         if !launch.launched {
             let command_preview = launch
                 .command_preview()
-                .unwrap_or_else(|| format!("jcode --resume {} self-dev", launch.session_id));
+                .unwrap_or_else(|| format!("blaude --resume {} self-dev", launch.session_id));
             return Ok(ToolOutput::new(format!(
                 "Created self-dev session {} but could not find a supported terminal to spawn automatically.\n\nRun manually:\n`{} --resume {} self-dev`",
                 launch.session_id,

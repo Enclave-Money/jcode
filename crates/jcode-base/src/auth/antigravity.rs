@@ -129,7 +129,7 @@ pub fn load_tokens() -> Result<AntigravityTokens> {
         crate::storage::harden_secret_file_permissions(&path);
         return crate::storage::read_json(&path).map_err(|_| {
             anyhow::anyhow!(
-                "No Antigravity tokens found. Run `jcode login --provider antigravity`."
+                "No Antigravity tokens found. Run `blaude login --provider antigravity`."
             )
         });
     }
@@ -144,7 +144,7 @@ pub fn load_tokens() -> Result<AntigravityTokens> {
         });
     }
 
-    anyhow::bail!("No Antigravity tokens found. Run `jcode login --provider antigravity`.");
+    anyhow::bail!("No Antigravity tokens found. Run `blaude login --provider antigravity`.");
 }
 
 pub fn save_tokens(tokens: &AntigravityTokens) -> Result<()> {
@@ -251,7 +251,7 @@ pub async fn login(no_browser: bool) -> Result<AntigravityTokens> {
                 redirect_uri
             );
             eprintln!(
-                "If the browser lands on a loopback error page instead of returning to jcode, copy the full URL from the address bar and re-run with `--no-browser` to paste it manually."
+                "If the browser lands on a loopback error page instead of returning to blaude, copy the full URL from the address bar and re-run with `--no-browser` to paste it manually."
             );
             match tokio::time::timeout(
                 std::time::Duration::from_secs(300),
@@ -309,7 +309,7 @@ async fn manual_login(
         let _ = open::that(auth_url);
     }
     eprintln!(
-        "After approving access, paste the full callback URL (or query string) here so jcode can verify the login state.\n"
+        "After approving access, paste the full callback URL (or query string) here so blaude can verify the login state.\n"
     );
     eprintln!(
         "If the browser shows a local callback error, copy the full URL from the address bar before closing the tab.\n"

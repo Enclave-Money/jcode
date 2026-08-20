@@ -11,7 +11,7 @@ pub struct TerminalCommand {
     /// What this spawn is for (e.g. "resume", "selfdev", "swarm-agent").
     /// Exported as `JCODE_SPAWN_KIND` to spawn hooks and spawned terminals.
     pub kind: Option<String>,
-    /// The jcode session this terminal will run, when known.
+    /// The blaude session this terminal will run, when known.
     /// Exported as `JCODE_SPAWN_SESSION_ID`.
     pub session_id: Option<String>,
     /// Extra metadata env entries (e.g. `JCODE_SPAWN_SWARM_ID`) exported to
@@ -77,7 +77,7 @@ impl TerminalCommand {
 /// Terminal/window-manager environment variables that identify *which*
 /// terminal, multiplexer, or display a client is attached to.
 ///
-/// The jcode server process is long-lived and captures these at *its* startup,
+/// The blaude server process is long-lived and captures these at *its* startup,
 /// so once a client connects from a different terminal/tmux/zellij session the
 /// server's copies are stale. Spawn and focus hooks executed by the server then
 /// target the wrong terminal (see issue #405). To fix this, clients snapshot
@@ -564,10 +564,10 @@ pub fn expand_home(program: &str) -> PathBuf {
 ///
 /// - `JCODE_SPAWN_KIND`: why this spawn happened ("resume", "selfdev",
 ///   "swarm-agent", ...), when known.
-/// - `JCODE_SPAWN_SESSION_ID`: the jcode session the window will run.
+/// - `JCODE_SPAWN_SESSION_ID`: the blaude session the window will run.
 /// - `JCODE_SPAWN_TITLE`: the suggested window/tab title.
 /// - `JCODE_SPAWN_CWD`: the working directory for the session.
-/// - `JCODE_SPAWN_PROGRAM`: path of the jcode binary to execute.
+/// - `JCODE_SPAWN_PROGRAM`: path of the blaude binary to execute.
 /// - `JCODE_SPAWN_COMMAND`: the full command line, shell-escaped, for hooks
 ///   (like tmux) that take a single shell-command string.
 ///
@@ -1412,7 +1412,7 @@ mod tests {
     fn shell_command_quotes_arguments() {
         let shell = shell_command(&["jcode".to_string(), "it's ok".to_string()]);
         #[cfg(unix)]
-        assert_eq!(shell, "'jcode' 'it'\"'\"'s ok'");
+        assert_eq!(shell, "'blaude' 'it'\"'\"'s ok'");
     }
 
     #[test]
@@ -1428,7 +1428,7 @@ mod tests {
     #[cfg(not(unix))]
     fn windows_cmd_fallback_runs_jcode_under_cmd_k() {
         let command = TerminalCommand::new(
-            std::path::PathBuf::from(r"C:\Program Files\jcode\jcode.exe"),
+            std::path::PathBuf::from(r"C:\Program Files\blaude\blaude.exe"),
             vec!["self-dev".to_string()],
         )
         .title("jcode");
@@ -1506,7 +1506,7 @@ mod tests {
         assert!(applescript.contains("set command of cfg to \"/bin/bash -lc"));
         assert!(applescript.contains("--resume"));
         assert!(applescript.contains("session ghost"));
-        assert!(applescript.contains("jcode'"));
+        assert!(applescript.contains("blaude'"));
     }
 
     #[test]
@@ -1612,7 +1612,7 @@ mod tests {
             std::path::PathBuf::from("/usr/local/bin/jcode"),
             vec!["--resume".to_string(), "ses_abc".to_string()],
         )
-        .title("🦊 jcode ses_abc")
+        .title("🦊 blaude ses_abc")
         .kind("swarm-agent")
         .session_id("ses_abc")
         .spawn_env("JCODE_SPAWN_SWARM_ID", "swarm-1")
@@ -1646,7 +1646,7 @@ mod tests {
         );
         assert_eq!(
             env_value(&cmd, "JCODE_SPAWN_TITLE").as_deref(),
-            Some("🦊 jcode ses_abc")
+            Some("🦊 blaude ses_abc")
         );
         assert_eq!(
             env_value(&cmd, "JCODE_SPAWN_CWD").as_deref(),

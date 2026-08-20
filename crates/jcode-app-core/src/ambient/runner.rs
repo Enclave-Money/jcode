@@ -1008,16 +1008,16 @@ impl AmbientRunnerHandle {
             let _ = std::fs::remove_file(&result_path);
         }
 
-        // Find the jcode binary
+        // Find the blaude binary
         let jcode_bin =
             std::env::current_exe().unwrap_or_else(|_| std::path::PathBuf::from("jcode"));
 
-        // Spawn kitty with `jcode ambient run-visible`
-        logging::info("Ambient visible: spawning kitty with jcode TUI");
+        // Spawn kitty with `blaude ambient run-visible`
+        logging::info("Ambient visible: spawning kitty with blaude TUI");
         let child = std::process::Command::new("kitty")
             .args([
                 "--title",
-                "🤖 jcode ambient cycle",
+                "🤖 blaude ambient cycle",
                 "-e",
                 &jcode_bin.to_string_lossy(),
                 "ambient",

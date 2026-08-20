@@ -423,7 +423,7 @@ pub(super) async fn fetch_antigravity_usage_report() -> Option<ProviderUsage> {
             continue;
         };
         // Skip internal/non-chat ids (tab completion, command models) that
-        // jcode never exposes for switching.
+        // blaude never exposes for switching.
         if model.id.starts_with("chat_") || model.id.starts_with("tab_") {
             continue;
         }

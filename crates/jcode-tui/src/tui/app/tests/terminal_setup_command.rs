@@ -2,7 +2,7 @@
 //
 // Terminals send a bare 0x0d for Enter, Shift+Enter, and Ctrl+Enter alike, so
 // the only way an app can tell them apart is the kitty keyboard protocol, where
-// Shift+Enter becomes `ESC[13;2u`. jcode requests that protocol at startup and
+// Shift+Enter becomes `ESC[13;2u`. blaude requests that protocol at startup and
 // crossterm decodes it.
 //
 // These tests pin the two ends of that contract:
@@ -10,7 +10,7 @@
 //  1. The byte sequence `terminal_setup` writes into terminal configs is exactly
 //     the sequence crossterm decodes into Enter+SHIFT. Verified against a real
 //     PTY so it is crossterm's own parser doing the work, not a reimplementation.
-//  2. Once decoded, jcode inserts a newline instead of submitting.
+//  2. Once decoded, blaude inserts a newline instead of submitting.
 //
 // Together they mean: if terminal setup makes the terminal emit this sequence,
 // Shift+Enter genuinely works.

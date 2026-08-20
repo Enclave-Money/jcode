@@ -1,7 +1,7 @@
 //! Pluggable embedding backends for memory retrieval.
 //!
 //! Memory dense-retrieval embeds two kinds of text: stored memories (passages)
-//! and the current query. Historically jcode had exactly one embedder, the
+//! and the current query. Historically blaude had exactly one embedder, the
 //! bundled local all-MiniLM-L6-v2 ONNX model, reached directly via
 //! [`crate::embedding`]. This module introduces a small abstraction so the
 //! embedder can be swapped (e.g. a stronger local model, or a remote provider

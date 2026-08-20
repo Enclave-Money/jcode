@@ -77,7 +77,7 @@ pub fn legacy_socket_path() -> PathBuf {
     if let Ok(custom) = std::env::var("JCODE_SOCKET") {
         return PathBuf::from(custom);
     }
-    runtime_dir().join("jcode.sock")
+    runtime_dir().join("blaude.sock")
 }
 
 #[cfg(test)]
@@ -92,7 +92,7 @@ mod tests {
         // Guard against env-dependent divergence by comparing parents rather
         // than absolute paths, since either may be overridden in a session.
         let api = runtime_dir().join("jcode-api.sock");
-        let legacy = runtime_dir().join("jcode.sock");
+        let legacy = runtime_dir().join("blaude.sock");
         assert_eq!(api.parent(), legacy.parent());
     }
 

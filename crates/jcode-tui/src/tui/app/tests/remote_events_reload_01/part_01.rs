@@ -826,7 +826,7 @@ fn test_handle_post_connect_marker_without_reload_context_does_not_queue_selfdev
     remote.mark_history_loaded();
 
     let session_id = "session_marker_only";
-    let jcode_dir = crate::storage::jcode_dir().expect("jcode dir");
+    let jcode_dir = crate::storage::jcode_dir().expect("blaude dir");
     std::fs::write(
         jcode_dir.join(format!("client-reload-pending-{}", session_id)),
         "Reloaded with build test123\n",

@@ -467,7 +467,7 @@ async fn handle_background_output_line(
         }
         Ok(None) => {}
         Err(err) => {
-            let warning = format!("[jcode warning] failed to parse background progress: {err}\n");
+            let warning = format!("[blaude warning] failed to parse background progress: {err}\n");
             file.write_all(warning.as_bytes()).await.ok();
             file.flush().await.ok();
         }
@@ -661,7 +661,7 @@ mod utf8_truncation_tests {
     #[cfg(unix)]
     #[tokio::test]
     async fn build_shell_command_uses_disk_backed_scratch_directory() {
-        let expected = super::tool_scratch_dir().expect("jcode scratch directory");
+        let expected = super::tool_scratch_dir().expect("blaude scratch directory");
         let output = build_shell_command("printf '%s\\n%s\\n' \"$TMPDIR\" \"$JCODE_SCRATCH_DIR\"")
             .output()
             .await
@@ -760,7 +760,7 @@ impl Tool for BashTool {
         if crate::browser::is_browser_command(&params.command) {
             params.command = crate::browser::rewrite_command_with_full_path(&params.command);
 
-            // Start/attach a browser session for this jcode session.
+            // Start/attach a browser session for this blaude session.
             // This gives each agent its own browser tab, preventing
             // multi-agent conflicts when using the browser bridge.
             if !cfg!(windows)

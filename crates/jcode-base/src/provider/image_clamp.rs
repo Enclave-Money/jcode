@@ -8,7 +8,7 @@
 //! | `> 20`             | `2000px`           |
 //! | `<= 20`            | `8000px`           |
 //!
-//! jcode previously only enforced a 20 MB byte cap when reading images and
+//! blaude previously only enforced a 20 MB byte cap when reading images and
 //! never clamped pixel dimensions, so a session that accumulated more than ~20
 //! large screenshots would fail on resume with:
 //!

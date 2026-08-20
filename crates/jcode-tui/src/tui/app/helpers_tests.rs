@@ -312,7 +312,7 @@ fn pinned_resume_test_home() -> (
     let temp = tempfile::tempdir().expect("tempdir");
     let current = temp.path().join("builds").join("current");
     std::fs::create_dir_all(&current).expect("create builds/current");
-    std::fs::write(current.join("jcode"), b"#!/bin/sh\n").expect("write fake jcode binary");
+    std::fs::write(current.join("jcode"), b"#!/bin/sh\n").expect("write fake blaude binary");
     let home = EnvVarGuard::set_path("JCODE_HOME", temp.path());
     (env_lock, temp, home)
 }
@@ -518,7 +518,7 @@ fn fresh_session_command_includes_fresh_spawn_and_socket() {
     let command = super::build_fresh_session_command(Some("/tmp/test.sock"));
     assert!(command.fresh_spawn, "must hand off as a fresh spawn");
     assert_eq!(command.kind.as_deref(), Some("new-terminal"));
-    assert_eq!(command.title.as_deref(), Some("jcode · new session"));
+    assert_eq!(command.title.as_deref(), Some("blaude · new session"));
     assert_eq!(
         command.args,
         vec![

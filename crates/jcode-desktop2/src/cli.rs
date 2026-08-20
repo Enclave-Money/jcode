@@ -411,7 +411,7 @@ fn run_script(steps: &[String]) -> Result<()> {
 /// deliberately skipped. Makes the parity table discoverable to users instead
 /// of living only in the source.
 fn print_keys() {
-    println!("keybindings (ported from the jcode TUI)\n");
+    println!("keybindings (ported from the blaude TUI)\n");
     let width = keymap::PORTED
         .iter()
         .map(|row| row.chord.len())

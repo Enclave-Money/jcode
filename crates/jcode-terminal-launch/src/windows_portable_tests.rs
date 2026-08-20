@@ -17,7 +17,7 @@ use super::windows_command_line;
 #[test]
 fn windows_command_line_quotes_a_resume_invocation_on_every_platform() {
     let line = windows_command_line(&[
-        r"C:\Program Files\jcode\jcode.exe".to_string(),
+        r"C:\Program Files\blaude\blaude.exe".to_string(),
         "--resume".to_string(),
         "session_penguin_123".to_string(),
     ]);

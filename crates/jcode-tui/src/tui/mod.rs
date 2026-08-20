@@ -366,7 +366,7 @@ pub trait TuiState {
     }
     /// Total session token usage (input, output) - used for high usage warnings
     fn total_session_tokens(&self) -> Option<(u64, u64)>;
-    /// Number of jcode compactions already applied to this session, when known.
+    /// Number of blaude compactions already applied to this session, when known.
     fn session_compaction_count(&self) -> usize {
         0
     }
@@ -1000,7 +1000,7 @@ pub struct LoginImportPrompt {
 pub enum ImportSummaryPill {
     /// Import everything we detected (default).
     Continue,
-    /// Sign in with a Jcode subscription instead of importing.
+    /// Sign in with a blaude subscription instead of importing.
     Subscription,
     /// Open the per-login checkbox list to import fewer logins.
     ImportLess,

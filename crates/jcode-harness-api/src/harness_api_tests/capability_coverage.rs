@@ -201,7 +201,7 @@ fn capability_report() {
     println!();
 }
 
-/// The SDK mirrors jcode's external credential locations by hand, so a new one
+/// The SDK mirrors blaude's external credential locations by hand, so a new one
 /// added in Rust must also be inherited by launched instances.
 ///
 /// `JCODE_HOME` redirects every `user_home_path` lookup into
@@ -222,7 +222,7 @@ fn the_sdk_inherits_every_external_credential_location() {
         let covered = sdk_covers(&sdk, &path);
         assert!(
             covered,
-            "jcode reads credentials from `~/{path}`, but sdk/typescript/src/launch.ts \
+            "blaude reads credentials from `~/{path}`, but sdk/typescript/src/launch.ts \
              does not inherit it. Add the directory to EXTERNAL_CREDENTIAL_DIRS, or a \
              launched instance will fail its first turn with an auth error."
         );
@@ -250,7 +250,7 @@ fn sdk_covers(sdk: &str, path: &str) -> bool {
     false
 }
 
-/// Home-relative paths jcode reads other tools' credentials from.
+/// Home-relative paths blaude reads other tools' credentials from.
 ///
 /// Read out of the source so the list cannot drift: `user_home_path` is the
 /// single funnel for "a file in the user's home that JCODE_HOME sandboxes".

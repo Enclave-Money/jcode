@@ -2530,14 +2530,14 @@ fn jcode_subscription_runtime_has_explicit_display_and_route_identity() {
         "jcode_test_subscription_key",
     );
 
-    let provider = OpenRouterProvider::new().expect("build jcode subscription runtime");
-    assert_eq!(provider.runtime_display_name(), "Jcode Subscription");
-    assert_eq!(Provider::display_name(&provider), "Jcode Subscription");
+    let provider = OpenRouterProvider::new().expect("build blaude subscription runtime");
+    assert_eq!(provider.runtime_display_name(), "blaude Subscription");
+    assert_eq!(Provider::display_name(&provider), "blaude Subscription");
     assert_eq!(Provider::name(&provider), "openrouter");
     assert_eq!(
         provider.direct_openai_compatible_route_parts(),
         Some((
-            "Jcode Subscription".to_string(),
+            "blaude Subscription".to_string(),
             "jcode-subscription".to_string(),
             jcode_base::subscription_catalog::DEFAULT_JCODE_API_BASE.to_string(),
         ))
@@ -3088,7 +3088,7 @@ fn named_profile_construction_reads_openai_reasoning_effort_config() {
 /// stripped before the model id reaches the upstream API. Without this, a
 /// resumed/new TUI session sends e.g. `cline:cline-pass/qwen3.7-max` verbatim
 /// and the gateway rejects it with 404 model_not_found, even though headless
-/// `jcode run` (which binds profile_id in-process) works fine.
+/// `blaude run` (which binds profile_id in-process) works fine.
 #[test]
 fn user_named_profile_prefix_is_stripped_even_without_profile_id() {
     let _lock = ENV_LOCK.lock();

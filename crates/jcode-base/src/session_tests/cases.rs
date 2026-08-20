@@ -2264,7 +2264,7 @@ fn streaming_guard_creates_visible_macos_sleep_assertion() {
     let temp = tempfile::tempdir().expect("tempdir");
     let _home = EnvVarGuard::set("JCODE_HOME", temp.path());
 
-    let reason = "Jcode streaming model response";
+    let reason = "blaude streaming model response";
     {
         let _streaming = StreamingGuard::new("session_power");
 

@@ -2,9 +2,9 @@
 //! *before* the terminal (and therefore jcode) ever sees them.
 //!
 //! macOS lets window managers and automation tools register system-wide hotkeys.
-//! When one of those overlaps a key jcode wants (the classic case is a tiling WM
+//! When one of those overlaps a key blaude wants (the classic case is a tiling WM
 //! binding `Cmd+J`/`Cmd+K` to window focus, which shadows jcode's prompt
-//! navigation), the keystroke never reaches the terminal and the jcode binding
+//! navigation), the keystroke never reaches the terminal and the blaude binding
 //! silently does nothing. The terminal/macOS scanners cannot see these, so we
 //! read the relevant app config files directly.
 //!
@@ -50,7 +50,7 @@ fn apply_modifier(token: &str, mods: &mut Mods, hyper_mods: Mods) -> bool {
         "shift" => mods.shift = true,
         // "hyper" is an app-defined alias for some bundle of real modifiers.
         "hyper" => *mods = mods.or(hyper_mods),
-        // "fn" is not representable as a jcode modifier; ignore it so the rest of
+        // "fn" is not representable as a blaude modifier; ignore it so the rest of
         // the chord still parses.
         "fn" | "function" => {}
         _ => return false,

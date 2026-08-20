@@ -6,7 +6,7 @@
 //! working directory (a workspace) and a *card* is a session in it (a
 //! window), so "where am I, and what else is running" reads the same way it
 //! does on the desktop. A card's width tracks how much conversation the
-//! session holds, so "the wide one in the jcode row" is a thing you can point
+//! session holds, so "the wide one in the blaude row" is a thing you can point
 //! at and remember.
 //!
 //! Placement is deterministic: rows stack in first-appearance order and cards

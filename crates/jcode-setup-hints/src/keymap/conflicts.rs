@@ -19,7 +19,7 @@ use super::KeymapSnapshot;
 use super::chord::KeyChord;
 use super::source::{DiscoveredBinding, KeySource};
 
-/// One configured jcode binding, tied back to its config field.
+/// One configured blaude binding, tied back to its config field.
 #[derive(Debug, Clone)]
 pub struct JcodeBinding {
     /// The dotted config path, e.g. `keybindings.model_switch_next`.
@@ -32,10 +32,10 @@ pub struct JcodeBinding {
     pub chord: KeyChord,
 }
 
-/// A detected conflict between a jcode binding and something on the machine.
+/// A detected conflict between a blaude binding and something on the machine.
 #[derive(Debug, Clone)]
 pub struct Conflict {
-    /// The jcode binding that may not reach the app.
+    /// The blaude binding that may not reach the app.
     pub jcode: JcodeBinding,
     /// The machine binding that intercepts it.
     pub interceptor: DiscoveredBinding,
@@ -277,7 +277,7 @@ pub fn jcode_bindings(cfg: &KeybindingsConfig) -> Vec<JcodeBinding> {
 /// Find conflicts between jcode's configured bindings and the discovered
 /// machine bindings in `snapshot`.
 ///
-/// Conflicts are deduplicated per `(jcode field, interceptor chord, source)` so
+/// Conflicts are deduplicated per `(blaude field, interceptor chord, source)` so
 /// a single overlap is reported once even if the snapshot lists the same chord
 /// multiple times (Ghostty, for example, lists `super+1` and `super+digit_1`).
 pub fn detect_conflicts(cfg: &KeybindingsConfig, snapshot: &KeymapSnapshot) -> Vec<Conflict> {
@@ -291,13 +291,13 @@ pub fn detect_conflicts(cfg: &KeybindingsConfig, snapshot: &KeymapSnapshot) -> V
         std::collections::HashSet::new();
     let mut conflicts = Vec::new();
 
-    for jcode in jcode_bindings(cfg) {
-        let Some(interceptors) = by_chord.get(&jcode.chord) else {
+    for blaude in jcode_bindings(cfg) {
+        let Some(interceptors) = by_chord.get(&blaude.chord) else {
             continue;
         };
         for interceptor in interceptors {
             let dedup_key = (
-                jcode.field.clone(),
+                blaude.field.clone(),
                 interceptor.chord.canonical(),
                 interceptor.source,
             );
@@ -305,7 +305,7 @@ pub fn detect_conflicts(cfg: &KeybindingsConfig, snapshot: &KeymapSnapshot) -> V
                 continue;
             }
             conflicts.push(Conflict {
-                jcode: jcode.clone(),
+                jcode: blaude.clone(),
                 interceptor: (*interceptor).clone(),
             });
         }
@@ -434,7 +434,7 @@ mod tests {
     fn no_conflict_when_chords_differ() {
         let cfg = KeybindingsConfig::default();
         let snapshot = snapshot_with(vec![term_binding("cmd+t", "new_tab")]);
-        // jcode has no cmd+t binding by default.
+        // blaude has no cmd+t binding by default.
         assert!(detect_conflicts(&cfg, &snapshot).is_empty());
     }
 

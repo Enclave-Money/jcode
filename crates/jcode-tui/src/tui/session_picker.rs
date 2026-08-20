@@ -2299,7 +2299,7 @@ impl SessionPicker {
             )),
             Line::from(""),
             Line::from(Span::styled(
-                "Jcode will prepare the transcript first, then ask Claude to exit.",
+                "blaude will prepare the transcript first, then ask Claude to exit.",
                 Style::default().fg(rgb(190, 190, 200)),
             )),
             Line::from(Span::styled(

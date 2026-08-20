@@ -5,7 +5,7 @@
 //! new models or changes prices. models.dev publishes a free, no-auth JSON
 //! catalog (`https://models.dev/api.json`) with per-model `input`/`output`/
 //! `cache_read`/`cache_write` USD prices per million tokens across 140+
-//! providers, including every OpenAI-compatible profile jcode ships.
+//! providers, including every OpenAI-compatible profile blaude ships.
 //!
 //! This module mirrors the OpenRouter catalog pattern:
 //!   - a 24h disk cache under `~/.jcode/cache/models_dev_pricing.json`,
@@ -97,7 +97,7 @@ fn save_cache(cache: &PricingCache) {
     let _ = crate::storage::write_json(&path, cache);
 }
 
-/// Translate a jcode provider key (runtime key, activity source key, or
+/// Translate a blaude provider key (runtime key, activity source key, or
 /// compatible-profile id) to the models.dev provider id.
 pub fn models_dev_provider_id(jcode_provider: &str) -> Option<&'static str> {
     let key = jcode_provider
@@ -146,7 +146,7 @@ fn normalize_model_id(model: &str) -> &str {
     jcode_provider_core::model_id::strip_long_context_suffix(model).trim()
 }
 
-/// Look up live pricing for `model` under a jcode provider key. Returns `None`
+/// Look up live pricing for `model` under a blaude provider key. Returns `None`
 /// when the catalog has no entry; never blocks on the network. Schedules a
 /// background refresh when the disk cache is missing or stale.
 pub fn lookup(jcode_provider: &str, model: &str) -> Option<ModelCost> {

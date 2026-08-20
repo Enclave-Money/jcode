@@ -112,7 +112,7 @@ impl AntigravityProvider {
     /// provider-doctor's native Antigravity driver.
     ///
     /// Antigravity authenticates exclusively via the Google OAuth tokens minted
-    /// by `jcode login --provider antigravity`; there is no API-key path. This
+    /// by `blaude login --provider antigravity`; there is no API-key path. This
     /// loads (and refreshes if needed) those tokens through the exact same code
     /// path inference uses, returning only the resolved Google account email so
     /// the doctor can confirm the credential without ever surfacing the token
@@ -234,7 +234,7 @@ impl AntigravityProvider {
     /// Recover from a tool-schema rejection by learning what the backend
     /// refused and re-sending the turn without it.
     ///
-    /// Because jcode advertises every tool on every request, one construct the
+    /// Because blaude advertises every tool on every request, one construct the
     /// backend dislikes 400s the whole session rather than one tool, and the
     /// historical fix has been to ship a new deny-list entry (#754, #687, #543,
     /// #446). `jcode-schema-dialect` instead parses the construct out of the
@@ -320,7 +320,7 @@ impl AntigravityProvider {
         // path the resolved model uses. The Cloud Code backend forwards each
         // model family to a different upstream (Gemini-native, Gemini->Anthropic,
         // or an OpenAI-compatible bridge), and each upstream rejects a different
-        // construct. Gemini-native accepts everything jcode emits, so Gemini
+        // construct. Gemini-native accepts everything blaude emits, so Gemini
         // models pass through unchanged. See `antigravity_compatible_schema`.
         if let Some(tools) = tools.as_mut() {
             for tool in tools.iter_mut() {
@@ -504,7 +504,7 @@ impl Provider for AntigravityProvider {
                 Ok(response) => response,
                 Err(err) => {
                     // A tool schema the backend rejects 400s every single turn,
-                    // so the provider is unusable until jcode ships a new
+                    // so the provider is unusable until blaude ships a new
                     // deny-list entry. Instead, learn the rejected construct
                     // from the error, persist it, and retry the same turn
                     // without it. See `jcode-schema-dialect`.

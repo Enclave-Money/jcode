@@ -236,7 +236,7 @@ pub enum OpenRouterTransportState {
     /// Real OpenRouter BYOK. The provider implementation is both the runtime identity
     /// and the HTTP transport.
     OpenRouterApiKey,
-    /// Jcode subscription access currently reuses the OpenRouter HTTP slot, but is
+    /// blaude subscription access currently reuses the OpenRouter HTTP slot, but is
     /// not user BYOK/OpenRouter billing.
     JcodeSubscription,
     /// A direct OpenAI-compatible endpoint that needs a user key, Azure credential,

@@ -12,7 +12,7 @@ pub(super) fn cap_tool_output_for_history(tool_name: &str, mut output: ToolOutpu
     let original_chars = output.output.chars().count();
     let kept = crate::util::truncate_str(&output.output, MAX_TOOL_OUTPUT_CHARS_FOR_HISTORY);
     output.output = format!(
-        "{}\n\n[Tool output truncated by jcode: tool `{}` produced {} chars; kept first {} chars to protect the remote protocol, session history, and prompt cache. Redirect large logs to a file and read targeted sections.]",
+        "{}\n\n[Tool output truncated by blaude: tool `{}` produced {} chars; kept first {} chars to protect the remote protocol, session history, and prompt cache. Redirect large logs to a file and read targeted sections.]",
         kept, tool_name, original_chars, MAX_TOOL_OUTPUT_CHARS_FOR_HISTORY,
     );
     output
@@ -25,7 +25,7 @@ pub(super) fn cap_sdk_tool_content_for_history(tool_name: &str, content: String)
     let original_chars = content.chars().count();
     let kept = crate::util::truncate_str(&content, MAX_TOOL_OUTPUT_CHARS_FOR_HISTORY);
     format!(
-        "{}\n\n[Tool output truncated by jcode: tool `{}` produced {} chars; kept first {} chars to protect the remote protocol, session history, and prompt cache. Redirect large logs to a file and read targeted sections.]",
+        "{}\n\n[Tool output truncated by blaude: tool `{}` produced {} chars; kept first {} chars to protect the remote protocol, session history, and prompt cache. Redirect large logs to a file and read targeted sections.]",
         kept, tool_name, original_chars, MAX_TOOL_OUTPUT_CHARS_FOR_HISTORY,
     )
 }
@@ -151,7 +151,7 @@ mod tests {
         let output = ToolOutput::new("x".repeat(MAX_TOOL_OUTPUT_CHARS_FOR_HISTORY + 10));
         let capped = cap_tool_output_for_history("bash", output);
         assert!(capped.output.len() < MAX_TOOL_OUTPUT_CHARS_FOR_HISTORY + 1_000);
-        assert!(capped.output.contains("Tool output truncated by jcode"));
+        assert!(capped.output.contains("Tool output truncated by blaude"));
         assert!(capped.output.contains("tool `bash` produced"));
         assert!(capped.output.contains("Redirect large logs to a file"));
     }
@@ -162,7 +162,7 @@ mod tests {
             "custom",
             "y".repeat(MAX_TOOL_OUTPUT_CHARS_FOR_HISTORY + 10),
         );
-        assert!(capped.contains("Tool output truncated by jcode"));
+        assert!(capped.contains("Tool output truncated by blaude"));
         assert!(capped.contains("tool `custom` produced"));
     }
 }

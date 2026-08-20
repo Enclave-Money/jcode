@@ -30,7 +30,7 @@ fn resolve_or_clone_repo_dir() -> Result<PathBuf> {
         }
 
         anyhow::bail!(
-            "Self-dev source directory exists but is not a jcode repository: {}\n\
+            "Self-dev source directory exists but is not a blaude repository: {}\n\
              Move it aside or clone {} there, then retry.",
             repo_dir.display(),
             JCODE_REPO_URL
@@ -43,7 +43,7 @@ fn resolve_or_clone_repo_dir() -> Result<PathBuf> {
     std::fs::create_dir_all(parent)?;
 
     output::stderr_info(format!(
-        "No local jcode checkout found; cloning self-dev source into {}...",
+        "No local blaude checkout found; cloning self-dev source into {}...",
         repo_dir.display()
     ));
 
@@ -68,7 +68,7 @@ fn resolve_or_clone_repo_dir() -> Result<PathBuf> {
 
     if !build::is_jcode_repo(&repo_dir) {
         anyhow::bail!(
-            "Cloned self-dev source is not a valid jcode repository: {}",
+            "Cloned self-dev source is not a valid blaude repository: {}",
             repo_dir.display()
         );
     }
@@ -145,7 +145,7 @@ pub async fn run_self_dev(should_build: bool, resume_session: Option<String>) ->
     if !target_binary.exists() {
         anyhow::bail!(
             "No binary found at {:?}\n\
-             Run 'jcode self-dev --build' first, or build with '{}' and then publish current.",
+             Run 'blaude self-dev --build' first, or build with '{}' and then publish current.",
             target_binary,
             build::selfdev_build_command(&repo_dir).display,
         );

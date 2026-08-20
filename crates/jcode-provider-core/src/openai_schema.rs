@@ -675,7 +675,7 @@ mod tests {
     }
 
     /// Issue #711, reproduced independently against master before fixing: four
-    /// constructs from a real MCP catalog that jcode marked `strict: true` and
+    /// constructs from a real MCP catalog that blaude marked `strict: true` and
     /// OpenAI then rejected, failing the entire tool catalog.
     ///
     /// Each is legal JSON Schema that Anthropic accepts, so the fix is to fail

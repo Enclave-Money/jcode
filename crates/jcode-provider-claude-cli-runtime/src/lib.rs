@@ -51,7 +51,7 @@ const AVAILABLE_MODELS: &[&str] = &[
     "claude-opus-4-5-20251101",
 ];
 
-/// Native tools that jcode handles locally (not Claude Code built-ins)
+/// Native tools that blaude handles locally (not Claude Code built-ins)
 const NATIVE_TOOL_NAMES: &[&str] = &["selfdev", "communicate", "memory", "session_search", "bg"];
 
 #[derive(Clone)]

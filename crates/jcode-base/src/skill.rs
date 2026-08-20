@@ -304,7 +304,7 @@ impl SkillRegistry {
     }
 
     fn load_project_local_dirs(&mut self, working_dir: Option<&Path>) -> Result<()> {
-        // Load from ./.jcode/skills/ (project-local jcode skills)
+        // Load from ./.jcode/skills/ (project-local blaude skills)
         let local_jcode = Self::project_local_dir(working_dir, ".jcode");
         if local_jcode.exists() {
             self.load_from_dir(&local_jcode)?;
@@ -690,7 +690,7 @@ impl SkillRegistry {
     }
 }
 
-/// A skill recommended/curated by jcode that the user may want to install.
+/// A skill recommended/curated by blaude that the user may want to install.
 #[derive(Debug, Clone, Copy)]
 pub struct EndorsedSkill {
     /// Skill name (matches the `name` field in SKILL.md and the slash command).
@@ -718,21 +718,21 @@ pub const ENDORSED_SKILLS: &[EndorsedSkill] = &[
         name: "optimization",
         description: "Improve performance, latency, throughput, memory usage, or general efficiency by defining metrics, measuring, attributing bottlenecks, and prioritizing macro-optimizations.",
         category: "jcode",
-        source: "bundled in jcode repo (.jcode/skills/optimization)",
+        source: "bundled in blaude repo (.jcode/skills/optimization)",
         install: None,
     },
     EndorsedSkill {
         name: "todo-planning-skill",
         description: "Create thorough, well-structured todo lists for long tasks, including reflection, static analysis, verification, and next-step updates.",
         category: "jcode",
-        source: "bundled with jcode / Claude Code skills",
+        source: "bundled with blaude / Claude Code skills",
         install: None,
     },
     EndorsedSkill {
         name: "firefox-browser",
         description: "Control the user's Firefox browser with their logins and cookies intact to browse, fill forms, click, screenshot, and read authenticated pages.",
         category: "jcode",
-        source: "bundled with jcode / Claude Code skills",
+        source: "bundled with blaude / Claude Code skills",
         install: None,
     },
     // Anthropic official skills (github.com/anthropics/skills, Apache-2.0).
@@ -1449,7 +1449,7 @@ mod tests {
         let install = plugins_root.join("cache/test-marketplace/my-plugin/1.0.0");
         write_plugin_skill_with_description(&install, "shared-name", "plugin version");
 
-        // Explicit jcode skill with the same name.
+        // Explicit blaude skill with the same name.
         write_test_skill(temp.path(), ".jcode", "shared-name");
 
         // Mirror load ordering: plugins first, then explicit skill dirs, so
@@ -1463,7 +1463,7 @@ mod tests {
         let skill = registry.get("shared-name").expect("skill present");
         assert_eq!(
             skill.description, "Test skill shared-name",
-            "explicit jcode skill must override the plugin-provided one"
+            "explicit blaude skill must override the plugin-provided one"
         );
     }
 

@@ -27,7 +27,7 @@ fn create_git_repo_fixture() -> tempfile::TempDir {
     std::fs::create_dir_all(temp.path().join(".git")).expect("create .git dir");
     std::fs::write(
         temp.path().join("Cargo.toml"),
-        "[package]\nname = \"jcode\"\nversion = \"0.0.0\"\n",
+        "[package]\nname = \"blaude\"\nversion = \"0.0.0\"\n",
     )
     .expect("write Cargo.toml");
     std::process::Command::new("git")
@@ -179,7 +179,7 @@ fn test_find_repo_in_ancestors_walks_upward() {
     std::fs::create_dir_all(repo.join(".git")).expect("create .git");
     std::fs::write(
         repo.join("Cargo.toml"),
-        "[package]\nname = \"jcode\"\nversion = \"0.0.0\"\n",
+        "[package]\nname = \"blaude\"\nversion = \"0.0.0\"\n",
     )
     .expect("write Cargo.toml");
     std::fs::create_dir_all(&nested).expect("create nested dirs");
@@ -219,7 +219,7 @@ fn test_client_update_candidate_prefers_dev_binary_for_selfdev() {
 fn launcher_dir_uses_sandbox_bin_when_jcode_home_is_set() {
     with_temp_jcode_home(|| {
         let launcher_dir = launcher_dir().expect("launcher dir");
-        let expected = storage::jcode_dir().expect("jcode dir").join("bin");
+        let expected = storage::jcode_dir().expect("blaude dir").join("bin");
         assert_eq!(launcher_dir, expected);
     });
 }
@@ -235,7 +235,7 @@ fn update_launcher_symlink_stays_inside_sandbox_home() {
 
         let launcher = update_launcher_symlink_to_current().expect("update launcher");
         let expected_launcher = storage::jcode_dir()
-            .expect("jcode dir")
+            .expect("blaude dir")
             .join("bin")
             .join(binary_name());
         assert_eq!(launcher, expected_launcher);

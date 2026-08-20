@@ -61,7 +61,7 @@ fn parse_manual_subagent_spec_rejects_missing_prompt() {
 #[test]
 fn swarm_prompt_edit_path_prefers_nonblank_project_override() {
     let project = tempfile::tempdir().expect("project tempdir");
-    let jcode_home = tempfile::tempdir().expect("jcode tempdir");
+    let jcode_home = tempfile::tempdir().expect("blaude tempdir");
     let project_prompt = project.path().join(".jcode/swarm-prompt.md");
     std::fs::create_dir_all(project_prompt.parent().expect("prompt parent"))
         .expect("create project config dir");
@@ -77,7 +77,7 @@ fn swarm_prompt_edit_path_prefers_nonblank_project_override() {
 #[test]
 fn swarm_prompt_edit_path_falls_back_to_nonblank_global_override() {
     let project = tempfile::tempdir().expect("project tempdir");
-    let jcode_home = tempfile::tempdir().expect("jcode tempdir");
+    let jcode_home = tempfile::tempdir().expect("blaude tempdir");
     let project_prompt = project.path().join(".jcode/swarm-prompt.md");
     std::fs::create_dir_all(project_prompt.parent().expect("prompt parent"))
         .expect("create project config dir");
@@ -93,7 +93,7 @@ fn swarm_prompt_edit_path_falls_back_to_nonblank_global_override() {
 #[test]
 fn swarm_prompt_edit_path_materializes_builtin_default_globally() {
     let project = tempfile::tempdir().expect("project tempdir");
-    let jcode_home = tempfile::tempdir().expect("jcode tempdir");
+    let jcode_home = tempfile::tempdir().expect("blaude tempdir");
 
     let path = ensure_swarm_prompt_edit_path(project.path().to_str(), jcode_home.path())
         .expect("create editable prompt");

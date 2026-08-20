@@ -658,7 +658,7 @@ fn test_tool_summary_bash_truncation_keeps_start_and_end() {
         id: "call_bash_middle".to_string(),
         name: "bash".to_string(),
         input: serde_json::json!({
-            "command": "cargo test --package jcode --lib tui::ui::tests::render_tool_message_batch_flat_subcall_params_include_read_details -- --nocapture"
+            "command": "cargo test --package blaude --lib tui::ui::tests::render_tool_message_batch_flat_subcall_params_include_read_details -- --nocapture"
         }),
         intent: None,
         thought_signature: None,
@@ -681,7 +681,7 @@ fn test_tool_summary_bash_keeps_full_command_when_width_fits() {
         id: "call_bash_full".to_string(),
         name: "bash".to_string(),
         input: serde_json::json!({
-            "command": "cargo test --package jcode --lib tui::ui::tests::render_tool_message_batch_rows_do_not_soft_wrap_on_narrow_width -- --nocapture"
+            "command": "cargo test --package blaude --lib tui::ui::tests::render_tool_message_batch_rows_do_not_soft_wrap_on_narrow_width -- --nocapture"
         }),
         intent: None,
         thought_signature: None,
@@ -691,7 +691,7 @@ fn test_tool_summary_bash_keeps_full_command_when_width_fits() {
 
     assert_eq!(
         summary,
-        "$ cargo test --package jcode --lib tui::ui::tests::render_tool_message_batch_rows_do_not_soft_wrap_on_narrow_width -- --nocapture"
+        "$ cargo test --package blaude --lib tui::ui::tests::render_tool_message_batch_rows_do_not_soft_wrap_on_narrow_width -- --nocapture"
     );
     assert!(!summary.contains('…'), "summary={summary:?}");
 }
@@ -702,7 +702,7 @@ fn test_render_batch_subcall_line_keeps_full_bash_summary_when_row_fits() {
         id: "batch-1-bash".to_string(),
         name: "bash".to_string(),
         input: serde_json::json!({
-            "command": "cargo test --package jcode --lib tui::ui::tests::render_tool_message_batch_rows_do_not_soft_wrap_on_narrow_width -- --nocapture"
+            "command": "cargo test --package blaude --lib tui::ui::tests::render_tool_message_batch_rows_do_not_soft_wrap_on_narrow_width -- --nocapture"
         }),
         intent: None,
         thought_signature: None,
@@ -713,7 +713,7 @@ fn test_render_batch_subcall_line_keeps_full_bash_summary_when_row_fits() {
     let rendered = extract_line_text(&line);
 
     assert!(
-        rendered.contains("bash $ cargo test --package jcode"),
+        rendered.contains("bash $ cargo test --package blaude"),
         "rendered={rendered:?}"
     );
     assert!(rendered.contains("-- --nocapture"), "rendered={rendered:?}");
@@ -1124,7 +1124,7 @@ fn test_render_tool_message_keeps_token_badge_when_intent_is_truncated() {
             id: "call_long_intent".to_string(),
             name: "bash".to_string(),
             input: serde_json::json!({
-                "command": "cargo test --package jcode --lib tui::ui::tests::very_long_test_name -- --nocapture"
+                "command": "cargo test --package blaude --lib tui::ui::tests::very_long_test_name -- --nocapture"
             }),
             intent: Some(
                 "Inspect and validate the extremely long wrapping behavior for tool rows"

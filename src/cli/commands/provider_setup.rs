@@ -241,12 +241,12 @@ pub(crate) fn configure_provider_profile(
         auth: auth_label(&auth).to_string(),
         default_set: options.set_default,
         run_command: format!(
-            "jcode --provider-profile {} --model {} run 'hello'",
+            "blaude --provider-profile {} --model {} run 'hello'",
             shell_quote(&name),
             shell_quote(&model)
         ),
         auth_test_command: format!(
-            "jcode --provider-profile {} auth-test --prompt {}",
+            "blaude --provider-profile {} auth-test --prompt {}",
             shell_quote(&name),
             shell_quote("Reply exactly JCODE_PROVIDER_SETUP_OK")
         ),

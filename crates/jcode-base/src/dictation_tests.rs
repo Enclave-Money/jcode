@@ -130,7 +130,7 @@ fn extract_session_short_name_from_jcode_window_title() {
         Some("swan".to_string())
     );
     assert_eq!(
-        extract_session_short_name_from_window_title("🦊 jcode Fox"),
+        extract_session_short_name_from_window_title("🦊 blaude Fox"),
         Some("fox".to_string())
     );
 }

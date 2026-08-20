@@ -955,7 +955,7 @@ fn load_sessions_surfaces_external_cursor_transcript() {
 fn benchmark_real_resume_loading_phases() {
     invalidate_session_list_cache();
 
-    let sessions_dir = storage::jcode_dir().expect("jcode dir").join("sessions");
+    let sessions_dir = storage::jcode_dir().expect("blaude dir").join("sessions");
     let scan_limit = session_scan_limit();
     let candidate_limit = session_candidate_window(scan_limit);
 
@@ -1180,12 +1180,12 @@ fn onboarding_scoped_loader_returns_only_codex_sessions() {
     )
     .expect("write codex transcript");
 
-    // A jcode session that must NOT appear in the scoped Codex view (the whole
+    // A blaude session that must NOT appear in the scoped Codex view (the whole
     // point of the scoped loader is to skip parsing these on onboarding).
     let mut jcode_session = Session::create_with_id(
         "session_onboarding_jcode_1780000000000".to_string(),
         Some("/tmp/jcode-onboard".to_string()),
-        Some("Jcode Onboarding".to_string()),
+        Some("blaude Onboarding".to_string()),
     );
     jcode_session.append_stored_message(crate::session::StoredMessage {
         id: "msg-1".to_string(),
@@ -1199,7 +1199,7 @@ fn onboarding_scoped_loader_returns_only_codex_sessions() {
         tool_duration_ms: None,
         token_usage: None,
     });
-    jcode_session.save().expect("save jcode session");
+    jcode_session.save().expect("save blaude session");
 
     let (groups, orphans) = load_external_cli_sessions_grouped(ExternalCli::Codex);
     assert!(groups.is_empty(), "scoped loader produces only orphans");
@@ -1320,7 +1320,7 @@ fn hidden_debug_sessions_do_not_consume_default_resume_budget() {
     }
 
     // These newer self-dev/worker sessions are hidden by default. Previously the
-    // loader stopped after the first 50, leaving no ordinary Jcode sessions for
+    // loader stopped after the first 50, leaving no ordinary blaude sessions for
     // the picker even though older resumable sessions existed.
     for idx in 0..75 {
         let mut session = Session::create_with_id(

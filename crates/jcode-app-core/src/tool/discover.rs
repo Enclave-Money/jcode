@@ -225,7 +225,7 @@ fn record_discovery_telemetry(
 /// `discover_tools`: fetch discoverable third-party tools for a category from
 /// the hosted integration directory.
 ///
-/// Disclosure contract: some integration providers may share revenue with Jcode, but
+/// Disclosure contract: some integration providers may share revenue with blaude, but
 /// commercial relationships never influence recommendations. The policy is
 /// disclosed in the tool schema and at <https://jcode.sh/discovery-tools>.
 /// The request carries the category, a short search query, a reason string,
@@ -1307,7 +1307,7 @@ fn render_listing(category: &str, listing: &Value, request_id: &str) -> Result<S
         ));
     }
     let mut out = format!(
-        "Available integrations in '{category}' (Jcode integration directory; recommendations must be based \
+        "Available integrations in '{category}' (blaude integration directory; recommendations must be based \
          only on fit; details: {}):\n",
         crate::sponsors::DISCOVERY_PARTNERS_URL
     );
@@ -1325,7 +1325,7 @@ fn render_listing(category: &str, listing: &Value, request_id: &str) -> Result<S
          the product actually chosen. Catalog integrations provide setup instructions designed to connect seamlessly with this agent; an \
          off-catalog selection records the choice but returns no provider information. If no \
          product is chosen, action `suggest` with the search request ID below can report the gap. Consequential \
-         actions (signups, spending) must note that setup is provided through a Jcode integration in the confirmation \
+         actions (signups, spending) must note that setup is provided through a blaude integration in the confirmation \
          shown to the user.",
     );
     out.push_str(&format!("\n\nSearch request ID: `{request_id}`"));
@@ -1377,7 +1377,7 @@ fn render_suggestion(
         }
     }
     out.push_str(
-        "\n\nStatus: received for Jcode maintainer review. Suggestions are not sent to integration providers. This does not mean the tool has integrated with Jcode or that it is approved or available.",
+        "\n\nStatus: received for blaude maintainer review. Suggestions are not sent to integration providers. This does not mean the tool has integrated with blaude or that it is approved or available.",
     );
     Ok(out)
 }
@@ -1424,7 +1424,7 @@ fn render_selection(category: &str, tool_name: &str, listing: &Value) -> Result<
         }
         return Ok(format!(
             "Selected off-catalog product '{selected_tool}' for '{category}'.\n\n\
-             Selection recorded as demand data. Jcode does not list an integration for this \
+             Selection recorded as demand data. blaude does not list an integration for this \
              product, so no provider information, recommendation, or setup instructions \
              are provided. Continue using only information independently available to you."
         ));
@@ -1455,7 +1455,7 @@ fn render_selection(category: &str, tool_name: &str, listing: &Value) -> Result<
         })?;
     let blurb = tool.get("blurb").and_then(|v| v.as_str()).unwrap_or("");
     let mut out = format!(
-        "Selected '{name}' from '{category}' (Jcode integration directory; the choice must be based only \
+        "Selected '{name}' from '{category}' (blaude integration directory; the choice must be based only \
          on fit; details: {}):\n\n{name}: {blurb}",
         crate::sponsors::DISCOVERY_PARTNERS_URL
     );
@@ -1464,7 +1464,7 @@ fn render_selection(category: &str, tool_name: &str, listing: &Value) -> Result<
     }
     out.push_str(&format!("\n\nSetup: {setup}"));
     out.push_str(
-        "\n\nConsequential actions (signups, spending) must note that setup is provided through a Jcode integration in \
+        "\n\nConsequential actions (signups, spending) must note that setup is provided through a blaude integration in \
          the confirmation shown to the user.",
     );
     Ok(out)
@@ -1531,7 +1531,7 @@ mod tests {
             render_listing("payments", &listing, "11111111-2222-4333-8444-555555555555").unwrap();
         assert!(out.contains("agentcard"));
         assert!(out.contains("virtual payment cards"));
-        assert!(out.contains("Jcode integration directory"));
+        assert!(out.contains("blaude integration directory"));
         assert!(!out.to_ascii_lowercase().contains("partner"));
         assert!(out.contains("recommendations must be based only on fit"));
     }
@@ -1623,7 +1623,7 @@ mod tests {
         let out = render_selection("payments", "agentcard", &listing).unwrap();
         assert!(out.contains("Selected 'agentcard'"));
         assert!(out.contains("Setup: npm install -g agentcard"));
-        assert!(out.contains("Jcode integration directory"));
+        assert!(out.contains("blaude integration directory"));
         assert!(!out.to_ascii_lowercase().contains("partner"));
         assert!(out.contains("the choice must be based only on fit"));
         assert!(render_selection("payments", "ghost", &json!({})).is_err());
@@ -1741,7 +1741,7 @@ mod tests {
                 "url": "https://www.agentmail.to/?via=jcode-discovery",
                 "setup": concat!(
                     "POST https://api.agentmail.to/v0/agent/sign-up with JSON ",
-                    "{\"source\":\"jcode\",\"referrer\":\"https://jcode.sh/discovery-tools\"}. ",
+                    "{\"source\":\"blaude\",\"referrer\":\"https://jcode.sh/discovery-tools\"}. ",
                     "Then connect with npx -y agentmail-mcp@1.0.0."
                 ),
                 "mcp": {
@@ -1753,10 +1753,10 @@ mod tests {
 
         let rendered = render_selection("email-messaging", "agentmail", &listing).unwrap();
         assert!(rendered.contains("Selected 'agentmail'"));
-        assert!(rendered.contains("\"source\":\"jcode\""));
+        assert!(rendered.contains("\"source\":\"blaude\""));
         assert!(rendered.contains("\"referrer\":\"https://jcode.sh/discovery-tools\""));
         assert!(rendered.contains("agentmail-mcp@1.0.0"));
-        assert!(rendered.contains("setup is provided through a Jcode integration"));
+        assert!(rendered.contains("setup is provided through a blaude integration"));
 
         let setups = extract_mcp_setups_from(std::slice::from_ref(&listing["tool"]));
         assert_eq!(
@@ -1913,7 +1913,7 @@ mod tests {
         let mut known = capability;
         known.suggestion_kind = Some("known_product".to_string());
         known.product_name = Some("Example Stripe MCP".to_string());
-        known.product_url = Some("https://example.com/tool?via=jcode#setup".to_string());
+        known.product_url = Some("https://example.com/tool?via=blaude#setup".to_string());
         let validated = validate_suggestion(&known).unwrap();
         assert_eq!(
             validated.product_name.as_deref(),
@@ -1997,7 +1997,7 @@ mod tests {
         assert!(out.contains("Catalog suggestion submitted"));
         assert!(out.contains("Product: Stripe sandbox MCP"));
         assert!(out.contains("Suggestions are not sent to integration providers"));
-        assert!(out.contains("does not mean the tool has integrated with Jcode"));
+        assert!(out.contains("does not mean the tool has integrated with blaude"));
         assert!(!out.to_ascii_lowercase().contains("partner"));
     }
 
@@ -2376,7 +2376,7 @@ mod tests {
             .unwrap();
 
         assert!(output.output.contains("agentcard"));
-        assert!(output.output.contains("Jcode integration directory"));
+        assert!(output.output.contains("blaude integration directory"));
         assert!(
             output
                 .output

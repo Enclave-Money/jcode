@@ -4,7 +4,7 @@
 //! These providers each support *both* a subscription/OAuth login and a direct
 //! API key, so every request needs an explicit "which credential" decision.
 //!
-//! Historically jcode encoded that decision as free-form strings spread across
+//! Historically blaude encoded that decision as free-form strings spread across
 //! several overlapping vocabularies:
 //!
 //! | concept              | runtime env (`JCODE_RUNTIME_PROVIDER`) | route / stable-id    | CLI `--provider` | model prefix     |

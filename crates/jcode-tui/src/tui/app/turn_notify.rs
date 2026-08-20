@@ -440,7 +440,7 @@ mod tests {
     #[test]
     fn title_includes_session_and_compact_duration() {
         let n = build_turn_notification(Some("fox"), 754.0, &[], Some("All done."));
-        assert_eq!(n.title, "jcode · fox · done in 12m 34s");
+        assert_eq!(n.title, "blaude · fox · done in 12m 34s");
         assert_eq!(n.subtitle, None);
         assert_eq!(n.body, "All done.");
     }
@@ -452,7 +452,7 @@ mod tests {
             todo_named("handle reconnect", "in_progress", &[]),
         ];
         let n = build_turn_notification(None, 200.0, &todos, Some("Fixed the parser bug."));
-        assert_eq!(n.title, "jcode · done in 3m 20s");
+        assert_eq!(n.title, "blaude · done in 3m 20s");
         assert_eq!(n.subtitle.as_deref(), Some("1/2 todos"));
         // Names actual todo work, not the prose snippet.
         assert_eq!(n.body, "✓ wire up parser · → handle reconnect");
@@ -513,7 +513,7 @@ mod tests {
     #[test]
     fn empty_inputs_fall_back_to_minimal_body() {
         let n = build_turn_notification(None, 65.0, &[], None);
-        assert_eq!(n.title, "jcode · done in 1m 5s");
+        assert_eq!(n.title, "blaude · done in 1m 5s");
         assert_eq!(n.subtitle, None);
         assert_eq!(n.body, "Turn finished");
     }
@@ -536,7 +536,7 @@ mod tests {
     #[test]
     fn kitty_notification_is_one_completed_clickable_message() {
         let n = TurnNotification {
-            title: "jcode · fox".to_string(),
+            title: "blaude · fox".to_string(),
             subtitle: Some("2/3 todos".to_string()),
             body: "Finished parser".to_string(),
         };

@@ -4,7 +4,7 @@
 //! the agent through the `discover_tools` tool, backed by a hosted manifest.
 //! All agent-facing guidance lives in that tool's schema rather than the
 //! system prompt.
-//! Some providers may share revenue with Jcode when users choose their tools.
+//! Some providers may share revenue with blaude when users choose their tools.
 //! Partnership status never influences recommendations. The relationship is
 //! disclosed in the UI with a link to <https://jcode.sh/discovery-tools>.
 //!

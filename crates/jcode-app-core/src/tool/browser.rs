@@ -438,7 +438,7 @@ async fn ensure_firefox_ready() -> Result<Option<String>> {
     }
 
     let mut message = String::from(
-        "Browser automation is not ready yet. Use the browser tool with action='status' to confirm current state. Only run action='setup' or `jcode browser setup` for first-time install or repair when the bridge is not already ready.\n",
+        "Browser automation is not ready yet. Use the browser tool with action='status' to confirm current state. Only run action='setup' or `blaude browser setup` for first-time install or repair when the bridge is not already ready.\n",
     );
     if !status.binary_installed {
         message.push_str("Browser bridge binary is not installed yet.\n");
@@ -792,7 +792,7 @@ async fn firefox_run_bridge_command(
         };
         if details.contains("Unknown action:") {
             anyhow::bail!(
-                "The connected Firefox browser bridge is missing required support for action '{}'. This usually means the installed extension is older than the browser CLI expected by jcode. Use browser action='status' to confirm, then action='setup' to repair or update the extension.\n\nOriginal bridge error: {}",
+                "The connected Firefox browser bridge is missing required support for action '{}'. This usually means the installed extension is older than the browser CLI expected by blaude. Use browser action='status' to confirm, then action='setup' to repair or update the extension.\n\nOriginal bridge error: {}",
                 action,
                 details
             );

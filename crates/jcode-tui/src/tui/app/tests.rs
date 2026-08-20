@@ -842,7 +842,7 @@ fn version_command_shows_remote_server_identity_and_update_status() {
 
     assert!(super::state_ui::handle_info_command(&mut app, "/version"));
     let content = app.display_messages().last().unwrap().content.clone();
-    assert!(content.contains("jcode client:"), "{content}");
+    assert!(content.contains("blaude client:"), "{content}");
     assert!(content.contains("mode: remote/shared-server"), "{content}");
     assert!(content.contains("server: 🔥 blazing"), "{content}");
     assert!(
@@ -861,7 +861,7 @@ fn skills_command_lists_loaded_and_endorsed_skills() {
 
     assert!(content.contains("Loaded skills"), "{content}");
     assert!(
-        content.contains("Endorsed skills (recommended by jcode)"),
+        content.contains("Endorsed skills (recommended by blaude)"),
         "{content}"
     );
     // Every endorsed skill should appear with an install status marker.
@@ -1383,7 +1383,7 @@ fn ancient_server_history_is_deferred_via_client_side_release_check() {
     );
     let content = app.display_messages().last().unwrap().content.clone();
     assert!(
-        content.contains("older release") && content.contains("jcode server stop"),
+        content.contains("older release") && content.contains("blaude server stop"),
         "{content}"
     );
 }
@@ -1463,7 +1463,7 @@ fn older_server_reporting_no_update_is_still_deferred_via_client_check() {
     assert_eq!(remote.session_id(), None);
     let content = app.display_messages().last().unwrap().content.clone();
     assert!(
-        content.contains("older release") && content.contains("jcode server stop"),
+        content.contains("older release") && content.contains("blaude server stop"),
         "{content}"
     );
 }

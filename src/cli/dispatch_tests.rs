@@ -24,7 +24,7 @@ fn init_and_systemd_are_recognized_as_orphan_adopters() {
     assert!(is_orphan_adopter_name("init\n"));
     assert!(is_orphan_adopter_name("systemd\n"));
     assert!(!is_orphan_adopter_name("bash\n"));
-    assert!(!is_orphan_adopter_name("jcode\n"));
+    assert!(!is_orphan_adopter_name("blaude\n"));
 }
 
 #[test]
@@ -45,7 +45,7 @@ fn auth_doctor_positional_provider_wins_over_global_provider() {
     assert_eq!(
         auth_doctor_provider_arg(Some("openai"), &ProviderChoice::Cerebras),
         Some("openai"),
-        "`jcode --provider cerebras auth doctor openai` should diagnose the explicit positional provider"
+        "`blaude --provider cerebras auth doctor openai` should diagnose the explicit positional provider"
     );
 }
 
@@ -74,7 +74,7 @@ struct ReloadTestEnv {
 impl ReloadTestEnv {
     fn new() -> Self {
         let temp = tempfile::tempdir().expect("tempdir");
-        let socket_path = temp.path().join("jcode.sock");
+        let socket_path = temp.path().join("blaude.sock");
         let prev_socket = std::env::var_os("JCODE_SOCKET");
         let prev_runtime = std::env::var_os("JCODE_RUNTIME_DIR");
         crate::server::set_socket_path(socket_path.to_str().expect("utf8 socket path"));
@@ -110,7 +110,7 @@ impl Drop for ReloadTestEnv {
 #[test]
 fn spawn_lock_serializes_shared_server_bootstrap() {
     let temp = tempfile::tempdir().expect("tempdir");
-    let socket_path = temp.path().join("jcode.sock");
+    let socket_path = temp.path().join("blaude.sock");
     let lock_path = spawn_lock_path(&socket_path);
 
     let first = try_acquire_spawn_lock(&lock_path)
@@ -305,7 +305,7 @@ async fn wait_for_reloading_server_returns_true_for_live_listener() {
 #[tokio::test]
 async fn server_is_running_at_treats_live_listener_as_running_without_pong() {
     let temp = tempfile::tempdir().expect("tempdir");
-    let socket_path = temp.path().join("jcode.sock");
+    let socket_path = temp.path().join("blaude.sock");
 
     let _listener = Listener::bind(&socket_path).expect("bind listener");
 

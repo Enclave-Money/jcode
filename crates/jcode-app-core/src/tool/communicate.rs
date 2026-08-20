@@ -1163,7 +1163,7 @@ fn detect_credential_failure_wave(
     })
 }
 
-/// The `jcode login` invocation most likely to fix a credential wave for
+/// The `blaude login` invocation most likely to fix a credential wave for
 /// `provider`, mapping provider names to their login provider keys.
 fn credential_login_fix_hint(provider: Option<&str>) -> String {
     let lowered = provider.map(str::to_ascii_lowercase);
@@ -1174,7 +1174,7 @@ fn credential_login_fix_hint(provider: Option<&str>) -> String {
         Some(other) if !other.trim().is_empty() => other,
         _ => "<provider>",
     };
-    format!("`jcode login --provider {target}`")
+    format!("`blaude login --provider {target}`")
 }
 
 /// Actionable pause message for a credential-failure wave: names the failed

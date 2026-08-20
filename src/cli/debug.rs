@@ -21,7 +21,7 @@ pub async fn run_debug_command(
         let filename = main_path
             .file_name()
             .and_then(|n| n.to_str())
-            .unwrap_or("jcode.sock");
+            .unwrap_or("blaude.sock");
         let debug_filename = filename.replace(".sock", "-debug.sock");
         main_path.with_file_name(debug_filename)
     } else {
@@ -31,12 +31,12 @@ pub async fn run_debug_command(
     if !crate::transport::is_socket_path(&debug_socket) {
         eprintln!("Debug socket not found at {:?}", debug_socket);
         eprintln!("\nMake sure:");
-        eprintln!("  1. A jcode server is running (jcode or jcode serve)");
+        eprintln!("  1. A blaude server is running (blaude or blaude serve)");
         eprintln!("  2. debug_socket is enabled in ~/.jcode/config.toml");
         eprintln!("     [display]");
         eprintln!("     debug_socket = true");
-        eprintln!("\nOr use 'jcode debug start' to start a server.");
-        eprintln!("Use 'jcode debug list' to see running servers.");
+        eprintln!("\nOr use 'blaude debug start' to start a server.");
+        eprintln!("Use 'blaude debug list' to see running servers.");
         anyhow::bail!("Debug socket not available");
     }
 
@@ -129,19 +129,19 @@ async fn debug_list_servers() -> Result<()> {
     }
 
     if servers.is_empty() {
-        println!("No running jcode servers found.");
-        println!("\nStart one with: jcode debug start");
+        println!("No running blaude servers found.");
+        println!("\nStart one with: blaude debug start");
         return Ok(());
     }
 
-    println!("Running jcode servers:\n");
+    println!("Running blaude servers:\n");
 
     for socket_path in servers {
         let debug_socket = {
             let filename = socket_path
                 .file_name()
                 .and_then(|n| n.to_str())
-                .unwrap_or("jcode.sock");
+                .unwrap_or("blaude.sock");
             let debug_filename = filename.replace(".sock", "-debug.sock");
             socket_path.with_file_name(debug_filename)
         };
@@ -178,7 +178,7 @@ async fn debug_list_servers() -> Result<()> {
     }
 
     println!("\nUse -s/--socket to target a specific server:");
-    println!("  jcode debug -s /path/to/socket.sock sessions");
+    println!("  blaude debug -s /path/to/socket.sock sessions");
 
     Ok(())
 }
@@ -236,7 +236,7 @@ async fn debug_start_server(arg: &str, socket_path: Option<String>) -> Result<()
             .is_ok()
     {
         eprintln!("Server already running at {}", socket);
-        eprintln!("Use 'jcode debug list' to see all servers.");
+        eprintln!("Use 'blaude debug list' to see all servers.");
         return Ok(());
     }
 
@@ -244,13 +244,13 @@ async fn debug_start_server(arg: &str, socket_path: Option<String>) -> Result<()
         let filename = socket_pathbuf
             .file_name()
             .and_then(|n| n.to_str())
-            .unwrap_or("jcode.sock");
+            .unwrap_or("blaude.sock");
         let debug_filename = filename.replace(".sock", "-debug.sock");
         socket_pathbuf.with_file_name(debug_filename)
     };
     let _ = std::fs::remove_file(&debug_socket);
 
-    eprintln!("Starting jcode server...");
+    eprintln!("Starting blaude server...");
 
     let exe = std::env::current_exe()?;
     let mut cmd = std::process::Command::new(&exe);

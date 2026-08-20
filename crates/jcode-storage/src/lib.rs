@@ -175,7 +175,7 @@ pub fn logs_dir() -> Result<PathBuf> {
 /// to `~/.jcode/state` (respecting `JCODE_HOME`).
 ///
 /// When `JCODE_RUNTIME_DIR` is set (tests and sandboxed temp servers), it
-/// takes precedence so isolated runs never touch the real jcode home.
+/// takes precedence so isolated runs never touch the real blaude home.
 pub fn durable_state_dir() -> PathBuf {
     if let Ok(dir) = std::env::var("JCODE_RUNTIME_DIR") {
         return PathBuf::from(dir).join("durable-state");
@@ -405,7 +405,7 @@ fn run_windows_hardening_worker() {
 
 /// Validate an external auth file managed by another tool before reading it.
 ///
-/// jcode intentionally avoids mutating these files. We also reject obvious risky
+/// blaude intentionally avoids mutating these files. We also reject obvious risky
 /// cases like symlinks so a remembered trust decision stays bound to a real file
 /// path rather than an arbitrary redirect.
 pub fn validate_external_auth_file(path: &Path) -> Result<PathBuf> {

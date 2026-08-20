@@ -1,6 +1,6 @@
 //! Live memory readout for the top chrome row.
 //!
-//! Shows how much RAM this window (the client) and the jcode daemon (the
+//! Shows how much RAM this window (the client) and the blaude daemon (the
 //! server hosting the session) are resident with, so a leak in either is
 //! visible at a glance instead of needing `ps`. All decisions are pure
 //! functions of plain inputs ([`vm_rss_bytes`], [`is_daemon_cmdline`],
@@ -63,8 +63,8 @@ pub fn vm_rss_bytes(status: &str) -> Option<u64> {
     Some(kb * 1024)
 }
 
-/// Whether a `/proc/<pid>/cmdline` argv is the jcode daemon. The daemon is
-/// `jcode serve ...` wherever its binary lives (selfdev target, shared-server
+/// Whether a `/proc/<pid>/cmdline` argv is the blaude daemon. The daemon is
+/// `blaude serve ...` wherever its binary lives (selfdev target, shared-server
 /// channel, `$PATH`), so only the executable's name and the subcommand are
 /// matched.
 pub fn is_daemon_cmdline(args: &[&str]) -> bool {

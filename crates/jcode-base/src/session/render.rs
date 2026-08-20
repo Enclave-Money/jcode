@@ -451,7 +451,7 @@ pub fn render_messages_and_images_with_compacted_history(
             match block {
                 ContentBlock::Text { text: t, .. } => {
                     // The `[Attached image associated with the preceding tool
-                    // result: ...]` block is synthetic metadata jcode injects so
+                    // result: ...]` block is synthetic metadata blaude injects so
                     // the model can associate a label with the image. It lives in
                     // the same (user) turn as the tool result, so if we rendered
                     // it as message text it would surface as a bogus user prompt

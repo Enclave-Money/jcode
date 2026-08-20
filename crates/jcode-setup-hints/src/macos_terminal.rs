@@ -163,7 +163,7 @@ pub(super) fn paused_jcode_shell_command(exe_path: &str) -> String {
 }
 
 /// Like [`paused_jcode_shell_command`] but passes extra CLI args (each
-/// single-quoted) to the jcode invocation, e.g. `--resume <session-id>`.
+/// single-quoted) to the blaude invocation, e.g. `--resume <session-id>`.
 pub(super) fn paused_jcode_shell_command_with_args(exe_path: &str, args: &[String]) -> String {
     let escaped_exe = escape_shell_single_quotes(exe_path);
     let mut arg_str = String::new();
@@ -173,7 +173,7 @@ pub(super) fn paused_jcode_shell_command_with_args(exe_path: &str, args: &[Strin
         arg_str.push('\'');
     }
     format!(
-        r#"if [ ! -x '{exe}' ]; then printf 'jcode executable not found.\n'; exit 127; fi; '{exe}'{args}; status=$?; if [ "$status" -ne 0 ]; then printf '\nJcode exited with status %s.\n' "$status"; printf 'Press Enter to close... '; read -r _; fi; exit "$status""#,
+        r#"if [ ! -x '{exe}' ]; then printf 'blaude executable not found.\n'; exit 127; fi; '{exe}'{args}; status=$?; if [ "$status" -ne 0 ]; then printf '\nblaude exited with status %s.\n' "$status"; printf 'Press Enter to close... '; read -r _; fi; exit "$status""#,
         exe = escaped_exe,
         args = arg_str,
     )

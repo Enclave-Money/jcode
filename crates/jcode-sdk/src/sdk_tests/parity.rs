@@ -12,7 +12,7 @@
 //!
 //! What is deliberately *not* checked: error handling, streaming style, and
 //! launch strategy. `Result` versus `throw`, channels versus `EventEmitter`,
-//! and "attach to the user's jcode" versus "provision a private instance" are
+//! and "attach to the user's blaude" versus "provision a private instance" are
 //! places where forcing symmetry would produce an un-idiomatic SDK in one
 //! language to flatter the other.
 

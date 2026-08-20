@@ -11,7 +11,7 @@
 //! * The **pure** renderers ([`render_hyprland_block`], [`render_sway_block`])
 //!   turn resolved launch hotkeys into the exact bind lines we manage. Instead
 //!   of inlining shell one-liners (a quoting minefield across three different
-//!   config grammars), each bind simply executes a launch script jcode writes
+//!   config grammars), each bind simply executes a launch script blaude writes
 //!   to `~/.jcode/hotkey/`.
 //! * [`splice_flat_managed_block`] replaces/creates the sentinel-delimited
 //!   managed region at file scope, leaving every other line untouched.
@@ -20,19 +20,19 @@
 //! idempotent and a user can hand-remove it cleanly:
 //!
 //! ```text
-//! # >>> jcode launch hotkeys (managed) >>>
+//! # >>> blaude launch hotkeys (managed) >>>
 //! bind = SUPER, semicolon, exec, '/home/u/.jcode/hotkey/launch_jcode_0_cmd_semicolon.sh'
-//! # <<< jcode launch hotkeys (managed) <<<
+//! # <<< blaude launch hotkeys (managed) <<<
 //! ```
 
 use crate::keymap::KeyChord;
 
 /// Opening sentinel for the managed region in `#`-commented configs.
-pub(crate) const HASH_BLOCK_BEGIN: &str = "# >>> jcode launch hotkeys (managed) >>>";
+pub(crate) const HASH_BLOCK_BEGIN: &str = "# >>> blaude launch hotkeys (managed) >>>";
 /// Closing sentinel for the managed region in `#`-commented configs.
-pub(crate) const HASH_BLOCK_END: &str = "# <<< jcode launch hotkeys (managed) <<<";
+pub(crate) const HASH_BLOCK_END: &str = "# <<< blaude launch hotkeys (managed) <<<";
 
-/// A Linux desktop environment / compositor jcode can install launch hotkeys
+/// A Linux desktop environment / compositor blaude can install launch hotkeys
 /// into.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum LinuxCompositor {
@@ -140,7 +140,7 @@ pub(crate) struct ScriptBind {
     pub self_dev: bool,
 }
 
-/// Translate a canonical jcode key token into an XKB keysym name (the
+/// Translate a canonical blaude key token into an XKB keysym name (the
 /// vocabulary Hyprland, sway, and i3 all accept). Returns `None` for tokens
 /// with no stable spelling.
 pub(crate) fn xkb_key_name(key: &str) -> Option<String> {
@@ -265,7 +265,7 @@ pub(crate) fn render_flat_block(
     let mut lines: Vec<String> = Vec::new();
     for bind in binds {
         if let Some(line) = render_line(bind) {
-            lines.push(format!("# jcode: {label}", label = bind.label));
+            lines.push(format!("# blaude: {label}", label = bind.label));
             lines.push(line);
         }
     }
@@ -377,7 +377,7 @@ pub(crate) fn gnome_keybindings(binds: &[ScriptBind]) -> Vec<GnomeKeybinding> {
             let binding = gnome_binding(&bind.chord)?;
             Some(GnomeKeybinding {
                 path: String::new(), // filled below with a stable slot index
-                name: format!("jcode: {}", bind.label),
+                name: format!("blaude: {}", bind.label),
                 command: bind.script.clone(),
                 binding,
             })
@@ -392,7 +392,7 @@ pub(crate) fn gnome_keybindings(binds: &[ScriptBind]) -> Vec<GnomeKeybinding> {
 
 /// Merge jcode's entries into an existing gsettings/dconf string-array value
 /// (e.g. `['/a/', '/b/']` or `@as []`), preserving foreign entries and
-/// replacing any previous jcode slots (matched on the `jcode-launch-` marker).
+/// replacing any previous blaude slots (matched on the `jcode-launch-` marker).
 /// Used for GNOME keybinding paths and Cinnamon slot names alike. Pure string
 /// surgery on the GVariant text format so it is unit-testable without dconf.
 pub(crate) fn merge_gnome_keybinding_list(current: &str, ours: &[String]) -> String {
@@ -440,7 +440,7 @@ pub(crate) fn dconf_keybindings(binds: &[ScriptBind]) -> Vec<DconfKeybinding> {
             let binding = gnome_binding(&bind.chord)?;
             Some(DconfKeybinding {
                 slot: String::new(),
-                name: format!("jcode: {}", bind.label),
+                name: format!("blaude: {}", bind.label),
                 command: bind.script.clone(),
                 binding,
             })
@@ -529,7 +529,7 @@ pub(crate) fn kde_shortcuts(binds: &[ScriptBind]) -> Vec<KdeShortcut> {
         .map(|(index, (bind, shortcut))| KdeShortcut {
             desktop_file_name: kde_desktop_file_name(index),
             desktop_file_body: format!(
-                "[Desktop Entry]\nType=Application\nName=jcode: {label}\nExec={script}\nNoDisplay=true\nStartupNotify=false\nX-KDE-GlobalAccel-CommandShortcut=true\n",
+                "[Desktop Entry]\nType=Application\nName=blaude: {label}\nExec={script}\nNoDisplay=true\nStartupNotify=false\nX-KDE-GlobalAccel-CommandShortcut=true\n",
                 label = bind.label,
                 script = bind.script,
             ),
@@ -622,7 +622,7 @@ fn find_flat_managed_region(config: &str) -> Option<(usize, usize)> {
     Some((line_start, line_end))
 }
 
-/// Build the shell command a launch script uses to open jcode in the user's
+/// Build the shell command a launch script uses to open blaude in the user's
 /// terminal, as a `argv`-quoted string (e.g. `'kitty' '/bin/jcode' 'self-dev'`).
 /// Terminals differ in how they accept a command to run.
 pub(crate) fn terminal_exec_command(
@@ -801,7 +801,7 @@ mod tests {
         assert_eq!(kbs.len(), 2);
         assert_eq!(kbs[0].path, gnome_keybinding_path(0));
         assert_eq!(kbs[1].path, gnome_keybinding_path(1));
-        assert_eq!(kbs[0].name, "jcode: home");
+        assert_eq!(kbs[0].name, "blaude: home");
         assert_eq!(kbs[1].binding, "<Super>bracketleft");
     }
 
@@ -817,7 +817,7 @@ mod tests {
             merge_gnome_keybinding_list("[]", &ours[..1]),
             format!("['{}']", ours[0])
         );
-        // Foreign entries stay; stale jcode slots are dropped before re-adding.
+        // Foreign entries stay; stale blaude slots are dropped before re-adding.
         let current = format!(
             "['/org/gnome/settings-daemon/plugins/media-keys/custom-keybindings/custom0/', '{}', '{}']",
             gnome_keybinding_path(0),
@@ -844,7 +844,7 @@ mod tests {
         assert_eq!(kbs[1].slot, "jcode-launch-1");
         assert_eq!(kbs[0].binding, "<Super>semicolon");
         assert_eq!(kbs[1].binding, "<Super><Shift>apostrophe");
-        assert_eq!(kbs[1].name, "jcode: self-dev");
+        assert_eq!(kbs[1].name, "blaude: self-dev");
     }
 
     #[test]
@@ -960,16 +960,16 @@ mod tests {
     #[test]
     fn blocks_wrap_sentinels_and_carry_labels() {
         let block = render_hyprland_block(&[
-            bind("cmd+;", "/a.sh", "jcode", false),
+            bind("cmd+;", "/a.sh", "blaude", false),
             bind("cmd+'", "/b.sh", "home", false),
         ])
         .unwrap();
         assert!(block.starts_with(HASH_BLOCK_BEGIN));
         assert!(block.ends_with(HASH_BLOCK_END));
-        assert!(block.contains("# jcode: jcode"));
-        assert!(block.contains("# jcode: home"));
+        assert!(block.contains("# blaude: blaude"));
+        assert!(block.contains("# blaude: home"));
 
-        let sway = render_sway_block(&[bind("cmd+;", "/a.sh", "jcode", false)]).unwrap();
+        let sway = render_sway_block(&[bind("cmd+;", "/a.sh", "blaude", false)]).unwrap();
         assert!(sway.starts_with(HASH_BLOCK_BEGIN));
         assert!(sway.contains("bindsym Mod4+semicolon"));
     }

@@ -1,6 +1,6 @@
-//! Process-wide "keep the machine awake while jcode is working" inhibitor.
+//! Process-wide "keep the machine awake while blaude is working" inhibitor.
 //!
-//! The shared `jcode serve` daemon hosts every session, so a single inhibitor
+//! The shared `blaude serve` daemon hosts every session, so a single inhibitor
 //! living in that process is enough to keep the laptop awake while *any* session
 //! is streaming/processing (the same signal Waybar surfaces as "N streaming").
 //!
@@ -37,7 +37,7 @@ const INHIBIT_TTL: Duration = Duration::from_secs(150);
 /// below `INHIBIT_TTL` so coverage never lapses between reconcile ticks.
 const INHIBIT_REFRESH_AFTER: Duration = Duration::from_secs(90);
 
-/// Best-effort inhibitor that keeps the machine awake while jcode is actively
+/// Best-effort inhibitor that keeps the machine awake while blaude is actively
 /// streaming/processing.
 pub struct PowerInhibitor {
     handle: Option<InhibitHandle>,
@@ -412,8 +412,8 @@ fn build_linux_systemd_inhibit_command(ttl: Duration) -> Command {
     let mut command = Command::new("systemd-inhibit");
     command
         .arg("--what=sleep:handle-lid-switch")
-        .arg("--who=jcode")
-        .arg("--why=Jcode is streaming or processing active work")
+        .arg("--who=blaude")
+        .arg("--why=blaude is streaming or processing active work")
         .arg("--mode=block")
         // Power inhibition is best-effort and must never trigger an interactive
         // Polkit authentication prompt from the background daemon.
@@ -484,7 +484,7 @@ mod tests {
 
         assert_eq!(command_name(&command), "systemd-inhibit");
         assert!(args.contains(&"--what=sleep:handle-lid-switch".to_string()));
-        assert!(args.contains(&"--who=jcode".to_string()));
+        assert!(args.contains(&"--who=blaude".to_string()));
         assert!(args.contains(&"--mode=block".to_string()));
         assert!(args.contains(&"--no-ask-password".to_string()));
         assert!(args.contains(&"sleep".to_string()));

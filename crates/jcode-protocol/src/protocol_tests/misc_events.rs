@@ -248,8 +248,8 @@ fn test_jcode_subscription_set_route_is_wire_safe() -> Result<()> {
             model: "gpt-5.5".to_string(),
             runtime_key: jcode_provider_core::RuntimeKey::JcodeSubscription,
             api_method: "jcode-subscription".to_string(),
-            provider_label: "Jcode Subscription".to_string(),
-            detail: "jcode subscription routing · managed server-side".to_string(),
+            provider_label: "blaude Subscription".to_string(),
+            detail: "blaude subscription routing · managed server-side".to_string(),
         },
     };
 
@@ -259,7 +259,7 @@ fn test_jcode_subscription_set_route_is_wire_safe() -> Result<()> {
 
     let decoded = decode_request(&line)?;
     let Request::SetRoute { id, selection } = decoded else {
-        return Err(anyhow!("expected Jcode SetRoute, got {decoded:?}"));
+        return Err(anyhow!("expected blaude SetRoute, got {decoded:?}"));
     };
     assert_eq!(id, 8);
     assert_eq!(selection.model, "gpt-5.5");

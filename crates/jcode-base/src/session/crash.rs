@@ -528,7 +528,7 @@ fn session_matches_resume_title(session: &Session, normalized_query: &str) -> bo
 /// snapshot (`imported_<tool>_<id>`) if one already exists on disk.
 ///
 /// External CLI sessions (OpenCode, Codex, Claude Code) are imported into the
-/// jcode store under a stable `imported_<tool>_<provider_id>` stem. Resuming the
+/// blaude store under a stable `imported_<tool>_<provider_id>` stem. Resuming the
 /// full imported id always works, but a *bare* provider id (e.g. the OpenCode
 /// `ses_...` shown in the resume picker / reload handoff) previously only
 /// resolved by re-importing from the external tool's own storage. Once the user

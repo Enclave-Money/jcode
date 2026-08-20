@@ -381,7 +381,7 @@ fn auth_changed_event_for_cerebras_login_carries_runtime_and_catalog_identity() 
 fn reload_handoff_inactive_without_flag_or_marker() {
     // `reload_handoff_active` falls back to the on-disk reload marker in the
     // runtime dir. Point the runtime dir at an empty tempdir so a real
-    // `jcode.reload` left by a live self-dev reload on this machine cannot
+    // `blaude.reload` left by a live self-dev reload on this machine cannot
     // leak into the assertion.
     let _guard = crate::storage::lock_test_env();
     let temp = tempfile::TempDir::new().expect("create temp dir");

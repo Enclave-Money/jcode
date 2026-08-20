@@ -1,4 +1,4 @@
-//! Rust SDK for the jcode harness.
+//! Rust SDK for the blaude harness.
 //!
 //! The API crate (`jcode-harness-api`) defines the wire protocol. This crate
 //! is what you actually build a client with: connect, drive sessions, stream

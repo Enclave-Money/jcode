@@ -918,7 +918,7 @@ mod named_colors {
 mod default_palette_is_frozen {
     use super::*;
 
-    /// The exact hand-tuned palette jcode has always shipped.
+    /// The exact hand-tuned palette blaude has always shipped.
     ///
     /// This is a deliberate, redundant copy of [`Role::default_rgb`]. It exists
     /// so the shipped look cannot drift: the generator, the harmony scorer, and

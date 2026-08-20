@@ -1,6 +1,6 @@
 //! Keymap discovery: snapshot the key bindings that exist on the machine
-//! (macOS system shortcuts + terminal emulator bindings) so jcode can detect
-//! when one of them intercepts a key jcode wants to use.
+//! (macOS system shortcuts + terminal emulator bindings) so blaude can detect
+//! when one of them intercepts a key blaude wants to use.
 //!
 //! This module is the data layer. It:
 //!   1. discovers bindings from each source ([`macos_hotkeys`], [`terminal`]),

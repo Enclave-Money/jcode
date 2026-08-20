@@ -1,6 +1,6 @@
-//! On-disk state shared by every jcode process that checks for updates.
+//! On-disk state shared by every blaude process that checks for updates.
 //!
-//! Update checks are cheap but rate limited, and several jcode processes can run
+//! Update checks are cheap but rate limited, and several blaude processes can run
 //! on one machine at once, so the cadence and backoff state live in a single
 //! metadata file rather than per-process memory.
 
@@ -23,7 +23,7 @@ pub struct UpdateMetadata {
     pub last_source_update_secs: Option<f64>,
     /// When set, automatic update checks are suppressed until this time
     /// because GitHub reported the API rate limit was exhausted. Shared via
-    /// the metadata file so every jcode process on the machine backs off, not
+    /// the metadata file so every blaude process on the machine backs off, not
     /// just the one that saw the 403.
     #[serde(default)]
     pub rate_limited_until: Option<SystemTime>,

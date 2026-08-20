@@ -24,7 +24,7 @@ impl StreamingGuard {
         Self {
             _marker: crate::storage::StreamingGuard::new(session_id),
             sleep_assertion: crate::platform::PowerAssertion::prevent_user_idle_system_sleep(
-                "Jcode streaming model response",
+                "blaude streaming model response",
             ),
         }
     }
@@ -1099,15 +1099,15 @@ request in this new forked session, using the inherited conversation only as con
         false
     }
 
-    /// Check if this session is working on the jcode repository
+    /// Check if this session is working on the blaude repository
     pub fn is_self_dev(&self) -> bool {
         if let Some(ref dir) = self.working_dir {
-            // Check if working dir contains jcode source
+            // Check if working dir contains blaude source
             let path = std::path::Path::new(dir);
             path.join("Cargo.toml").exists()
                 && path.join("src/main.rs").exists()
                 && std::fs::read_to_string(path.join("Cargo.toml"))
-                    .map(|s| s.contains("name = \"jcode\""))
+                    .map(|s| s.contains("name = \"blaude\""))
                     .unwrap_or(false)
         } else {
             false

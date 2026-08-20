@@ -1,7 +1,7 @@
 //! Memory recall benchmark (Mode 1 / no-LLM).
 //!
 //! Faithful offline harness for measuring memory retrieval accuracy. Reuses the
-//! REAL jcode retrieval primitives:
+//! REAL blaude retrieval primitives:
 //!   - `jcode::memory_graph::MemoryGraph` deserialization (real on-disk graphs)
 //!   - `jcode::embedding::embed` (real all-MiniLM-L6-v2 ONNX model)
 //!   - `jcode::memory::format_context_for_relevance` (real live query window)
@@ -672,7 +672,7 @@ fn cmd_pool(args: &[String]) -> Result<()> {
     Ok(())
 }
 
-// ---------------- LLM judge (direct Anthropic via jcode Sidecar) ----------------
+// ---------------- LLM judge (direct Anthropic via blaude Sidecar) ----------------
 
 #[derive(Deserialize)]
 struct JudgeInput {

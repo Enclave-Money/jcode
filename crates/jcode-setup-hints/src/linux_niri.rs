@@ -1,4 +1,4 @@
-//! Render and install global "launch a new jcode" hotkeys on Linux/niri.
+//! Render and install global "launch a new blaude" hotkeys on Linux/niri.
 //!
 //! Unlike macOS, a Wayland client cannot grab system-wide hotkeys: the
 //! `global-hotkey` crate only works on X11/macOS. The portable, correct
@@ -21,24 +21,24 @@
 //! idempotent and a user can hand-remove it cleanly:
 //!
 //! ```text
-//!     // >>> jcode launch hotkeys (managed) >>>
-//!     Alt+Semicolon hotkey-overlay-title="jcode: home" { spawn "sh" "-c" "..."; }
-//!     // <<< jcode launch hotkeys (managed) <<<
+//!     // >>> blaude launch hotkeys (managed) >>>
+//!     Alt+Semicolon hotkey-overlay-title="blaude: home" { spawn "sh" "-c" "..."; }
+//!     // <<< blaude launch hotkeys (managed) <<<
 //! ```
 
 use crate::keymap::KeyChord;
 
 /// Opening sentinel for the managed bind region inside `binds { }`.
-pub(crate) const NIRI_BLOCK_BEGIN: &str = "// >>> jcode launch hotkeys (managed) >>>";
+pub(crate) const NIRI_BLOCK_BEGIN: &str = "// >>> blaude launch hotkeys (managed) >>>";
 /// Closing sentinel for the managed bind region inside `binds { }`.
-pub(crate) const NIRI_BLOCK_END: &str = "// <<< jcode launch hotkeys (managed) <<<";
+pub(crate) const NIRI_BLOCK_END: &str = "// <<< blaude launch hotkeys (managed) <<<";
 
 /// One resolved hotkey ready to render as a niri bind: the chord, the target
 /// directory, a human label, and whether it is a self-dev session.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct NiriHotkey {
     pub chord: KeyChord,
-    /// Concrete directory to launch jcode in (already resolved from any
+    /// Concrete directory to launch blaude in (already resolved from any
     /// `$HOME`/`$LAST_DIR` sentinel).
     pub dir: String,
     /// Short human label, e.g. the repo's directory name.
@@ -47,7 +47,7 @@ pub(crate) struct NiriHotkey {
     pub self_dev: bool,
 }
 
-/// Map a jcode modifier+key chord onto niri's KDL key syntax.
+/// Map a blaude modifier+key chord onto niri's KDL key syntax.
 ///
 /// niri uses `+`-joined modifiers followed by an XKB key name, e.g.
 /// `Alt+Semicolon`, `Super+Shift+Apostrophe`. We translate jcode's `cmd`
@@ -77,7 +77,7 @@ pub(crate) fn chord_to_niri_bind(chord: &KeyChord) -> Option<String> {
     }
 }
 
-/// Translate a canonical jcode key token into the XKB key name niri expects.
+/// Translate a canonical blaude key token into the XKB key name niri expects.
 /// Returns `None` for tokens with no stable niri spelling.
 fn niri_key_name(key: &str) -> Option<String> {
     let named = match key {
@@ -135,11 +135,11 @@ fn sh_single_quote(input: &str) -> String {
     format!("'{}'", input.replace('\'', r#"'\''"#))
 }
 
-/// Build the `sh -c` command string a bind runs to open jcode in `dir`.
+/// Build the `sh -c` command string a bind runs to open blaude in `dir`.
 ///
 /// We `cd` into the directory (falling back to `$HOME` if it has since been
-/// removed), then launch jcode via the user's terminal. The terminal is chosen
-/// by `terminal` (e.g. `kitty`); we pass it the jcode executable directly.
+/// removed), then launch blaude via the user's terminal. The terminal is chosen
+/// by `terminal` (e.g. `kitty`); we pass it the blaude executable directly.
 fn launch_shell_command(
     exe_path: &str,
     terminal: &str,
@@ -173,9 +173,9 @@ pub(crate) fn render_niri_bind_line(
 ) -> Option<String> {
     let bind = chord_to_niri_bind(&hotkey.chord)?;
     let title = if hotkey.self_dev {
-        format!("jcode: {} (self-dev)", hotkey.label)
+        format!("blaude: {} (self-dev)", hotkey.label)
     } else {
-        format!("jcode: {}", hotkey.label)
+        format!("blaude: {}", hotkey.label)
     };
     let shell = launch_shell_command(
         exe_path,
@@ -466,7 +466,7 @@ mod tests {
     #[test]
     fn renders_bind_line_with_cd_and_terminal() {
         let line = render_niri_bind_line(
-            &hk("alt+;", "/home/jeremy/jcode", "jcode", true),
+            &hk("alt+;", "/home/jeremy/jcode", "blaude", true),
             "/home/jeremy/.local/bin/jcode",
             "kitty",
             "    ",
@@ -474,7 +474,7 @@ mod tests {
         .unwrap();
         assert!(line.contains("Alt+Semicolon"));
         assert!(line.contains("self-dev"));
-        assert!(line.contains("hotkey-overlay-title=\"jcode: jcode (self-dev)\""));
+        assert!(line.contains("hotkey-overlay-title=\"blaude: blaude (self-dev)\""));
         assert!(line.contains("spawn \"sh\" \"-c\""));
         assert!(line.contains("/home/jeremy/jcode"));
         assert!(line.starts_with("    "));
@@ -492,11 +492,11 @@ mod tests {
             "    ",
         )
         .unwrap();
-        assert!(block.starts_with("    // >>> jcode launch hotkeys (managed) >>>"));
+        assert!(block.starts_with("    // >>> blaude launch hotkeys (managed) >>>"));
         assert!(
             block
                 .trim_end()
-                .ends_with("// <<< jcode launch hotkeys (managed) <<<")
+                .ends_with("// <<< blaude launch hotkeys (managed) <<<")
         );
         assert_eq!(block.matches("spawn \"sh\"").count(), 2);
     }
@@ -775,7 +775,7 @@ mod tests {
     /// The unit tests above check configs I thought of, which is exactly how the
     /// block-comment bug survived the first fix. This instead uses niri itself as
     /// the oracle: for every generated config that niri accepts, the config must
-    /// still be accepted after jcode splices its managed block in, and the block
+    /// still be accepted after blaude splices its managed block in, and the block
     /// must land in a real top-level `binds` node.
     ///
     /// The corpus lives beside this file so the test is hermetic and fast; the

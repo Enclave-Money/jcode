@@ -74,7 +74,7 @@ async fn cleanup_stale_preserves_live_socket_paths() {
     crate::env::set_var("JCODE_HOME", temp_home.path());
 
     let temp_runtime = tempfile::tempdir().expect("temp runtime");
-    let socket = temp_runtime.path().join("jcode.sock");
+    let socket = temp_runtime.path().join("blaude.sock");
     let debug_socket = temp_runtime.path().join("jcode-debug.sock");
     let _listener = Listener::bind(&socket).expect("bind live socket");
     let _debug_listener = Listener::bind(&debug_socket).expect("bind live debug socket");

@@ -482,7 +482,7 @@ export -f cargo
     /// build against another package's binary reads a stale artefact from some earlier
     /// build and fails a build that actually succeeded.
     fn desktop_binary_name(command: &SelfDevBuildCommand) -> Option<&'static str> {
-        if command.display.contains("-p jcode ") {
+        if command.display.contains("-p blaude ") {
             return None;
         }
         if command.display.contains("-p jcode-desktop2") {
@@ -689,7 +689,7 @@ export -f cargo
             })?;
         let repo_dir =
             SelfDevTool::resolve_repo_dir(ctx.working_dir.as_deref()).ok_or_else(|| {
-                anyhow::anyhow!("Could not find the jcode repository directory for selfdev build")
+                anyhow::anyhow!("Could not find the blaude repository directory for selfdev build")
             })?;
 
         let requested_source = SelfDevTool::requested_source_state(&repo_dir)?;
@@ -1041,7 +1041,7 @@ export -f cargo
         // reload path here would validate a stale `jcode` artefact and fail an
         // otherwise successful desktop build-reload.
         let desktop_only = build_request.as_ref().is_some_and(|request| {
-            request.command.contains("-p jcode-desktop2") && !request.command.contains("-p jcode ")
+            request.command.contains("-p jcode-desktop2") && !request.command.contains("-p blaude ")
         });
         if desktop_only {
             let published_version = build_request
@@ -1122,7 +1122,7 @@ export -f cargo
             .unwrap_or_else(|| command.clone());
         let repo_dir =
             SelfDevTool::resolve_repo_dir(ctx.working_dir.as_deref()).ok_or_else(|| {
-                anyhow::anyhow!("Could not find the jcode repository directory for selfdev test")
+                anyhow::anyhow!("Could not find the blaude repository directory for selfdev test")
             })?;
         let requested_source = SelfDevTool::requested_source_state(&repo_dir)?;
         let shell_command = SelfDevBuildCommand {
@@ -1339,8 +1339,8 @@ mod desktop_binary_tests {
     #[test]
     fn tui_and_combined_builds_are_not_desktop_only() {
         for display in [
-            "scripts/dev_cargo.sh build --profile selfdev -p jcode --bin jcode",
-            "scripts/dev_cargo.sh build --profile selfdev -p jcode --bin jcode -p jcode-desktop2",
+            "scripts/dev_cargo.sh build --profile selfdev -p blaude --bin blaude",
+            "scripts/dev_cargo.sh build --profile selfdev -p blaude --bin blaude -p jcode-desktop2",
         ] {
             assert_eq!(
                 SelfDevTool::desktop_binary_name(&command(display)),

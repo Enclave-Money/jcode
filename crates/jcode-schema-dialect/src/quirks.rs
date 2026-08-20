@@ -4,7 +4,7 @@
 //! failure but costs a wasted round trip on every subsequent request, and the
 //! knowledge dies with the process. Writing it to `~/.jcode/schema-quirks.json`
 //! makes the second request the fast path and means the fleet self-heals in
-//! front of a provider change instead of waiting for a jcode release.
+//! front of a provider change instead of waiting for a blaude release.
 //!
 //! The file is advisory: a corrupt or unreadable store degrades to "learn it
 //! again", never to a failure.

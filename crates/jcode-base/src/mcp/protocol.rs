@@ -188,7 +188,7 @@ pub struct ResourceContent {
 /// MCP server configuration
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct McpServerConfig {
-    /// Command for stdio servers. Empty for HTTP/SSE servers, which jcode does
+    /// Command for stdio servers. Empty for HTTP/SSE servers, which blaude does
     /// not yet support (such entries are skipped at load time).
     #[serde(default)]
     pub command: String,
@@ -205,10 +205,10 @@ pub struct McpServerConfig {
     /// only to recognize and skip non-stdio servers; defaults to stdio.
     #[serde(rename = "type", default, skip_serializing_if = "Option::is_none")]
     pub transport: Option<String>,
-    /// URL for HTTP/SSE servers (Claude Code compat). Unused by jcode today.
+    /// URL for HTTP/SSE servers (Claude Code compat). Unused by blaude today.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub url: Option<String>,
-    /// Headers for HTTP/SSE servers (Claude Code compat). Unused by jcode today,
+    /// Headers for HTTP/SSE servers (Claude Code compat). Unused by blaude today,
     /// but retained so environment expansion is ready when those transports are.
     #[serde(default, skip_serializing_if = "std::collections::HashMap::is_empty")]
     pub headers: std::collections::HashMap<String, String>,
@@ -224,7 +224,7 @@ pub struct McpServerConfig {
 }
 
 impl McpServerConfig {
-    /// jcode currently only supports stdio (command-based) MCP servers. A config
+    /// blaude currently only supports stdio (command-based) MCP servers. A config
     /// entry is stdio when it has a command and is not explicitly an http/sse
     /// transport.
     pub fn is_stdio(&self) -> bool {
@@ -460,7 +460,7 @@ impl McpConfig {
 
     fn live_claude_log_message(server_count: usize, source: &str) -> String {
         format!(
-            "MCP: Loaded {} server(s) live from Claude Code ({}); source values were not copied into jcode config",
+            "MCP: Loaded {} server(s) live from Claude Code ({}); source values were not copied into blaude config",
             server_count, source
         )
     }
@@ -583,7 +583,7 @@ impl McpConfig {
         merged
     }
 
-    /// Load from default locations (merges jcode global + local, local overrides),
+    /// Load from default locations (merges blaude global + local, local overrides),
     /// resolving project-local config against the process working directory.
     pub fn load() -> Self {
         let cwd = std::env::current_dir().ok();
@@ -669,7 +669,7 @@ impl McpConfig {
         // support receives already-expanded URLs and headers as well.
         merged.expand_environment_variables();
 
-        // jcode only supports stdio servers today. Drop HTTP/SSE entries (common
+        // blaude only supports stdio servers today. Drop HTTP/SSE entries (common
         // in Claude Code configs) so they don't fail to spawn, but log them so
         // the omission is visible.
         merged.servers.retain(|name, cfg| {
@@ -687,7 +687,7 @@ impl McpConfig {
         merged
     }
 
-    /// Merge `incoming` over `existing`, except that an entry jcode cannot run
+    /// Merge `incoming` over `existing`, except that an entry blaude cannot run
     /// (HTTP/SSE) never displaces a working stdio entry for the same name.
     ///
     /// Without this, a `type: http` entry in `~/.claude.json` would overwrite a

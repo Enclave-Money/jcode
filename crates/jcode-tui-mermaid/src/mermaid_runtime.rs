@@ -6,7 +6,7 @@ pub(super) enum PickerInitMode {
     Probe,
 }
 
-/// Terminal multiplexers / agent-multiplexers that sit between jcode and the
+/// Terminal multiplexers / agent-multiplexers that sit between blaude and the
 /// real outer terminal. Inside any of these the outer terminal's identity env
 /// vars (TERM_PROGRAM, KITTY_WINDOW_ID, ...) are masked or rewritten, so
 /// env-based protocol detection cannot see whether the outer terminal supports
@@ -40,7 +40,7 @@ fn env_is_set(value: Option<&str>) -> bool {
     value.map(|v| !v.trim().is_empty()).unwrap_or(false)
 }
 
-/// Detect whether jcode is running inside a known multiplexer, using the same
+/// Detect whether blaude is running inside a known multiplexer, using the same
 /// signals the multiplexers themselves expose to child processes.
 pub(super) fn detect_multiplexer(
     term: Option<&str>,
@@ -304,7 +304,7 @@ pub(crate) fn prewarm_svg_font_db_async() {
 }
 
 /// Initialize the global picker.
-/// By default jcode uses environment-based detection and never blocks startup
+/// By default blaude uses environment-based detection and never blocks startup
 /// on terminal capability responses. Set JCODE_MERMAID_PICKER_PROBE=1 to run an
 /// authoritative stdio probe when a multiplexer masks the outer terminal, or
 /// =0 to explicitly retain the fast path. Cache eviction runs once before image

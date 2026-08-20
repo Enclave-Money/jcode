@@ -58,7 +58,7 @@ fn common_prefix_len(current: &[u64], previous: &[u64]) -> usize {
 /// Log a privacy-preserving fingerprint of the provider-specific prompt payload.
 ///
 /// `payload` should be the prompt/cache-relevant request shape after provider-specific
-/// normalization, not the high-level Jcode message list. Do not include volatile transport
+/// normalization, not the high-level blaude message list. Do not include volatile transport
 /// IDs unless they are intentionally part of the cache key. `items` should be the ordered
 /// provider-visible message/content array so prefix drift can be diagnosed by index.
 #[allow(clippy::too_many_arguments)]

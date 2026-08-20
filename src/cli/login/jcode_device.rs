@@ -1,4 +1,4 @@
-//! CLI orchestration for the Jcode account device authorization flow.
+//! CLI orchestration for the blaude account device authorization flow.
 //!
 //! Protocol parsing and HTTP behavior live in `subscription_api` so the CLI and
 //! TUI share the same contract and redaction guarantees.
@@ -46,7 +46,7 @@ where
         let delay = backoff.delay();
         if tokio::time::Instant::now() + delay >= deadline {
             anyhow::bail!(
-                "Jcode account login timed out before browser approval. Run `jcode account login` to try again."
+                "blaude account login timed out before browser approval. Run `blaude account login` to try again."
             );
         }
         tokio::select! {
@@ -75,10 +75,10 @@ where
                 return Ok(KeyPollCompletion::Approved(key));
             }
             Ok(TokenPollOutcome::Expired) => anyhow::bail!(
-                "The browser approval expired or was already exchanged. Run `jcode account login` to start a new single-use flow."
+                "The browser approval expired or was already exchanged. Run `blaude account login` to start a new single-use flow."
             ),
             Ok(TokenPollOutcome::Denied) => {
-                anyhow::bail!("Jcode account login was canceled or denied in the browser.")
+                anyhow::bail!("blaude account login was canceled or denied in the browser.")
             }
             Err(error) if error.is_temporary() => {
                 if !reported_offline {
@@ -112,9 +112,9 @@ pub(super) async fn login_jcode_device_flow(no_browser: bool) -> Result<LoginCom
     let device = subscription_api::request_device_authorization(&client, &api_base, None)
         .await
         .map_err(anyhow::Error::new)
-        .context("Failed to start Jcode account login")?;
+        .context("Failed to start blaude account login")?;
 
-    eprintln!("\nJcode Account Login");
+    eprintln!("\nblaude Account Login");
     eprintln!("  Opening the secure account approval page:");
     eprintln!("  {}", device.verification_uri_complete);
     eprintln!("\n  Approve the request in that browser. No terminal email entry is needed.");
@@ -195,13 +195,13 @@ pub(super) async fn login_jcode_device_flow(no_browser: bool) -> Result<LoginCom
         Some(ActivationOutcome::Revoked) => {
             crate::subscription_catalog::clear_account_credentials()?;
             anyhow::bail!(
-                "The newly issued account key was revoked before hosted billing activation. Local credentials were cleared; run `jcode account login` again."
+                "The newly issued account key was revoked before hosted billing activation. Local credentials were cleared; run `blaude account login` again."
             );
         }
         Some(ActivationOutcome::Denied) => {
             crate::subscription_catalog::clear_account_credentials()?;
             anyhow::bail!(
-                "The account server denied hosted billing checks. Local credentials were cleared; run `jcode account login` again."
+                "The account server denied hosted billing checks. Local credentials were cleared; run `blaude account login` again."
             );
         }
         None => {
@@ -216,9 +216,9 @@ pub(super) async fn login_jcode_device_flow(no_browser: bool) -> Result<LoginCom
 }
 
 fn print_recovery_actions() {
-    eprintln!("  Check:   jcode account status");
-    eprintln!("  Manage:  jcode account manage");
-    eprintln!("  Log out: jcode account logout");
+    eprintln!("  Check:   blaude account status");
+    eprintln!("  Manage:  blaude account manage");
+    eprintln!("  Log out: blaude account logout");
 }
 
 #[cfg(test)]

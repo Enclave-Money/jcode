@@ -10,7 +10,7 @@
 //! Always on: the per-frame cost is one row-hash pass over the visible
 //! messages area (tens of microseconds). Reports are served via the client
 //! debug commands `smoothness` and `smoothness:reset`, so live sessions and
-//! offscreen replays (`jcode replay`) can both be benchmarked.
+//! offscreen replays (`blaude replay`) can both be benchmarked.
 
 use jcode_tui_core::anchor_stability::{AnchorFrame, AnchorStabilityRecorder, BLANK_ROW_HASH};
 use ratatui::buffer::Buffer;

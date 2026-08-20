@@ -46,7 +46,7 @@ pub fn render_report(cfg: &KeybindingsConfig, snapshot: &KeymapSnapshot) -> Stri
 
     if term_count == 0 && sys_count == 0 && app_count == 0 {
         out.push_str(
-            "\nNo machine bindings were discovered. jcode can read Ghostty bindings, macOS\n\
+            "\nNo machine bindings were discovered. blaude can read Ghostty bindings, macOS\n\
              system shortcuts, and a few window managers (OmniWM, AeroSpace, skhd); other\n\
              terminals and tools are not yet inspected, so conflicts there will not be\n\
              detected.\n",
@@ -56,7 +56,7 @@ pub fn render_report(cfg: &KeybindingsConfig, snapshot: &KeymapSnapshot) -> Stri
     let conflicts = detect_conflicts(cfg, snapshot);
     out.push('\n');
     if conflicts.is_empty() {
-        out.push_str("No conflicts found between your jcode keybindings and the machine.\n");
+        out.push_str("No conflicts found between your blaude keybindings and the machine.\n");
     } else {
         out.push_str(&format!(
             "{} potential conflict{} found:\n\n",
@@ -69,8 +69,8 @@ pub fn render_report(cfg: &KeybindingsConfig, snapshot: &KeymapSnapshot) -> Stri
         }
         out.push_str(
             "These keys may be captured by your terminal, macOS, or another app (window\n\
-             manager, launcher) before jcode sees them.\n\
-             To fix: rebind the jcode action in ~/.jcode/config.toml under [keybindings],\n\
+             manager, launcher) before blaude sees them.\n\
+             To fix: rebind the blaude action in ~/.jcode/config.toml under [keybindings],\n\
              or change the conflicting shortcut in the other app's settings.\n",
         );
     }
@@ -102,7 +102,7 @@ fn render_conflict_block(c: &Conflict) -> String {
         }
     };
     format!(
-        "  ⚠ {key}\n      jcode: {action} ({field} = \"{raw}\")\n      taken by {interceptor}\n",
+        "  ⚠ {key}\n      blaude: {action} ({field} = \"{raw}\")\n      taken by {interceptor}\n",
         key = c.jcode.chord.display(),
         action = c.jcode.action,
         field = c.jcode.field,

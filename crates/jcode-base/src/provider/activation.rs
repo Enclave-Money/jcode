@@ -48,7 +48,7 @@ impl RuntimeProviderId {
 
     pub const fn label(self) -> &'static str {
         match self {
-            Self::Jcode => "Jcode Subscription",
+            Self::Jcode => "blaude Subscription",
             Self::Claude => "Anthropic/Claude",
             Self::ClaudeApiKey => "Anthropic API",
             Self::OpenAi => "OpenAI",

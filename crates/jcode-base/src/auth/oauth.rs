@@ -87,7 +87,7 @@ fn ensure_claude_inference_scope(scopes: &[String], action: &str) -> Result<()> 
     }
 
     anyhow::bail!(
-        "Claude OAuth {} returned a token without the required user:inference scope (scopes: {}). Re-run `jcode login --provider claude` so jcode opens the Claude.ai OAuth flow, or import/use a fresh Claude Code login.",
+        "Claude OAuth {} returned a token without the required user:inference scope (scopes: {}). Re-run `blaude login --provider claude` so blaude opens the Claude.ai OAuth flow, or import/use a fresh Claude Code login.",
         action,
         scopes.join(" ")
     )
@@ -131,7 +131,7 @@ const CALLBACK_READ_TIMEOUT_SECS: u64 = 5;
 
 fn bad_request_response(message: &str) -> String {
     let body = format!(
-        "<html><body><h1>Authentication not completed</h1><p>{}</p><p>You can close this tab and return to jcode.</p></body></html>",
+        "<html><body><h1>Authentication not completed</h1><p>{}</p><p>You can close this tab and return to blaude.</p></body></html>",
         message
     );
     format!(
@@ -418,7 +418,7 @@ pub async fn wait_for_callback_async_on_listener(
             continue;
         }
 
-        let body = "<html><body><h1>Success!</h1><p>You can close this window and return to jcode.</p></body></html>";
+        let body = "<html><body><h1>Success!</h1><p>You can close this window and return to blaude.</p></body></html>";
         let response = format!(
             "HTTP/1.1 200 OK\r\nContent-Type: text/html\r\nConnection: close\r\nContent-Length: {}\r\n\r\n{}",
             body.len(),
@@ -629,7 +629,7 @@ pub fn parse_callback_input_with_state(input: &str) -> Result<(String, String)> 
         .filter(|value| !value.trim().is_empty())
         .ok_or_else(|| {
             anyhow::anyhow!(
-                "Please paste the full callback URL or query string so jcode can verify the login state."
+                "Please paste the full callback URL or query string so blaude can verify the login state."
             )
         })?;
     Ok((code, state))
@@ -696,7 +696,7 @@ async fn exchange_claude_code_at_url(
         let text = resp.text().await?;
         if status == reqwest::StatusCode::FORBIDDEN && looks_like_cloudflare_challenge(&text) {
             anyhow::bail!(
-                "Token exchange was blocked by Cloudflare before Anthropic returned OAuth tokens. jcode now matches Claude Code's JSON token exchange, but this network/IP is still being challenged. Switch VPN exit IP or network, then retry with `jcode login --provider claude --no-browser` and paste the callback URL."
+                "Token exchange was blocked by Cloudflare before Anthropic returned OAuth tokens. blaude now matches Claude Code's JSON token exchange, but this network/IP is still being challenged. Switch VPN exit IP or network, then retry with `blaude login --provider claude --no-browser` and paste the callback URL."
             );
         }
         anyhow::bail!("Token exchange failed (HTTP {}): {}", status, text);
@@ -995,7 +995,7 @@ pub fn load_claude_tokens() -> Result<OAuthTokens> {
         });
     }
 
-    anyhow::bail!("No Claude Max OAuth credentials found. Run 'jcode login --provider claude'.");
+    anyhow::bail!("No Claude Max OAuth credentials found. Run 'blaude login --provider claude'.");
 }
 
 /// Load Claude tokens for a specific stored account label.
@@ -1199,7 +1199,7 @@ pub fn save_openai_tokens_for_account(tokens: &OAuthTokens, label: &str) -> Resu
 pub async fn refresh_openai_tokens(refresh_token: &str) -> Result<OAuthTokens> {
     match crate::auth::codex::active_account_label() {
         Some(label) => refresh_openai_tokens_for_account(refresh_token, &label).await,
-        // External token (not stored in jcode auth): nothing on disk to
+        // External token (not stored in blaude auth): nothing on disk to
         // coordinate against, refresh directly.
         None => refresh_openai_tokens_inner(refresh_token, None).await,
     }
@@ -1237,7 +1237,7 @@ pub async fn refresh_openai_tokens_for_account(
     crate::auth::refresh_state::ensure_refresh_allowed(
         "openai",
         refresh_token,
-        "Run `jcode login --provider openai` to mint a fresh token.",
+        "Run `blaude login --provider openai` to mint a fresh token.",
     )?;
     crate::auth::refresh_coordinator::single_flight(
         format!("openai:{label}"),
@@ -1310,7 +1310,7 @@ async fn refresh_openai_tokens_inner(
             save_openai_tokens_for_account(&oauth_tokens, label)?;
         } else {
             crate::logging::info(
-                "Refreshed OpenAI/Codex tokens from an external source without storing them in jcode auth",
+                "Refreshed OpenAI/Codex tokens from an external source without storing them in blaude auth",
             );
         }
         Ok(oauth_tokens)

@@ -259,7 +259,7 @@ fn prepare_visible_spawn_session_persists_startup_before_launch() {
         |session_id, _cwd: &std::path::Path, _selfdev, provider_key| {
             assert_eq!(provider_key, None);
             let path = crate::storage::jcode_dir()
-                .expect("jcode dir")
+                .expect("blaude dir")
                 .join(format!("client-input-{}", session_id));
             let data = std::fs::read_to_string(&path).expect("startup file should exist");
             assert!(
@@ -277,7 +277,7 @@ fn prepare_visible_spawn_session_persists_startup_before_launch() {
 
     assert!(launched);
     let path = crate::storage::jcode_dir()
-        .expect("jcode dir")
+        .expect("blaude dir")
         .join(format!("client-input-{}", session_id));
     assert!(
         path.exists(),
@@ -309,7 +309,7 @@ fn prepare_visible_spawn_session_cleans_startup_when_launch_not_started() {
 
     assert!(!launched);
     let path = crate::storage::jcode_dir()
-        .expect("jcode dir")
+        .expect("blaude dir")
         .join(format!("client-input-{}", session_id));
     assert!(
         !path.exists(),
@@ -347,7 +347,7 @@ fn prepare_visible_spawn_session_cleans_session_when_launch_errors() {
 
     assert!(error.to_string().contains("launch failed"));
     let sessions_dir = crate::storage::jcode_dir()
-        .expect("jcode dir")
+        .expect("blaude dir")
         .join("sessions");
     let remaining_sessions = std::fs::read_dir(&sessions_dir)
         .map(|entries| entries.count())

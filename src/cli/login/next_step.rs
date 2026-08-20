@@ -18,7 +18,7 @@ pub(super) fn local_endpoint_hint(provider_id: &str) -> String {
              `jcode --provider lmstudio --model <model-id> run 'hello'`."
             .to_string(),
         other => format!(
-            "Next step: run jcode with a model available on this endpoint, for example \
+            "Next step: run blaude with a model available on this endpoint, for example \
              `jcode --provider {} --model <model-id> run 'hello'`.",
             other
         ),
@@ -49,11 +49,11 @@ mod tests {
         );
         assert_eq!(
             local_endpoint_hint("lmstudio"),
-            "Next step: load a chat model in LM Studio's Local Server, then run jcode with that exact model id, for example `jcode --provider lmstudio --model <model-id> run 'hello'`."
+            "Next step: load a chat model in LM Studio's Local Server, then run blaude with that exact model id, for example `jcode --provider lmstudio --model <model-id> run 'hello'`."
         );
         assert_eq!(
             local_endpoint_hint("ollama-turbo"),
-            "Next step: run jcode with a model available on this endpoint, for example `jcode --provider ollama-turbo --model <model-id> run 'hello'`."
+            "Next step: run blaude with a model available on this endpoint, for example `jcode --provider ollama-turbo --model <model-id> run 'hello'`."
         );
     }
 

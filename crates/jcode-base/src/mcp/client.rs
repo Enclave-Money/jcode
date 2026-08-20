@@ -144,7 +144,7 @@ impl McpClient {
         ));
 
         // Credentials must be opted into an MCP server explicitly through its
-        // config. The long-lived jcode daemon contains provider credentials in
+        // config. The long-lived blaude daemon contains provider credentials in
         // its process environment, and blindly inheriting them exposes those
         // credentials to every configured MCP executable (issue #771).
         let inherited: HashMap<String, String> = std::env::vars().collect();
@@ -368,7 +368,7 @@ impl McpClient {
     }
 }
 
-/// Secrets that an MCP child must not receive merely because jcode has them.
+/// Secrets that an MCP child must not receive merely because blaude has them.
 ///
 /// This intentionally applies only to inherited values. A server can still be
 /// given any of these names through `McpServerConfig::env`.

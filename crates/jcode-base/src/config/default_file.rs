@@ -19,11 +19,11 @@ impl Config {
     /// Exposed separately so tests can check that the template we ship actually
     /// parses and documents the options it claims to.
     pub fn default_config_file_contents() -> String {
-        let default_content = r##"# jcode configuration file
+        let default_content = r##"# blaude configuration file
 # Location: ~/.jcode/config.toml
 #
 # Environment variables override these settings.
-# Run `/config` in jcode to see current settings.
+# Run `/config` in blaude to see current settings.
 
 [keybindings]
 # Scroll keys (vim-style by default)
@@ -84,14 +84,14 @@ info_widget_toggle = "alt+i"
 # Active only with agents.swarm_spawn_mode = "inline".
 swarm_panel_focus = "alt+n"
 
-# Spawn a fresh jcode session in a new terminal window, reusing the current
+# Spawn a fresh blaude session in a new terminal window, reusing the current
 # session's working directory. Companion to the system-wide launch hotkeys.
-# `jcode setup-hotkey` installs these three global launch hotkeys on macOS,
+# `blaude setup-hotkey` installs these three global launch hotkeys on macOS,
 # Linux niri/Hyprland/sway/i3, and Windows. The Cmd modifier maps to Super on
 # Linux and Alt on Windows. Windows also adds the physical Copilot key:
-#   Cmd+;        new jcode in your home directory
-#   Cmd+'        new jcode in your last project directory
-#   Cmd+Shift+'  new jcode self-dev session (last jcode repo)
+#   Cmd+;        new blaude in your home directory
+#   Cmd+'        new blaude in your last project directory
+#   Cmd+Shift+'  new blaude self-dev session (last blaude repo)
 # Default: Cmd+Shift+; on macOS, Alt+Shift+; elsewhere. Set "" to disable.
 # Note: some macOS terminals intercept Cmd combos; if so, pick another binding.
 # new_terminal = "cmd+shift+;"
@@ -113,7 +113,7 @@ session_picker_enter = "current-terminal"
 # command = "~/.local/bin/my-whisper-script --grammar-target code"
 command = ""
 
-# How to apply the transcript inside jcode: insert|append|replace|send
+# How to apply the transcript inside blaude: insert|append|replace|send
 mode = "send"
 
 # Optional in-app hotkey to trigger dictation. Set to "off" to disable.
@@ -217,7 +217,7 @@ prompt_entry_animation = true
 
 # Include transcripts from other agent CLIs (Claude Code, Codex, Pi, OpenCode,
 # Cursor) in the session picker so they can be resumed or imported
-# (default: true). Set false to list only jcode's own sessions.
+# (default: true). Set false to list only blaude's own sessions.
 # external_sessions = true
 
 # Overscroll status line (model/provider/context info below the input):
@@ -335,7 +335,7 @@ disable_base_tools = false
 # standard emits only spec-compatible ACP messages.
 # extended/full additionally emit ignorable _jcode/* extension notifications.
 profile = "standard"
-# Tool profile requested when `jcode acp` starts the daemon itself.
+# Tool profile requested when `blaude acp` starts the daemon itself.
 # Existing daemons keep their current server-wide tool config.
 tool_profile = "acp"
 
@@ -479,17 +479,17 @@ swarm_max_concurrent_agents = 32
 # External command that takes over headed session spawns (swarm agents,
 # resume-in-new-terminal, self-dev windows, restart restores).
 #
-# When set, jcode runs `<spawn_hook> <jcode-binary> <args...>` instead of
+# When set, blaude runs `<spawn_hook> <jcode-binary> <args...>` instead of
 # opening a terminal emulator itself. The hook receives JCODE_SPAWN_* env vars
 # describing the spawn so multiplexers/wrappers can decide where it appears:
 #   JCODE_SPAWN_KIND        - "swarm-agent", "resume", "selfdev", "restart", ...
 #   JCODE_SPAWN_SESSION_ID  - session the window will run
 #   JCODE_SPAWN_TITLE       - suggested window/tab title
 #   JCODE_SPAWN_CWD         - session working directory (also the hook's cwd)
-#   JCODE_SPAWN_PROGRAM     - jcode binary path
+#   JCODE_SPAWN_PROGRAM     - blaude binary path
 #   JCODE_SPAWN_COMMAND     - full shell-escaped command line
 #   JCODE_SPAWN_SWARM_ID / JCODE_SPAWN_COORDINATOR_SESSION_ID (swarm spawns)
-# If the hook fails to start, jcode falls back to built-in terminal detection.
+# If the hook fails to start, blaude falls back to built-in terminal detection.
 # Env override: JCODE_SPAWN_HOOK (set empty to disable a config hook).
 #
 # Examples:
@@ -509,10 +509,10 @@ swarm_max_concurrent_agents = 32
 # focus_hook = ""
 #
 # macOS only: terminal that the Cmd+; launch hotkey and in-app session spawns
-# open jcode into. One of: ghostty, iterm2, wezterm, warp, alacritty, vscode,
+# open blaude into. One of: ghostty, iterm2, wezterm, warp, alacritty, vscode,
 # terminal (Apple Terminal). Preferred over the legacy
 # ~/.jcode/preferred_terminal.json file. After changing this, re-run
-# `jcode setup-hotkey` so the generated launcher script (Cmd+;) picks it up.
+# `blaude setup-hotkey` so the generated launcher script (Cmd+;) picks it up.
 # preferred = "ghostty"
 
 [notifications]
@@ -537,7 +537,7 @@ swarm_max_concurrent_agents = 32
 # turn_complete_sound = "Glass"
 
 [hooks]
-# Lifecycle hooks: external commands jcode runs at well-defined points so other
+# Lifecycle hooks: external commands blaude runs at well-defined points so other
 # programs can observe or gate agent behavior. Commands are parsed shell-style
 # (quotes work) but executed directly, with JCODE_HOOK_* env vars describing
 # the event:
@@ -546,7 +546,7 @@ swarm_max_concurrent_agents = 32
 #   JCODE_HOOK_SESSION_ID  - the session the event belongs to
 #   JCODE_HOOK_CWD         - session working directory (also the hook's cwd)
 #   JCODE_HOOK_PAYLOAD     - JSON mirror of all fields
-# Hook processes get JCODE_HOOKS_DISABLED=1 so nested jcode calls don't recurse.
+# Hook processes get JCODE_HOOKS_DISABLED=1 so nested blaude calls don't recurse.
 #
 # All hooks except pre_tool are observers: detached, fire-and-forget, failures
 # only logged. Env overrides: JCODE_HOOK_TURN_START, JCODE_HOOK_TURN_END,
@@ -619,7 +619,7 @@ port = 7643
 bind_addr = "0.0.0.0"
 
 [power]
-# Prevent automatic system sleep while any jcode session is actively working.
+# Prevent automatic system sleep while any blaude session is actively working.
 # Linux also blocks lid-switch suspend. Windows still respects explicit lid-close
 # and power-button actions from your active power plan. The display may sleep.
 # The guard is held only for as long as work is in flight. (default: true)
@@ -675,9 +675,9 @@ desktop_notifications = true
 # [sponsors] # Legacy config section name retained for compatibility.
 # Integration discovery (enabled by default; set enabled = false to opt out).
 # When enabled, the agent gains a `discover_tools` tool listing third-party
-# developer tools from Jcode's hosted integration directory. These providers
+# developer tools from blaude's hosted integration directory. These providers
 # have integrated with the agent to make setup and use seamless. Some providers
-# may share revenue with Jcode when a referred user becomes a customer, but
+# may share revenue with blaude when a referred user becomes a customer, but
 # commercial relationships never influence recommendations.
 # See https://jcode.sh/discovery-tools
 # enabled = true
@@ -701,7 +701,7 @@ mod tests {
     use super::*;
 
     /// The shipped template is a hand-maintained string, so a typo in it ships
-    /// a config file that jcode itself cannot read. Parse it here.
+    /// a config file that blaude itself cannot read. Parse it here.
     #[test]
     fn default_config_template_parses() {
         let template = Config::default_config_file_contents();

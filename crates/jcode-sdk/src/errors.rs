@@ -25,7 +25,7 @@ pub enum ErrorKind {
     Transport,
     /// Starting a runtime (daemon or bridge) failed.
     LaunchFailed,
-    /// The configured jcode executable could not be started.
+    /// The configured blaude executable could not be started.
     JcodeNotFound,
     /// The private bridge exited before its socket became ready.
     StartupFailed,

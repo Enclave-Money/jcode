@@ -218,7 +218,7 @@ pub fn cli_available() -> bool {
 
 /// Whether the managed backend has a credential that it can attempt to use.
 /// Backend presence alone is not authentication and must not make `/login` or
-/// `jcode auth status` claim that Grok Build is ready.
+/// `blaude auth status` claim that Grok Build is ready.
 pub fn has_cached_login() -> bool {
     if std::env::var("GROK_DEPLOYMENT_KEY")
         .ok()

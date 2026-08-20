@@ -139,7 +139,7 @@ pub fn summarize_changes(changes: &[ConfigChange]) -> String {
         .collect();
     if restart.is_empty() {
         out.push_str(
-            "All changes are live in running jcode sessions; no restart needed.\
+            "All changes are live in running blaude sessions; no restart needed.\
              \nKeybinding edits apply to the next keystroke.",
         );
     } else {

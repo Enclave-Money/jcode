@@ -515,7 +515,7 @@ async fn build_server_memory_incident_payload(
                     "priority": 1,
                     "action": "Pause or cap the producer that is creating headless sessions before doing allocator work.",
                     "why": "The heap is live, so allocator purge cannot release the Agent runtimes.",
-                    "commands": ["jcode debug 'swarm:list'", "jcode debug 'server:memory-incident'"]
+                    "commands": ["blaude debug 'swarm:list'", "blaude debug 'server:memory-incident'"]
                 }),
                 serde_json::json!({
                     "priority": 2,
@@ -527,13 +527,13 @@ async fn build_server_memory_incident_payload(
                     "priority": 3,
                     "action": "Re-run this report after cleanup and verify both live_sessions and allocator_live_bytes fall.",
                     "why": "A falling live heap confirms session retention was causal.",
-                    "commands": ["jcode debug 'server:memory-incident'", "python scripts/analyze_runtime_memory_log.py --days 1"]
+                    "commands": ["blaude debug 'server:memory-incident'", "python scripts/analyze_runtime_memory_log.py --days 1"]
                 }),
                 serde_json::json!({
                     "priority": 4,
                     "action": "Only purge the allocator if retained_resident_bytes remains high after live sessions are reduced.",
                     "why": "Purge is a second-stage response for freed-but-held pages, not live Agents.",
-                    "commands": ["jcode debug 'allocator:purge'"]
+                    "commands": ["blaude debug 'allocator:purge'"]
                 }),
             ],
         ),
@@ -544,12 +544,12 @@ async fn build_server_memory_incident_payload(
                     "priority": 1,
                     "action": "Capture this report, purge the allocator, and compare PSS immediately.",
                     "why": "A large drop proves allocator retention rather than live application state.",
-                    "commands": ["jcode debug 'allocator:purge'", "jcode debug 'server:memory-incident'"]
+                    "commands": ["blaude debug 'allocator:purge'", "blaude debug 'server:memory-incident'"]
                 }),
                 serde_json::json!({
                     "priority": 2,
                     "action": "If retention repeatedly regrows, inspect allocation churn and allocator decay settings.",
-                    "commands": ["jcode debug 'allocator'", "jcode debug 'allocator:decay:1000'"]
+                    "commands": ["blaude debug 'allocator'", "blaude debug 'allocator:decay:1000'"]
                 }),
             ],
         ),
@@ -559,12 +559,12 @@ async fn build_server_memory_incident_payload(
                 serde_json::json!({
                     "priority": 1,
                     "action": "Capture full attribution and identify which tracked subsystem is missing from the live heap.",
-                    "commands": ["jcode debug 'server:memory'", "python scripts/analyze_runtime_memory_log.py --days 1"]
+                    "commands": ["blaude debug 'server:memory'", "python scripts/analyze_runtime_memory_log.py --days 1"]
                 }),
                 serde_json::json!({
                     "priority": 2,
                     "action": "Escalate to a jemalloc-prof build and heap dump if attribution remains below 50% of live heap.",
-                    "commands": ["jcode debug 'allocator:profile:on'", "jcode debug 'allocator:profile:dump /tmp/jcode-server.heap'"]
+                    "commands": ["blaude debug 'allocator:profile:on'", "blaude debug 'allocator:profile:dump /tmp/jcode-server.heap'"]
                 }),
             ],
         ),
@@ -581,7 +581,7 @@ async fn build_server_memory_incident_payload(
             vec![serde_json::json!({
                 "priority": 1,
                 "action": "Continue normal monitoring; compare this report if memory begins to grow.",
-                "commands": ["jcode debug 'server:memory-incident'"]
+                "commands": ["blaude debug 'server:memory-incident'"]
             })],
         ),
     };

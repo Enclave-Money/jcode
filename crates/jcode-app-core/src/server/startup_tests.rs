@@ -42,7 +42,7 @@ async fn server_run_refuses_to_replace_live_socket() {
     let temp = tempfile::tempdir().expect("tempdir");
     let prev_runtime = std::env::var_os("JCODE_RUNTIME_DIR");
     crate::env::set_var("JCODE_RUNTIME_DIR", temp.path());
-    let socket_path = temp.path().join("jcode.sock");
+    let socket_path = temp.path().join("blaude.sock");
     let debug_socket_path = temp.path().join("jcode-debug.sock");
     let _listener = Listener::bind(&socket_path).expect("bind existing live socket");
     let provider: Arc<dyn Provider> = Arc::new(TestProvider);
@@ -83,7 +83,7 @@ async fn is_server_ready_returns_false_immediately_for_missing_socket() {
 async fn wait_for_existing_server_tolerates_delayed_listener() {
     let _guard = crate::storage::lock_test_env();
     let temp = tempfile::tempdir().expect("tempdir");
-    let socket_path = temp.path().join("jcode.sock");
+    let socket_path = temp.path().join("blaude.sock");
     let bind_path = socket_path.clone();
 
     let bind_task = tokio::spawn(async move {
@@ -114,7 +114,7 @@ fn server_initializes_schedule_runner_even_when_ambient_disabled() {
 async fn debug_accept_loop_responds_to_ping_without_affecting_client_count() {
     let _guard = crate::storage::lock_test_env();
     let temp = tempfile::tempdir().expect("tempdir");
-    let socket_path = temp.path().join("jcode.sock");
+    let socket_path = temp.path().join("blaude.sock");
     let debug_socket_path = temp.path().join("jcode-debug.sock");
     let provider: Arc<dyn Provider> = Arc::new(TestProvider);
     let server = Server::new_with_paths(provider, socket_path, debug_socket_path.clone());

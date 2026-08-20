@@ -43,7 +43,7 @@ fn test_finish_turn_does_not_duplicate_existing_poke_followup() {
 fn test_review_prefers_openai_oauth_gpt_5_4_when_available() {
     with_temp_jcode_home(|| {
         let auth_path = crate::storage::jcode_dir()
-            .expect("jcode dir")
+            .expect("blaude dir")
             .join("openai-auth.json");
         std::fs::write(
             &auth_path,

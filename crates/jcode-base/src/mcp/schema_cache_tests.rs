@@ -156,7 +156,7 @@ fn retain_prunes_removed_servers() {
 fn load_save_roundtrip_via_temp_home() {
     let _guard = crate::storage::lock_test_env();
     let tmp = tempfile::tempdir().unwrap();
-    // Point the jcode dir at a temp location.
+    // Point the blaude dir at a temp location.
     unsafe {
         std::env::set_var("JCODE_HOME", tmp.path());
     }

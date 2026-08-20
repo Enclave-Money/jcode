@@ -10,7 +10,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::SystemTime;
 
-/// Get the jcode repository directory
+/// Get the blaude repository directory
 pub fn get_repo_dir() -> Option<PathBuf> {
     if let Ok(path) = std::env::var("JCODE_REPO_DIR") {
         let path = PathBuf::from(path);
@@ -67,7 +67,7 @@ pub fn binary_stem() -> &'static str {
 
 pub fn binary_name() -> &'static str {
     if cfg!(windows) {
-        "jcode.exe"
+        "blaude.exe"
     } else {
         binary_stem()
     }
@@ -638,7 +638,7 @@ pub fn preferred_reload_candidate(is_selfdev_session: bool) -> Option<(PathBuf, 
     }
 }
 
-/// Check if a directory is the jcode repository
+/// Check if a directory is the blaude repository
 pub fn is_jcode_repo(dir: &Path) -> bool {
     // Check for Cargo.toml with name = "jcode"
     let cargo_toml = dir.join("Cargo.toml");
@@ -653,7 +653,7 @@ pub fn is_jcode_repo(dir: &Path) -> bool {
 
     // Read Cargo.toml and check package name
     if let Ok(content) = std::fs::read_to_string(&cargo_toml)
-        && content.contains("name = \"jcode\"")
+        && content.contains("name = \"blaude\"")
     {
         return true;
     }
@@ -675,7 +675,7 @@ mod tests {
         }
         std::fs::write(
             temp.path().join("Cargo.toml"),
-            "[package]\nname = \"jcode\"\nversion = \"0.1.0\"\n",
+            "[package]\nname = \"blaude\"\nversion = \"0.1.0\"\n",
         )
         .expect("Cargo.toml");
         temp
@@ -699,7 +699,7 @@ mod tests {
     fn every_build_target_builds_its_own_package() {
         let repo = repo_fixture(false);
         let cases = [
-            (SelfDevBuildTarget::Tui, vec!["-p jcode "]),
+            (SelfDevBuildTarget::Tui, vec!["-p blaude "]),
             (
                 SelfDevBuildTarget::Desktop2,
                 vec!["-p jcode-desktop2 ", "--bin jcode-harness-api-bridge"],
@@ -707,7 +707,7 @@ mod tests {
             (
                 SelfDevBuildTarget::All,
                 vec![
-                    "-p jcode ",
+                    "-p blaude ",
                     "-p jcode-desktop2 ",
                     "--bin jcode-harness-api-bridge",
                 ],
@@ -734,7 +734,7 @@ mod tests {
         let tui = selfdev_build_command_for_target(repo.path(), SelfDevBuildTarget::Tui);
         assert!(!tui.display.contains("jcode-desktop"));
         let desktop2 = selfdev_build_command_for_target(repo.path(), SelfDevBuildTarget::Desktop2);
-        assert!(!desktop2.display.contains("-p jcode "));
+        assert!(!desktop2.display.contains("-p blaude "));
     }
 
     #[test]

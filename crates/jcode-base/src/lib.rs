@@ -1,4 +1,4 @@
-//! `jcode-base`: foundational layer of the jcode application core.
+//! `jcode-base`: foundational layer of the blaude application core.
 //!
 //! This crate holds the downward-closed set of modules that the upper
 //! server/tool/agent layer (`jcode-app-core`) depends on: provider, auth,

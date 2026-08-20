@@ -1,4 +1,4 @@
-//! Launching jcode sessions in new terminal windows.
+//! Launching blaude sessions in new terminal windows.
 //!
 //! These helpers spawn a fresh `jcode` process (resume or self-dev) inside a
 //! new terminal window. They are pure process/terminal orchestration built on
@@ -95,9 +95,9 @@ pub fn resumed_window_title(session_id: &str) -> String {
     let fallback_label = if let Some(server_info) =
         crate::registry::find_server_by_socket_sync(&server::socket_path())
     {
-        format!("jcode/{} {}", server_info.name, session_label)
+        format!("blaude/{} {}", server_info.name, session_label)
     } else {
-        format!("jcode {}", session_label)
+        format!("blaude {}", session_label)
     };
     crate::process_title::terminal_window_title(
         icon,

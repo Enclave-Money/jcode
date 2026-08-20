@@ -231,7 +231,7 @@ pub struct BackendInfo {
     pub skills: Vec<String>,
 }
 
-/// Remote connection to jcode server
+/// Remote connection to blaude server
 pub struct RemoteConnection {
     reader: BufReader<crate::transport::ReadHalf>,
     writer: Arc<Mutex<WriteHalf>>,

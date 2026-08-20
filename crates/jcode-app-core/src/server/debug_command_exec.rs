@@ -592,13 +592,13 @@ pub(super) async fn execute_debug_command(
 
     if trimmed == "reload" {
         let repo_dir = crate::build::get_repo_dir()
-            .ok_or_else(|| anyhow::anyhow!("Could not find jcode repository directory"))?;
+            .ok_or_else(|| anyhow::anyhow!("Could not find blaude repository directory"))?;
 
         let target_binary = crate::build::find_dev_binary(&repo_dir)
             .unwrap_or_else(|| build::release_binary_path(&repo_dir));
         if !target_binary.exists() {
             return Err(anyhow::anyhow!(format!(
-                "No binary found at {}. Run 'jcode self-dev --build' first, or build with 'scripts/dev_cargo.sh build --profile selfdev -p jcode --bin jcode' and publish current.",
+                "No binary found at {}. Run 'blaude self-dev --build' first, or build with 'scripts/dev_cargo.sh build --profile selfdev -p blaude --bin blaude' and publish current.",
                 target_binary.display()
             )));
         }

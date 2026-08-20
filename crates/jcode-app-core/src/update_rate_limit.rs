@@ -3,7 +3,7 @@
 //! Unauthenticated `api.github.com` requests share a 60 req/hour per-IP bucket
 //! with everything else on the machine (and everything behind the same NAT), so
 //! an exhausted bucket is a normal condition rather than a failure. Detect it,
-//! persist a backoff window every jcode process on the machine can see, and
+//! persist a backoff window every blaude process on the machine can see, and
 //! label the error so UIs can stay quiet about it.
 
 use super::update_metadata::UpdateMetadata;
@@ -84,7 +84,7 @@ fn rate_limit_backoff(
     )
 }
 
-/// Persist the backoff window so every jcode process on this machine stops
+/// Persist the backoff window so every blaude process on this machine stops
 /// checking, not just the one that saw the 403.
 fn record_rate_limit_backoff(backoff: Duration) {
     let until = SystemTime::now() + backoff;

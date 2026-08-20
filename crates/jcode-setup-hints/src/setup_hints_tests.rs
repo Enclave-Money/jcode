@@ -200,8 +200,8 @@ fn mac_hotkey_launch_agent_plist_uses_valid_xml_quotes() {
 fn paused_jcode_shell_command_keeps_failures_visible() {
     let command = paused_jcode_shell_command("/tmp/jcode");
     assert!(command.contains("Press Enter to close"));
-    assert!(command.contains("Jcode exited with status"));
-    assert!(command.contains("jcode executable not found"));
+    assert!(command.contains("blaude exited with status"));
+    assert!(command.contains("blaude executable not found"));
 }
 
 #[test]
@@ -270,11 +270,11 @@ fn macos_terminal_notice_only_fires_for_default_terminal_app() {
 
     assert_eq!(
         hints.status_notice.as_deref(),
-        Some("Tip: Terminal.app renders jcode poorly. Try Ghostty, iTerm2, or Alacritty.")
+        Some("Tip: Terminal.app renders blaude poorly. Try Ghostty, iTerm2, or Alacritty.")
     );
     let (title, message) = hints.display_message.expect("expected display message");
     assert_eq!(title, "Terminal");
-    assert!(message.contains("Terminal.app renders jcode poorly"));
+    assert!(message.contains("Terminal.app renders blaude poorly"));
     assert!(message.contains("Ghostty"));
     // It is a plain notice, not an AI handoff prompt.
     assert!(hints.auto_send_message.is_none());

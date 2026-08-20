@@ -54,7 +54,7 @@ fn onboarding_welcome_shows_telemetry_title_and_suggestions() {
         "telemetry opt-out hint should be rendered:\n{text}"
     );
     assert!(
-        text.contains("Welcome to jcode onboarding"),
+        text.contains("Welcome to blaude onboarding"),
         "welcome title should be rendered:\n{text}"
     );
     assert!(
@@ -88,7 +88,7 @@ fn onboarding_welcome_renders_on_tiny_area_without_panicking() {
     let state = onboarding_state();
     let text = render_onboarding(&state, 20, 5);
     assert!(
-        text.contains("Welcome to jcode"),
+        text.contains("Welcome to blaude"),
         "minimal fallback should still show the title:\n{text}"
     );
 }

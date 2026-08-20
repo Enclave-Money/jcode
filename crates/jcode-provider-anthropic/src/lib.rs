@@ -125,7 +125,7 @@ pub fn format_messages(messages: &[Message], is_oauth: bool) -> Vec<ApiMessage> 
     // Anthropic rejects a request whose final message is an assistant turn on
     // models that do not support assistant prefill ("This model does not support
     // assistant message prefill. The conversation must end with a user message.").
-    // jcode never intends to prefill, so a trailing assistant turn here is always
+    // blaude never intends to prefill, so a trailing assistant turn here is always
     // an upstream accident: the reload auto-resume path starts a turn with empty
     // user content and delivers its continuation as a system reminder, leaving the
     // transcript ending on the interrupted assistant turn. Repair the shape at the

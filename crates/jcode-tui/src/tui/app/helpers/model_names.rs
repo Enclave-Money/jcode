@@ -152,7 +152,7 @@ fn prettify_versioned_family(family_label: &str, core: &str) -> String {
 /// AWS Bedrock region routing prefixes on cross-region inference profile ids.
 const BEDROCK_REGION_PREFIXES: [&str; 4] = ["us.", "eu.", "apac.", "global."];
 
-/// Bedrock vendor namespaces jcode knows how to render.
+/// Bedrock vendor namespaces blaude knows how to render.
 ///
 /// `anthropic.` reuses the Claude formatter. `amazon.` covers the first-party
 /// Nova family, which users see most on Bedrock and which title-cases cleanly.

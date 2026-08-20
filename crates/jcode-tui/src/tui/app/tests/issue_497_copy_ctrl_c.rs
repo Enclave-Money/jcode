@@ -1,6 +1,6 @@
 // Issue #497: Ctrl+C while a copy-mode selection is active must copy the
 // selection, not fall through to the global interrupt/quit handler (which
-// closed jcode and lost the very error the user was trying to copy).
+// closed blaude and lost the very error the user was trying to copy).
 
 #[test]
 fn test_ctrl_c_with_active_copy_selection_copies_instead_of_quitting() {

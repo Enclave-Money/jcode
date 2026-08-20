@@ -76,7 +76,7 @@ mod tests {
 
     #[test]
     fn parses_tty_nr_from_stat_line() {
-        let stat = "12345 (jcode) S 1 12345 12345 34823 12345 4194304 0 0 0 0 1 2 0 0 20";
+        let stat = "12345 (blaude) S 1 12345 12345 34823 12345 4194304 0 0 0 0 1 2 0 0 20";
         assert_eq!(parse_tty_nr(stat), Some(34823));
     }
 

@@ -3,8 +3,8 @@ use super::{
     header_icon_color, header_name_color, header_session_color, pending_color, queued_color,
     record_chat_overlay_copy_snapshot, rgb, tool_color, user_bg, user_color, user_text,
 };
-use crate::tui::info_widget::WidgetPlacement;
 use crate::tui::TuiState;
+use crate::tui::info_widget::WidgetPlacement;
 use ratatui::{
     prelude::*,
     widgets::{Block, Borders, Paragraph},
@@ -705,7 +705,7 @@ pub(super) fn draw_model_status_overlay(
 
 fn model_status_line_style(raw: &str, default: Style) -> Style {
     // Reuse the same semantic classification the CLI uses so the TUI overlay
-    // and `jcode provider-test-coverage` stay color-consistent.
+    // and `blaude provider-test-coverage` stay color-consistent.
     use crate::live_tests::CoverageLineStyle;
     match crate::live_tests::classify_provider_test_coverage_line(raw) {
         CoverageLineStyle::Title => Style::default()

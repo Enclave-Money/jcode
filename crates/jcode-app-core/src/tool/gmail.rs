@@ -109,7 +109,7 @@ impl Tool for GmailTool {
                 return Ok(ToolOutput::new(
                     "The 'connect' action is only available with the Composio Gmail backend. \
                      Set JCODE_GMAIL_BACKEND=composio and COMPOSIO_API_KEY, then retry. \
-                     For the default backend, run `jcode login google` instead.",
+                     For the default backend, run `blaude login google` instead.",
                 ));
             }
             let no_browser = crate::auth::browser_suppressed(false);
@@ -376,7 +376,7 @@ impl Tool for GmailTool {
                     return Ok(ToolOutput::new(
                         "Send is not available. Your Gmail access is configured as Read & Draft Only (API-level restriction).\n\
                          The draft has been created - open Gmail to send it manually.\n\
-                         To enable sending, rerun `jcode login google --google-access-tier full`.",
+                         To enable sending, rerun `blaude login google --google-access-tier full`.",
                     ));
                 }
 
@@ -453,7 +453,7 @@ impl Tool for GmailTool {
                     return Ok(ToolOutput::new(
                         "Send is not available. Your Gmail access is configured as Read & Draft Only (API-level restriction).\n\
                          Open Gmail to send the draft manually.\n\
-                         To enable sending, rerun `jcode login google --google-access-tier full`.",
+                         To enable sending, rerun `blaude login google --google-access-tier full`.",
                     ));
                 }
 
@@ -480,7 +480,7 @@ impl Tool for GmailTool {
                 if !self.client.can_delete() {
                     return Ok(ToolOutput::new(
                         "Trash is not available. Your Gmail access is configured as Read & Draft Only (API-level restriction).\n\
-                         To enable delete, rerun `jcode login google --google-access-tier full`.",
+                         To enable delete, rerun `blaude login google --google-access-tier full`.",
                     ));
                 }
 

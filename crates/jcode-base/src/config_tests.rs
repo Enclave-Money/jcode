@@ -367,11 +367,14 @@ fn test_env_override_spawn_hook() {
 fn test_env_override_focus_hook() {
     let _guard = crate::storage::lock_test_env();
     let prev = std::env::var_os("JCODE_FOCUS_HOOK");
-    crate::env::set_var("JCODE_FOCUS_HOOK", "niri-focus-jcode");
+    crate::env::set_var("JCODE_FOCUS_HOOK", "niri-focus-blaude");
 
     let mut cfg = Config::default();
     cfg.apply_env_overrides();
-    assert_eq!(cfg.terminal.focus_hook.as_deref(), Some("niri-focus-jcode"));
+    assert_eq!(
+        cfg.terminal.focus_hook.as_deref(),
+        Some("niri-focus-blaude")
+    );
 
     // Empty env value disables a config-file hook.
     crate::env::set_var("JCODE_FOCUS_HOOK", "");

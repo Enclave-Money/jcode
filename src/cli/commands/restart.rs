@@ -17,9 +17,9 @@ pub async fn run_restart_save_command(auto_restore: bool) -> Result<()> {
     if snapshot.sessions.is_empty() {
         println!("Saved empty reboot snapshot to {}", path.display());
         if auto_restore {
-            println!("Automatic restore is armed for the next plain `jcode` launch.");
+            println!("Automatic restore is armed for the next plain `blaude` launch.");
         }
-        println!("\nNo active jcode windows were detected.");
+        println!("\nNo active blaude windows were detected.");
         return Ok(());
     }
 
@@ -40,9 +40,9 @@ pub async fn run_restart_save_command(auto_restore: bool) -> Result<()> {
         );
     }
     if auto_restore {
-        println!("\nAutomatic restore is armed for the next plain `jcode` launch.");
+        println!("\nAutomatic restore is armed for the next plain `blaude` launch.");
     }
-    println!("\nAfter reboot, restore them with:\n  jcode restart restore");
+    println!("\nAfter reboot, restore them with:\n  blaude restart restore");
 
     Ok(())
 }
@@ -52,7 +52,7 @@ pub fn run_restart_status_command() -> Result<()> {
     let snapshot = match crate::restart_snapshot::load_snapshot() {
         Ok(snapshot) => snapshot,
         Err(_) => {
-            println!("No reboot snapshot saved.\n\nCreate one with:\n  jcode restart save");
+            println!("No reboot snapshot saved.\n\nCreate one with:\n  blaude restart save");
             return Ok(());
         }
     };
@@ -95,7 +95,7 @@ pub async fn maybe_run_pending_restart_restore_on_startup() -> Result<bool> {
     if snapshot.auto_restore_on_next_start {
         let _ = crate::restart_snapshot::set_auto_restore_on_next_start(false);
         println!(
-            "Found a reboot snapshot with auto-restore enabled. Restoring {} jcode window(s)...\n",
+            "Found a reboot snapshot with auto-restore enabled. Restoring {} blaude window(s)...\n",
             snapshot.sessions.len()
         );
         run_restart_restore_command()?;
@@ -103,7 +103,7 @@ pub async fn maybe_run_pending_restart_restore_on_startup() -> Result<bool> {
     }
 
     if std::io::stdin().is_terminal() || std::io::stderr().is_terminal() {
-        println!("Saved reboot snapshot detected. Restore it with:\n  jcode restart restore\n");
+        println!("Saved reboot snapshot detected. Restore it with:\n  blaude restart restore\n");
     }
 
     Ok(false)
@@ -146,7 +146,7 @@ pub fn run_restart_restore_command() -> Result<()> {
     let fallback = result.outcomes.len().saturating_sub(launched);
 
     if launched > 0 {
-        println!("Restored {} jcode window(s).", launched);
+        println!("Restored {} blaude window(s).", launched);
     }
 
     if fallback > 0 {
@@ -159,7 +159,7 @@ pub fn run_restart_restore_command() -> Result<()> {
             println!("{}", outcome.command);
         }
         println!(
-            "\nThe reboot snapshot was kept so you can try `jcode restart restore` again later."
+            "\nThe reboot snapshot was kept so you can try `blaude restart restore` again later."
         );
         return Ok(());
     }
@@ -173,7 +173,7 @@ fn current_restart_restore_exe() -> Result<PathBuf> {
     crate::build::client_update_candidate(false)
         .map(|(path, _)| path)
         .or_else(|| std::env::current_exe().ok())
-        .ok_or_else(|| anyhow::anyhow!("Could not determine jcode executable for restore"))
+        .ok_or_else(|| anyhow::anyhow!("Could not determine blaude executable for restore"))
 }
 
 #[derive(Debug, Deserialize)]

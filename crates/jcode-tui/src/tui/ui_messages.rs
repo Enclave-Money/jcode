@@ -3743,7 +3743,7 @@ fn render_discovery_card(
             push_compact_discovery_kv(
                 &mut content,
                 "review",
-                "Jcode maintainers only; not approval or availability",
+                "blaude maintainers only; not approval or availability",
                 block_width,
                 label_style,
                 muted_style,

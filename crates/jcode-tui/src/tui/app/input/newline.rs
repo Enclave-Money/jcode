@@ -2,7 +2,7 @@
 //!
 //! Shift+Enter needs the terminal to disambiguate a modified Enter, which in
 //! practice means the kitty keyboard protocol: every Enter chord is otherwise
-//! the same byte (`0x0d`). Most modern terminals support it and jcode requests
+//! the same byte (`0x0d`). Most modern terminals support it and blaude requests
 //! it at startup, so Shift+Enter works out of the box there. `/terminal-setup`
 //! fixes the cases that need configuration (tmux, WezTerm) and explains the ones
 //! that cannot be fixed (Terminal.app). See `docs/SHIFT_ENTER.md`.

@@ -476,7 +476,7 @@ mod generation {
     #[test]
     fn generated_palettes_score_well_from_any_seed() {
         let seeds = [
-            (138, 180, 248), // jcode blue
+            (138, 180, 248), // blaude blue
             (255, 0, 0),     // pure red
             (0, 255, 0),     // pure green
             (10, 10, 10),    // near black

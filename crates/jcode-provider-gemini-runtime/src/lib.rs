@@ -507,7 +507,7 @@ impl GeminiProvider {
     /// Recover from a tool-schema rejection by learning what
     /// `generateContent` refused and re-sending the turn without it.
     ///
-    /// jcode advertises every tool on every request, so one construct the
+    /// blaude advertises every tool on every request, so one construct the
     /// endpoint dislikes 400s the whole session rather than one tool. The
     /// historical fix was to append the keyword to a deny-list and ship a
     /// release (#754, #655); this recovers in the same turn instead, and
@@ -772,7 +772,7 @@ impl Provider for GeminiProvider {
                 }
                 Err(err) => {
                     // A tool schema `generateContent` rejects 400s every turn,
-                    // so the provider is unusable until jcode ships a new
+                    // so the provider is unusable until blaude ships a new
                     // keyword. Learn the rejected construct from the error,
                     // persist it, and retry this turn without it. See
                     // `jcode-schema-dialect`.

@@ -52,7 +52,7 @@ fn command_version(program: &str, args: &[&str]) -> Option<String> {
 
 impl SelfDevTool {
     /// `selfdev setup`: verify (and where safe, bootstrap) the prerequisites for
-    /// building jcode from source: the rust toolchain, git, and a local repo
+    /// building blaude from source: the rust toolchain, git, and a local repo
     /// checkout. This never installs anything irreversible automatically; it
     /// reports what is missing and how to fix it, and clones the source when no
     /// checkout exists yet.
@@ -100,16 +100,16 @@ impl SelfDevTool {
             // synthetic test session.
             let git_available = checks.iter().any(|check| check.name == "git" && check.ok);
             if SelfDevTool::is_test_session() {
-                clone_note = Some("Test mode: skipped cloning the jcode source.".to_string());
+                clone_note = Some("Test mode: skipped cloning the blaude source.".to_string());
             } else if git_available {
                 match Self::clone_selfdev_source() {
                     Ok(path) => {
-                        clone_note = Some(format!("Cloned jcode source into {}.", path.display()));
+                        clone_note = Some(format!("Cloned blaude source into {}.", path.display()));
                         repo_dir = Some(path);
                     }
                     Err(err) => {
                         clone_note =
-                            Some(format!("Could not clone jcode source automatically: {err}",));
+                            Some(format!("Could not clone blaude source automatically: {err}",));
                     }
                 }
             }
@@ -123,7 +123,7 @@ impl SelfDevTool {
                     .unwrap_or_else(|_| "~/.jcode/source/jcode".to_string());
                 checks.push(SetupCheck::missing(
                     "repository",
-                    "no local jcode checkout found",
+                    "no local blaude checkout found",
                     format!(
                         "Clone the source manually: `git clone {} {}`.",
                         super::JCODE_REPO_URL,
@@ -143,7 +143,7 @@ impl SelfDevTool {
                 None => checks.push(SetupCheck::missing(
                     "dev binary",
                     "no built binary in target/selfdev or target/release",
-                    "Build it once with `jcode self-dev --build`, or inside a \
+                    "Build it once with `blaude self-dev --build`, or inside a \
                      self-dev session run `selfdev build`.",
                 )),
             }
@@ -194,7 +194,7 @@ impl SelfDevTool {
         Ok(ToolOutput::new(output).with_metadata(metadata))
     }
 
-    /// `selfdev find-config`: report the key jcode paths (config file, home,
+    /// `selfdev find-config`: report the key blaude paths (config file, home,
     /// logs, build channels, sockets, and repo checkout) so the agent can locate
     /// configuration without guessing platform-specific locations.
     pub(super) async fn do_find_config(&self, ctx: &ToolContext) -> Result<ToolOutput> {
@@ -215,13 +215,13 @@ impl SelfDevTool {
             None => "unavailable".to_string(),
         };
 
-        let mut output = String::from("## jcode config & paths\n\n");
+        let mut output = String::from("## blaude config & paths\n\n");
         output.push_str(&format!(
             "**Config file:** {}\n",
             format_path(config_path.as_deref())
         ));
         output.push_str(&format!(
-            "**jcode home:** {}\n",
+            "**blaude home:** {}\n",
             format_path(jcode_home.as_deref())
         ));
         output.push_str(&format!(
@@ -286,7 +286,7 @@ impl SelfDevTool {
 
         if !server::server_has_newer_binary() {
             return Ok(ToolOutput::new(
-                "Already running the newest installed jcode build; no reload needed.",
+                "Already running the newest installed blaude build; no reload needed.",
             ));
         }
 
@@ -317,7 +317,7 @@ impl SelfDevTool {
         Ok(storage::jcode_dir()?.join("source").join("jcode"))
     }
 
-    /// Clone the jcode source into the default self-dev source directory.
+    /// Clone the blaude source into the default self-dev source directory.
     fn clone_selfdev_source() -> Result<std::path::PathBuf> {
         let repo_dir = Self::selfdev_clone_dir()?;
         if repo_dir.exists() {
@@ -325,7 +325,7 @@ impl SelfDevTool {
                 return Ok(repo_dir);
             }
             anyhow::bail!(
-                "{} exists but is not a jcode repository; move it aside and retry",
+                "{} exists but is not a blaude repository; move it aside and retry",
                 repo_dir.display()
             );
         }
@@ -345,7 +345,7 @@ impl SelfDevTool {
         }
         if !build::is_jcode_repo(&repo_dir) {
             anyhow::bail!(
-                "cloned source at {} is not a valid jcode repository",
+                "cloned source at {} is not a valid blaude repository",
                 repo_dir.display()
             );
         }

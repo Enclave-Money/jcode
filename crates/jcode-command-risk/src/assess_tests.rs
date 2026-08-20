@@ -20,7 +20,7 @@ fn level(command: &str) -> RiskLevel {
 
 #[test]
 fn the_issue_604_command_is_blocked_outright() {
-    // The reported incident: "jcode just deleted everything in my ~".
+    // The reported incident: "blaude just deleted everything in my ~".
     for command in [
         "rm -rf ~",
         "rm -rf $HOME",
@@ -389,7 +389,7 @@ fn ordinary_wrapped_commands_still_run_immediately() {
         "timeout 30 cargo build",
         "nice -n 10 make",
         "time ls -la",
-        "sudo systemctl status jcode",
+        "sudo systemctl status blaude",
         "xargs echo",
         "find . -name '*.rs' | xargs grep TODO",
         "sh -c 'echo hello'",

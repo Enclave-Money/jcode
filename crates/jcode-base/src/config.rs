@@ -539,7 +539,7 @@ pub struct Config {
     #[serde(skip_serializing_if = "sponsors_is_default")]
     pub sponsors: SponsorsConfig,
 
-    /// Global "launch a new jcode" hotkeys (macOS). Baked once by auto-import.
+    /// Global "launch a new blaude" hotkeys (macOS). Baked once by auto-import.
     pub launch_hotkeys: LaunchHotkeysConfig,
 }
 
@@ -549,7 +549,7 @@ pub struct Config {
 pub struct AcpConfig {
     /// Client compatibility profile: "standard" (default), "extended", or "full".
     pub profile: String,
-    /// Tool profile to request when `jcode acp` starts a daemon itself.
+    /// Tool profile to request when `blaude acp` starts a daemon itself.
     pub tool_profile: String,
 }
 

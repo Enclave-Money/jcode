@@ -32,7 +32,7 @@ impl Stage {
     /// What the client was doing at this stage, as a participle phrase.
     pub fn doing(self) -> &'static str {
         match self {
-            Self::Starting => "starting the jcode runtime",
+            Self::Starting => "starting the blaude runtime",
             Self::Connecting => "connecting to the harness API socket",
             Self::Handshake => "negotiating the harness API version",
             Self::Attaching => "attaching a session",
@@ -76,7 +76,7 @@ pub fn describe_disconnect(
         || lower.contains("connection reset");
     let cause = if daemon_closed {
         format!(
-            "the jcode runtime connection closed while {} (the bridge is still available and will reconnect)",
+            "the blaude runtime connection closed while {} (the bridge is still available and will reconnect)",
             stage.doing()
         )
     } else if stream_closed {

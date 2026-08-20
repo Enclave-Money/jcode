@@ -124,7 +124,7 @@ fn resumed_window_title_includes_server_name_when_registry_matches_socket() {
     let _guard = crate::storage::lock_test_env();
     let temp_home = tempfile::tempdir().expect("temp home");
     let temp_runtime = tempfile::tempdir().expect("temp runtime");
-    let socket_path = temp_runtime.path().join("jcode.sock");
+    let socket_path = temp_runtime.path().join("blaude.sock");
     let _home_guard = EnvVarGuard::set_path("JCODE_HOME", temp_home.path());
     let _socket_guard = EnvVarGuard::set_path("JCODE_SOCKET", &socket_path);
 
@@ -193,7 +193,7 @@ fn spawn_selfdev_in_new_terminal_uses_handterm_exec_mode() {
 async fn suppresses_stale_server_spawning_phase_when_listener_is_already_live() {
     let _guard = crate::storage::lock_test_env();
     let temp = tempfile::tempdir().expect("temp dir");
-    let socket_path = temp.path().join("jcode.sock");
+    let socket_path = temp.path().join("blaude.sock");
     let _socket_guard = EnvVarGuard::set_path("JCODE_SOCKET", &socket_path);
     let _listener = Listener::bind(&socket_path).expect("bind listener");
 
@@ -208,7 +208,7 @@ async fn suppresses_stale_server_spawning_phase_when_listener_is_already_live() 
 async fn keeps_server_spawning_phase_while_listener_is_not_live() {
     let _guard = crate::storage::lock_test_env();
     let temp = tempfile::tempdir().expect("temp dir");
-    let socket_path = temp.path().join("jcode.sock");
+    let socket_path = temp.path().join("blaude.sock");
     let _socket_guard = EnvVarGuard::set_path("JCODE_SOCKET", &socket_path);
 
     assert!(

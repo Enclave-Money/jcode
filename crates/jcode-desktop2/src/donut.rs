@@ -1,6 +1,6 @@
 //! The website's hero donut, ported to the desktop.
 //!
-//! Same maths as `public/donut.js` on the jcode site: instead of splatting
+//! Same maths as `public/donut.js` on the blaude site: instead of splatting
 //! parametric torus points into a grid (which scintillates as samples snap
 //! between cells and z-fight), every cell of a luminance grid raymarches the
 //! torus SDF for an exact, deterministic shade. There is zero temporal state,

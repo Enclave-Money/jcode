@@ -538,7 +538,7 @@ fn normalize_github_host_key_rejects_non_github_hosts() {
 
 /// Regression test for issue #641: GitHub's `apps.json` keys carry a client-id
 /// suffix after a colon. Those entries hold valid tokens and must normalize,
-/// otherwise the credential is silently dropped and jcode falls through to a
+/// otherwise the credential is silently dropped and blaude falls through to a
 /// possibly stale token from a lower-priority source.
 #[test]
 fn normalize_github_host_key_accepts_apps_json_client_id_suffix() {

@@ -369,7 +369,7 @@ fn test_render_memory_tiles_allows_boxes_below_other_boxes() {
         ),
         (
             "preference".to_string(),
-            "User prefers quick verification that jcode is up-to-date.".to_string(),
+            "User prefers quick verification that blaude is up-to-date.".to_string(),
         ),
         ("fact".to_string(), "Jeremy".to_string()),
         (

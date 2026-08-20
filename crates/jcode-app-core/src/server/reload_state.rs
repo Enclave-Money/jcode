@@ -7,7 +7,7 @@ use std::time::Duration;
 const RELOAD_HANDOFF_EVENT_POLL_MS: i32 = 100;
 
 pub fn reload_marker_path() -> PathBuf {
-    crate::storage::runtime_dir().join("jcode.reload")
+    crate::storage::runtime_dir().join("blaude.reload")
 }
 
 pub fn write_reload_marker() {
@@ -637,7 +637,7 @@ mod tests {
         );
 
         let status = inspect_reload_wait_status(
-            &temp.path().join("jcode.sock"),
+            &temp.path().join("blaude.sock"),
             Duration::from_secs(5),
             None,
         )
@@ -664,7 +664,7 @@ mod tests {
         );
 
         let status = inspect_reload_wait_status(
-            &temp.path().join("jcode.sock"),
+            &temp.path().join("blaude.sock"),
             Duration::from_secs(5),
             None,
         )
@@ -721,7 +721,7 @@ mod tests {
         let _lock = crate::storage::lock_test_env();
         let temp = tempfile::tempdir().expect("tempdir");
         let _guard = EnvGuard::set_runtime_dir(temp.path());
-        let socket_path = temp.path().join("jcode.sock");
+        let socket_path = temp.path().join("blaude.sock");
 
         for idx in 0..5 {
             write_reload_state(

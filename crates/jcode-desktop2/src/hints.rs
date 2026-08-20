@@ -1,6 +1,6 @@
 //! Ghost hints for the empty composer.
 //!
-//! An empty field with no hint reads as inert, and a fixed "message jcode"
+//! An empty field with no hint reads as inert, and a fixed "message blaude"
 //! label is a caption you stop seeing after a day. Instead the field shows one
 //! line from a small curated set: each one is an actual invitation to ask for
 //! something, biased towards the vague and the ambitious, which is where an

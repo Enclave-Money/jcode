@@ -51,7 +51,7 @@ impl AnthropicContextMode {
         !matches!(self, AnthropicContextMode::Standard)
     }
 
-    /// Whether jcode should surface a distinct `[1m]` picker alias for this model.
+    /// Whether blaude should surface a distinct `[1m]` picker alias for this model.
     /// Only opt-in models benefit, native-1M models already use 1M by default so
     /// a `[1m]` alias would be a redundant duplicate.
     pub fn exposes_1m_alias(self) -> bool {
@@ -148,7 +148,7 @@ pub fn anthropic_context_mode_is_verified(model: &str) -> bool {
 ///
 /// This matters more than it looks. Adaptive-thinking models spend their output
 /// budget on thinking *and* the visible tool call, so a budget that is too
-/// small truncates mid-tool-call and silently ends an agent turn. jcode used a
+/// small truncates mid-tool-call and silently ends an agent turn. blaude used a
 /// flat 32K default for every Claude model, which cut long agentic turns on
 /// models that actually allow 128K.
 pub fn anthropic_max_output_tokens(model: &str) -> u32 {
@@ -183,7 +183,7 @@ pub fn anthropic_max_output_tokens(model: &str) -> u32 {
         return 64_000;
     }
 
-    // Older/unknown generations keep the conservative 32K jcode has always used.
+    // Older/unknown generations keep the conservative 32K blaude has always used.
     32_768
 }
 
@@ -562,7 +562,7 @@ mod tests {
     #[test]
     fn max_output_tokens_never_undercut_the_legacy_default() {
         // Regression guard: a per-model budget must never be *smaller* than the
-        // flat 32K default jcode shipped before, or turns that used to fit would
+        // flat 32K default blaude shipped before, or turns that used to fit would
         // start truncating.
         for model in ALL_CLAUDE_MODELS {
             assert!(

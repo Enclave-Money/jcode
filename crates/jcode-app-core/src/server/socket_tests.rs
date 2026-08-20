@@ -52,7 +52,7 @@ fn cleanup_socket_pair_removes_main_and_debug_files() {
 #[tokio::test]
 async fn connect_socket_preserves_refused_socket_path() {
     let temp = tempfile::tempdir().expect("tempdir");
-    let socket_path = temp.path().join("jcode.sock");
+    let socket_path = temp.path().join("blaude.sock");
 
     {
         let _listener = Listener::bind(&socket_path).expect("bind listener");
@@ -112,7 +112,7 @@ async fn reap_stale_socket_removes_dead_socket_pair_and_lock() {
     let prev_runtime = std::env::var_os("JCODE_RUNTIME_DIR");
     crate::env::set_var("JCODE_RUNTIME_DIR", temp.path());
 
-    let socket = temp.path().join("jcode.sock");
+    let socket = temp.path().join("blaude.sock");
     let debug = temp.path().join("jcode-debug.sock");
     let lock = daemon_lock_path();
 
@@ -143,7 +143,7 @@ async fn reap_stale_socket_spares_live_listener() {
     let prev_runtime = std::env::var_os("JCODE_RUNTIME_DIR");
     crate::env::set_var("JCODE_RUNTIME_DIR", temp.path());
 
-    let socket = temp.path().join("jcode.sock");
+    let socket = temp.path().join("blaude.sock");
     // A live listener means a daemon is bound; reaping must be a no-op.
     let listener = Listener::bind(&socket).expect("bind listener");
 
@@ -167,7 +167,7 @@ async fn reap_stale_socket_spares_socket_when_lock_is_held() {
     let prev_runtime = std::env::var_os("JCODE_RUNTIME_DIR");
     crate::env::set_var("JCODE_RUNTIME_DIR", temp.path());
 
-    let socket = temp.path().join("jcode.sock");
+    let socket = temp.path().join("blaude.sock");
     std::fs::write(&socket, b"").expect("write stale-looking socket");
 
     // Hold the daemon lock, emulating a live daemon whose socket probe happens
@@ -199,7 +199,7 @@ async fn reap_stale_socket_spares_socket_when_lock_is_held() {
 #[test]
 fn existing_server_start_errors_are_detected() {
     assert!(server_start_matches_existing_server(
-        "Error: Another jcode server process is already running for runtime dir /run/user/1000"
+        "Error: Another blaude server process is already running for runtime dir /run/user/1000"
     ));
     assert!(server_start_matches_existing_server(
         "Error: Refusing to replace active server socket at /run/user/1000/jcode.sock"
@@ -350,7 +350,7 @@ async fn inspect_reload_wait_status_keeps_waiting_while_starting_marker_is_activ
     }
     .write();
 
-    let socket_path = temp.path().join("jcode.sock");
+    let socket_path = temp.path().join("blaude.sock");
     let _listener = Listener::bind(&socket_path).expect("bind listener");
 
     let status = inspect_reload_wait_status(&socket_path, Duration::from_secs(30), None).await;

@@ -1085,7 +1085,7 @@ fn a_plain_session_id_still_resolves() {
 ///
 /// `launch()` gives an embedded instance its own `JCODE_HOME` precisely so it
 /// cannot see the user's work. Reading the user's home directly made
-/// `peek_session` return the real transcripts of the jcode the user runs
+/// `peek_session` return the real transcripts of the blaude the user runs
 /// interactively, from a client that was supposed to be sandboxed.
 #[test]
 fn session_records_are_read_from_the_instance_home() {
@@ -1315,7 +1315,7 @@ fn credential_provisioning_normalizes_gemini_and_supports_jcode() {
         "api_key": "jcode-secret"
     }));
     let [Outbound::Legacy(notify)] = outbound.as_slice() else {
-        panic!("jcode credential should notify the daemon: {outbound:?}");
+        panic!("blaude credential should notify the daemon: {outbound:?}");
     };
     assert_eq!(notify["provider"], "jcode");
     assert_eq!(

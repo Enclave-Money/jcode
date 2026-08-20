@@ -1557,7 +1557,7 @@ fn the_dialect_sweep_catches_the_issue_754_schema() {
     );
 }
 
-/// Failing strict eligibility closed for #711/#713 must not quietly cost jcode's
+/// Failing strict eligibility closed for #711/#713 must not quietly cost blaude's
 /// own tools their strict mode, since that would drop the structured-output
 /// guarantees on every OpenAI-route tool call with nothing to notice.
 ///

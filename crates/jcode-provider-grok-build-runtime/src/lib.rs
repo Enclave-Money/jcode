@@ -224,7 +224,7 @@ impl Provider for GrokBuildProvider {
                 provider: "Grok Build".to_string(),
                 api_method: "grok-build-acp".to_string(),
                 available: true,
-                detail: "Grok Build subscription via Jcode-managed ACP".to_string(),
+                detail: "Grok Build subscription via blaude-managed ACP".to_string(),
                 cheapness: None,
             })
             .collect()
@@ -556,7 +556,7 @@ where
         .kill_on_drop(true);
     let mut child = command.spawn().with_context(|| {
         format!(
-            "Failed to launch Jcode's managed Grok Build backend at '{}'",
+            "Failed to launch blaude's managed Grok Build backend at '{}'",
             process.command.display()
         )
     })?;
@@ -761,7 +761,7 @@ fn message_text(message: &Message) -> String {
 
 fn cached_login_hint(prefix: &str) -> String {
     format!(
-        "{prefix}. Grok Build uses subscription login, not XAI_API_KEY. Run `jcode login --provider grok-build` and retry"
+        "{prefix}. Grok Build uses subscription login, not XAI_API_KEY. Run `blaude login --provider grok-build` and retry"
     )
 }
 

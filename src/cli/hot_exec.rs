@@ -307,7 +307,7 @@ pub fn run_auto_update() -> Result<()> {
     use crate::bus::{Bus, BusEvent, UpdateStatus};
 
     let repo_dir =
-        get_repo_dir().ok_or_else(|| anyhow::anyhow!("Could not find jcode repository"))?;
+        get_repo_dir().ok_or_else(|| anyhow::anyhow!("Could not find blaude repository"))?;
 
     update::run_git_pull_ff_only(&repo_dir, true)?;
 
@@ -401,7 +401,7 @@ pub fn run_update() -> Result<()> {
                     })?;
                 update::print_centered(&format!("✅ Updated to {}", release.tag_name));
                 reload_server_after_update("installed update");
-                update::print_centered("Restart jcode to use the new version.");
+                update::print_centered("Restart blaude to use the new version.");
             }
             Ok(None) => {
                 if repair_stale_shared_server_after_update_check() {
@@ -423,9 +423,9 @@ pub fn run_update() -> Result<()> {
     }
 
     let repo_dir =
-        get_repo_dir().ok_or_else(|| anyhow::anyhow!("Could not find jcode repository"))?;
+        get_repo_dir().ok_or_else(|| anyhow::anyhow!("Could not find blaude repository"))?;
 
-    update::print_centered(&format!("Updating jcode from {}...", repo_dir.display()));
+    update::print_centered(&format!("Updating blaude from {}...", repo_dir.display()));
 
     update::print_centered("Pulling latest changes (fast-forward only)...");
     update::run_git_pull_ff_only(&repo_dir, true)?;
@@ -487,7 +487,7 @@ fn reload_server_after_update(reason: &str) {
         .map(|(path, _)| path)
         .or_else(|| std::env::current_exe().ok());
     let Some(exe) = exe else {
-        crate::logging::warn("update: could not find jcode binary to reload stale server");
+        crate::logging::warn("update: could not find blaude binary to reload stale server");
         return;
     };
 

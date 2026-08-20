@@ -117,14 +117,14 @@ fn set_killall_process_name() {
 }
 
 pub fn set_server_title(server_name: &str) {
-    set_title(compact_process_title("jcode:s:", Some(server_name)));
+    set_title(compact_process_title("blaude:s:", Some(server_name)));
 }
 
 pub fn set_client_generic_title(is_selfdev: bool) {
     let prefix = if is_selfdev {
-        "jcode:selfdev"
+        "blaude:selfdev"
     } else {
-        "jcode:client"
+        "blaude:client"
     };
     set_title(compact_process_title(prefix, None));
 }
@@ -134,7 +134,7 @@ pub fn set_client_session_title(session_id: &str, is_selfdev: bool) {
 }
 
 pub fn set_client_display_title(session_name: &str, is_selfdev: bool) {
-    let prefix = if is_selfdev { "jcode:d:" } else { "jcode:c:" };
+    let prefix = if is_selfdev { "blaude:d:" } else { "blaude:c:" };
     set_title(compact_process_title(prefix, Some(session_name)));
 }
 
@@ -143,7 +143,7 @@ pub fn set_client_remote_display_title(server_name: &str, session_name: &str, is
         set_client_display_title(session_name, is_selfdev);
         return;
     }
-    let prefix = if is_selfdev { "jcode:d:" } else { "jcode:c:" };
+    let prefix = if is_selfdev { "blaude:d:" } else { "blaude:c:" };
     set_title(format!("{prefix}{server_name}/{session_name}"));
 }
 
@@ -168,20 +168,20 @@ mod tests {
             terminal_window_title(
                 "🐙",
                 Some("resume window title"),
-                Some("jcode Octopus"),
+                Some("blaude Octopus"),
                 false
             ),
             "🐙 resume window title"
         );
         assert_eq!(
-            terminal_window_title("🐙", None, Some("jcode Octopus"), false),
-            "🐙 jcode Octopus"
+            terminal_window_title("🐙", None, Some("blaude Octopus"), false),
+            "🐙 blaude Octopus"
         );
         assert_eq!(
             terminal_window_title(
                 "🐙",
                 Some("resume window title"),
-                Some("jcode Octopus"),
+                Some("blaude Octopus"),
                 true
             ),
             "🐙 resume window title [self-dev]"

@@ -108,7 +108,7 @@ pub(super) fn reconnect_status_message(app: &App, state: &RemoteRunState, detail
                 .and_then(|id| crate::id::extract_session_name(id))
         });
     let resume_hint = if let Some(name) = &session_name {
-        format!(" · resume: jcode --resume {}", name)
+        format!(" · resume: blaude --resume {}", name)
     } else {
         String::new()
     };
@@ -147,7 +147,7 @@ pub(super) fn reload_wait_status_message(
                 .and_then(|id| crate::id::extract_session_name(id))
         });
     let resume_hint = if let Some(name) = &session_name {
-        format!(" · resume: jcode --resume {}", name)
+        format!(" · resume: blaude --resume {}", name)
     } else {
         String::new()
     };
@@ -419,7 +419,7 @@ pub(in crate::tui::app) async fn connect_with_retry(
         Err(e) => {
             if state.reconnect_attempts == 0 && !app.server_spawning {
                 return Err(anyhow::anyhow!(
-                    "Failed to connect to server. Is `jcode serve` running? Error: {}",
+                    "Failed to connect to server. Is `blaude serve` running? Error: {}",
                     e
                 ));
             }

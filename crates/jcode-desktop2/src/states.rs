@@ -104,7 +104,7 @@ fn fixed_meta() -> crate::meta::Meta {
     crate::meta::Meta {
         version: "v0.0.0-demo (0000000)".into(),
         update: crate::meta::UpdateState::Current,
-        account: Some("demo@jcode.dev (anthropic)".into()),
+        account: Some("demo@blaude.dev (anthropic)".into()),
     }
 }
 

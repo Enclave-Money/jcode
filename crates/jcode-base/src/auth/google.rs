@@ -115,11 +115,11 @@ pub fn save_credentials(creds: &GoogleCredentials) -> Result<()> {
 pub fn load_tokens() -> Result<GoogleTokens> {
     let path = tokens_path()?;
     if !path.exists() {
-        anyhow::bail!("No Google tokens found. Run `jcode login google` first.");
+        anyhow::bail!("No Google tokens found. Run `blaude login google` first.");
     }
     crate::storage::harden_secret_file_permissions(&path);
     crate::storage::read_json(&path)
-        .map_err(|_| anyhow::anyhow!("No Google tokens found. Run `jcode login google` first."))
+        .map_err(|_| anyhow::anyhow!("No Google tokens found. Run `blaude login google` first."))
 }
 
 pub fn save_tokens(tokens: &GoogleTokens) -> Result<()> {

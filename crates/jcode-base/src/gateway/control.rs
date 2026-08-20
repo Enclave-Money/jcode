@@ -1,4 +1,4 @@
-//! Shared control logic behind the `/remote` command and `jcode pair`.
+//! Shared control logic behind the `/remote` command and `blaude pair`.
 //!
 //! The WebSocket gateway already speaks the full session protocol, so making a
 //! session reachable from another machine is only ever three questions: is the
@@ -13,7 +13,7 @@ use super::{DeviceRegistry, resolve_connect_host};
 /// Parsed `/remote` invocation.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum RemoteCommand {
-    /// Activate or manage the subscription-backed Jcode Cloud host.
+    /// Activate or manage the subscription-backed blaude Cloud host.
     Cloud,
     /// Show gateway state, dial address, and paired devices.
     Status,

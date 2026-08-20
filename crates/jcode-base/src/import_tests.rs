@@ -306,7 +306,7 @@ fn explicit_takeover_preserves_history_and_stops_only_matching_process() {
 
     let resolved = take_over_live_claude_session(&target).unwrap();
     let jcode_session_types::ResumeTarget::JcodeSession { session_id } = resolved else {
-        panic!("expected Jcode session");
+        panic!("expected blaude session");
     };
     assert!(session_id.starts_with("session_"));
     claude.wait().unwrap();
@@ -496,7 +496,7 @@ fn cached_imported_session_preserves_existing_history_verbatim() {
         id: "jcode-continuation".to_string(),
         role: Role::Assistant,
         content: vec![ContentBlock::Text {
-            text: "continued inside jcode".to_string(),
+            text: "continued inside blaude".to_string(),
             cache_control: None,
         }],
         display_role: None,
@@ -950,7 +950,7 @@ fn test_resolve_resume_target_to_jcode_imports_codex_session() {
 /// The resume picker builds a `ClaudeCodeSession` target with id `claude:<id>`
 /// and a transcript path; selecting it routes through
 /// `resolve_resume_target_to_jcode`, which must import the transcript and hand
-/// back a resumable `imported_cc_<id>` jcode session. This guards the full
+/// back a resumable `imported_cc_<id>` blaude session. This guards the full
 /// detect -> import -> resume round-trip for Claude Code (previously only Codex
 /// had coverage here).
 #[test]
@@ -1005,7 +1005,7 @@ fn test_resolve_resume_target_to_jcode_imports_claude_code_session() {
     assert_eq!(loaded.provider_key.as_deref(), Some("claude-code"));
 }
 
-/// Regression for silent data loss: the picker hides the imported jcode session
+/// Regression for silent data loss: the picker hides the imported blaude session
 /// (any `imported_*` stem) and only shows the external `claude:<id>` entry, so
 /// re-selecting a Claude session re-enters `import_session_from_file`. If the
 /// user already resumed and continued that imported session inside jcode, a
@@ -1034,7 +1034,7 @@ fn test_reimporting_claude_session_preserves_jcode_continuation() {
     assert_eq!(imported.messages.len(), 2);
     let imported_id = imported_claude_code_session_id("claude-continued");
 
-    // User resumes inside jcode and appends a jcode-only follow-up message.
+    // User resumes inside blaude and appends a jcode-only follow-up message.
     let mut session = Session::load(&imported_id).unwrap();
     session.append_stored_message(StoredMessage {
         id: "jcode-continuation".to_string(),
@@ -1127,7 +1127,7 @@ fn test_import_cursor_session_creates_jcode_snapshot() {
         "expected assistant text to import: {all_text:?}"
     );
 
-    // Resolving the resume target should import and remap to the jcode snapshot.
+    // Resolving the resume target should import and remap to the blaude snapshot.
     let resumed = crate::import::resolve_resume_target_to_jcode(
         &jcode_session_types::ResumeTarget::CursorSession {
             session_id: session_id.to_string(),

@@ -22,7 +22,7 @@ use std::path::Path;
 /// recovery copy.
 const BACKUP_RETENTION_DAYS: i64 = 30;
 
-/// Minimum interval between prune passes across all jcode processes.
+/// Minimum interval between prune passes across all blaude processes.
 ///
 /// The prune walks the entire sessions directory (easily 100k+ entries on a
 /// long-lived install), which profiles as the single largest CPU cost of TUI

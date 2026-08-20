@@ -1173,19 +1173,19 @@ mod tests {
     #[test]
     fn parse_native_jcode_account_actions() {
         assert!(matches!(
-            parse_account_command("/account jcode login"),
+            parse_account_command("/account blaude login"),
             Some(Ok(AccountCommand::Login { provider_id })) if provider_id == "jcode"
         ));
         assert!(matches!(
-            parse_account_command("/account jcode status"),
+            parse_account_command("/account blaude status"),
             Some(Ok(AccountCommand::JcodeStatus))
         ));
         assert!(matches!(
-            parse_account_command("/account jcode manage"),
+            parse_account_command("/account blaude manage"),
             Some(Ok(AccountCommand::JcodeManage))
         ));
         assert!(matches!(
-            parse_account_command("/account jcode logout"),
+            parse_account_command("/account blaude logout"),
             Some(Ok(AccountCommand::JcodeLogout))
         ));
     }
@@ -1196,7 +1196,7 @@ mod tests {
         let markdown = render_auth_doctor_markdown(Some("openai"));
         assert!(markdown.contains("OpenAI (openai)"));
         assert!(markdown.contains("Next steps"));
-        assert!(markdown.contains("jcode login --provider openai"));
-        assert!(markdown.contains("Review current state: jcode auth status --json"));
+        assert!(markdown.contains("blaude login --provider openai"));
+        assert!(markdown.contains("Review current state: blaude auth status --json"));
     }
 }

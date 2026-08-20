@@ -136,7 +136,7 @@ fn continue_pill_line(focused: bool, align: Alignment) -> Line<'static> {
 }
 
 /// The summary-screen action row. A new user can import the logins we found or
-/// use a Jcode subscription, with secondary controls for a selective import and
+/// use a blaude subscription, with secondary controls for a selective import and
 /// telemetry settings.
 fn import_summary_pills_line(
     focused: crate::tui::ImportSummaryPill,

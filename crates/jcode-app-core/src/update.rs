@@ -32,7 +32,7 @@ const GITHUB_REPO: &str = "1jehuang/jcode";
 /// Every automatic check costs one or two unauthenticated `api.github.com`
 /// requests, which share a 60 req/hour per-IP bucket with everything else on
 /// the machine (and everything behind the same NAT). A 60s gap meant a user
-/// who opens jcode a few dozen times an hour exhausted the bucket and then saw
+/// who opens blaude a few dozen times an hour exhausted the bucket and then saw
 /// spurious 403s. Half an hour is far below any realistic release cadence and
 /// keeps automatic checks to at most a couple of requests per hour.
 const UPDATE_CHECK_INTERVAL: Duration = Duration::from_secs(30 * 60);
@@ -658,7 +658,7 @@ fn has_cargo() -> bool {
         .unwrap_or(false)
 }
 
-/// Build jcode from source by cloning/pulling the repo and running cargo build
+/// Build blaude from source by cloning/pulling the repo and running cargo build
 fn build_from_source() -> Result<PathBuf> {
     let started = Instant::now();
     let build_dir = source_build_root()?;
@@ -1007,7 +1007,7 @@ pub fn download_and_install_blocking_with_progress(
             }
         }
         let Some(extracted_binary) = extracted_binary else {
-            anyhow::bail!("Could not find jcode binary inside tar.gz archive");
+            anyhow::bail!("Could not find blaude binary inside tar.gz archive");
         };
         crate::platform::set_permissions_executable(&extracted_binary)?;
 

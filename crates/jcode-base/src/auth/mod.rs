@@ -97,7 +97,7 @@ static AUTH_REFRESH_IN_FLIGHT: std::sync::atomic::AtomicBool =
     std::sync::atomic::AtomicBool::new(false);
 
 /// Per-process cache for command existence lookups.
-/// CLI tools don't get installed/uninstalled while jcode is running, so caching
+/// CLI tools don't get installed/uninstalled while blaude is running, so caching
 /// indefinitely per process is correct and avoids repeated PATH scans.
 static COMMAND_EXISTS_CACHE: std::sync::LazyLock<Mutex<HashMap<String, bool>>> =
     std::sync::LazyLock::new(|| Mutex::new(HashMap::new()));
@@ -118,7 +118,7 @@ pub fn browser_suppressed(cli_no_browser: bool) -> bool {
 
 /// True when the probed environment says a browser launch cannot work.
 ///
-/// Without this, jcode would open a browser that does not exist (or that opens
+/// Without this, blaude would open a browser that does not exist (or that opens
 /// on the wrong machine, over SSH) and then wait out a callback timeout before
 /// telling the user anything. Probing first turns a 60-second dead end into an
 /// immediate fallback to a paste/device flow.
@@ -136,7 +136,7 @@ fn browser_unusable_here() -> bool {
 
 /// True when the current process is a Rust test binary (`cargo test` /
 /// `cargo nextest`). Test binaries always run from `target/**/deps/`, a
-/// location no installed or self-dev jcode binary ever runs from.
+/// location no installed or self-dev blaude binary ever runs from.
 ///
 /// Used to keep tests from opening real browser windows (OAuth login pages,
 /// files) on the developer's desktop: many login/onboarding flows are
@@ -407,7 +407,7 @@ impl AuthStatus {
     /// credentials configured. This is the single best line to ask a user to
     /// share when debugging "my model picker is empty / only OpenAI+Anthropic
     /// show / login silently failed" reports: it records, per provider, whether
-    /// jcode believes credentials are available/expired/missing without leaking
+    /// blaude believes credentials are available/expired/missing without leaking
     /// any token or key material.
     ///
     /// `surface` describes where the snapshot was taken from (for example
@@ -608,11 +608,12 @@ impl AuthStatus {
             }
             crate::provider_catalog::LoginProviderTarget::GrokBuild => {
                 if self.grok_build == AuthState::Available {
-                    "Jcode-managed Grok Build backend; subscription login is verified over ACP at request time".to_string()
+                    "blaude-managed Grok Build backend; subscription login is verified over ACP at request time".to_string()
                 } else if grok_build::cli_available() {
-                    "subscription login not configured (backend managed by Jcode)".to_string()
+                    "subscription login not configured (backend managed by blaude)".to_string()
                 } else {
-                    "not configured (Jcode downloads the provider backend during login)".to_string()
+                    "not configured (blaude downloads the provider backend during login)"
+                        .to_string()
                 }
             }
             crate::provider_catalog::LoginProviderTarget::OpenAiCompatible(profile) => {
@@ -846,12 +847,12 @@ impl AuthStatus {
                     AuthCredentialSource::None
                 },
                 if state == AuthState::Available {
-                    "Grok Build subscription login managed through Jcode".to_string()
+                    "Grok Build subscription login managed through blaude".to_string()
                 } else if grok_build::cli_available() {
-                    "Jcode-managed backend provisioned; subscription login not configured"
+                    "blaude-managed backend provisioned; subscription login not configured"
                         .to_string()
                 } else {
-                    "Jcode-managed Grok Build backend not provisioned".to_string()
+                    "blaude-managed Grok Build backend not provisioned".to_string()
                 },
                 AuthExpiryConfidence::Unknown,
                 AuthRefreshSupport::ExternalManaged,
@@ -1031,7 +1032,7 @@ fn record_auth_probe_step(
 /// access tokens expire roughly hourly and the provider transparently
 /// refreshes them on the next request, so reporting `Expired` purely because
 /// the cached access token aged out makes a perfectly working provider look
-/// dead in `/login`, the header, onboarding, and `jcode auth status`.
+/// dead in `/login`, the header, onboarding, and `blaude auth status`.
 ///
 /// Only report `Expired` when the refresh token itself is missing or was
 /// already permanently rejected (revoked / `invalid_grant`), which is the case

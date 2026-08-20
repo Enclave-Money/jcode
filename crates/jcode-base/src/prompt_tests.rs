@@ -48,7 +48,7 @@ fn test_skill_prompt_integration() {
     let prompt = build_system_prompt(Some(skill_prompt), &[]);
 
     // The prompt should contain our default system prompt
-    assert!(prompt.contains("Your name is Jcode."));
+    assert!(prompt.contains("Your name is blaude."));
 
     // The prompt should contain the skill prompt
     assert!(prompt.contains(skill_prompt));
@@ -293,7 +293,7 @@ fn test_session_context_includes_time_timezone_and_system_info() {
     assert!(context.contains("Timezone: UTC"));
     assert!(context.contains("OS: "));
     assert!(context.contains("Architecture: "));
-    assert!(context.contains("Jcode version: "));
+    assert!(context.contains("blaude version: "));
     assert!(!context.contains("Working directory: "));
     assert!(!context.contains("Git:"));
 }
@@ -482,14 +482,14 @@ fn test_non_selfdev_prompt_leaves_selfdev_guidance_to_the_tool_schema() {
     let prompt = build_system_prompt(None, &[]);
     assert!(!prompt.contains("Self-Development Access"));
     assert!(!prompt.contains("You have access to the `selfdev` tool in all sessions"));
-    assert!(!prompt.contains("You are working on the jcode codebase itself."));
+    assert!(!prompt.contains("You are working on the blaude codebase itself."));
 }
 
 #[test]
 fn test_selfdev_prompt_uses_full_selfdev_instructions() {
     let prompt = build_system_prompt_with_selfdev(None, &[], true);
-    assert!(prompt.contains("You are working on the jcode codebase itself."));
-    assert!(prompt.contains("launched from the TUI/root jcode context"));
+    assert!(prompt.contains("You are working on the blaude codebase itself."));
+    assert!(prompt.contains("launched from the TUI/root blaude context"));
     assert!(prompt.contains("selfdev build target=tui"));
     assert!(!prompt.contains("Self-Development Access"));
 }
@@ -500,7 +500,7 @@ fn test_selfdev_prompt_uses_desktop_focus_for_desktop_working_dir() {
     let (prompt, _info) = build_system_prompt_full(None, &[], true, None, Some(desktop_dir));
     assert!(prompt.contains("launched from the jcode-desktop2"));
     assert!(prompt.contains("selfdev build target=desktop2"));
-    assert!(!prompt.contains("launched from the TUI/root jcode context"));
+    assert!(!prompt.contains("launched from the TUI/root blaude context"));
 }
 
 #[test]
@@ -510,7 +510,7 @@ fn test_split_selfdev_prompt_defaults_to_tui_focus_for_repo_root() {
     assert!(
         split
             .static_part
-            .contains("launched from the TUI/root jcode context")
+            .contains("launched from the TUI/root blaude context")
     );
     assert!(split.static_part.contains("selfdev build target=tui"));
 }
@@ -522,7 +522,7 @@ fn test_selfdev_prompt_prefers_publish_flow_for_active_builds() {
     assert!(prompt.contains("cancel-build"));
     assert!(prompt.contains("selfdev reload"));
     assert!(prompt.contains("fallback when `selfdev build` is not appropriate"));
-    assert!(prompt.contains("scripts/dev_cargo.sh build --profile selfdev -p jcode --bin jcode"));
+    assert!(prompt.contains("scripts/dev_cargo.sh build --profile selfdev -p blaude --bin blaude"));
     assert!(prompt.contains("remote build host is configured"));
     assert!(prompt.contains("Do not wait for user input"));
 }
@@ -617,7 +617,7 @@ fn test_selfdev_prompt_uses_desktop2_focus_for_desktop2_working_dir() {
     let (prompt, _info) = build_system_prompt_full(None, &[], true, None, Some(desktop2_dir));
     assert!(prompt.contains("launched from the jcode-desktop2"));
     assert!(prompt.contains("selfdev build target=desktop2"));
-    assert!(!prompt.contains("launched from the TUI/root jcode context"));
+    assert!(!prompt.contains("launched from the TUI/root blaude context"));
 }
 
 #[test]
@@ -640,7 +640,7 @@ fn project_system_prompt_file_replaces_default_base_prompt() {
 
     let (prompt, _info) = build_system_prompt_full(None, &[], false, None, Some(&dir));
     assert!(prompt.contains("You are a custom agent."));
-    assert!(!prompt.contains("Jcode is open source"));
+    assert!(!prompt.contains("blaude is open source"));
 
     // Empty override falls back to the built-in default.
     std::fs::write(jcode_dir.join("system-prompt.md"), "   \n").unwrap();

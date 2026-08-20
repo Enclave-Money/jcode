@@ -656,7 +656,7 @@ mod tests {
             </li>
             <li class="b_algo"><h2><a href="https://www.bing.com/aclk">ad</a></h2></li>
             <li class="b_algo">
-              <h2><a href="https://example.org/jcode">Jcode</a></h2>
+              <h2><a href="https://example.org/jcode">blaude</a></h2>
               <div class="b_caption"><p>Agentic coding.</p></div>
             </li>
         "#;

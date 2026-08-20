@@ -148,7 +148,7 @@ impl KeyChord {
         for part in raw.split('+').map(str::trim).filter(|s| !s.is_empty()) {
             match part.to_ascii_lowercase().as_str() {
                 "ctrl" | "control" => ctrl = true,
-                // jcode treats alt/option/meta as Alt.
+                // blaude treats alt/option/meta as Alt.
                 "alt" | "option" | "meta" => alt = true,
                 "cmd" | "command" | "super" | "win" | "windows" => cmd = true,
                 "shift" => shift = true,
@@ -172,7 +172,7 @@ impl KeyChord {
     pub fn normalize_key(raw: &str) -> String {
         let k = raw.trim().to_ascii_lowercase();
         match k.as_str() {
-            // Arrows (ghostty/kitty style -> jcode style)
+            // Arrows (ghostty/kitty style -> blaude style)
             "arrow_left" | "left" => "left",
             "arrow_right" | "right" => "right",
             "arrow_up" | "up" => "up",
@@ -333,7 +333,7 @@ mod tests {
 
     #[test]
     fn parse_matches_discovered_chord() {
-        // A jcode binding and a terminal binding for the same physical keys must
+        // A blaude binding and a terminal binding for the same physical keys must
         // compare equal so the conflict detector can pair them.
         let jcode = KeyChord::parse("cmd+k").unwrap();
         let terminal = KeyChord::new(true, false, false, false, "k");

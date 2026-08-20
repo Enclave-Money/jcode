@@ -1,7 +1,7 @@
 //! The dialect table: what each provider is known to accept.
 //!
 //! Every entry is evidence-based. A keyword is listed as supported because
-//! jcode has observed the provider accept it in a live request, not because the
+//! blaude has observed the provider accept it in a live request, not because the
 //! spec says it should. That asymmetry is deliberate: the cost of omitting a
 //! keyword the provider would have accepted is a slightly less expressive tool
 //! schema, while the cost of listing one it rejects is every request failing.
@@ -10,7 +10,7 @@ use crate::dialect::{DialectSpec, DialectTransforms};
 
 /// Annotations and validation keywords the OpenAI function-parameters subset
 /// accepts. Derived from the deny-list this replaces (#543, #687, #711, #713)
-/// inverted against the keywords jcode and common MCP servers actually emit.
+/// inverted against the keywords blaude and common MCP servers actually emit.
 pub const OPENAI: DialectSpec = DialectSpec {
     id: "openai",
     supported_keywords: &[

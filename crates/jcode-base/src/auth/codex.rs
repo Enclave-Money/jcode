@@ -435,7 +435,7 @@ pub fn upsert_account_from_tokens(
 fn load_jcode_credentials() -> Result<CodexCredentials> {
     let auth = load_auth_file()?;
     if auth.openai_accounts.is_empty() {
-        anyhow::bail!("No OpenAI accounts configured in jcode auth file")
+        anyhow::bail!("No OpenAI accounts configured in blaude auth file")
     }
 
     let active_label = get_active_account_override()
@@ -447,7 +447,7 @@ fn load_jcode_credentials() -> Result<CodexCredentials> {
         .iter()
         .find(|account| account.label == active_label)
         .or_else(|| auth.openai_accounts.first())
-        .context("No OpenAI accounts in jcode auth file")?;
+        .context("No OpenAI accounts in blaude auth file")?;
 
     Ok(credentials_from_account(account))
 }
@@ -572,7 +572,7 @@ fn decode_jwt_payload(token: &str) -> Option<Value> {
 pub(crate) fn expires_at_from_access_token(access_token: &str) -> Option<i64> {
     let payload = decode_jwt_payload(access_token)?;
     let exp = payload.get("exp")?.as_i64()?;
-    // `exp` is in seconds since epoch; the rest of jcode tracks expiry in millis.
+    // `exp` is in seconds since epoch; the rest of blaude tracks expiry in millis.
     exp.checked_mul(1000)
 }
 

@@ -3,7 +3,7 @@
 //!
 //! Claude Code and Codex both expose lifecycle hooks. Using those hooks is more
 //! reliable and substantially less invasive than polling the process table or
-//! intercepting shell commands. The hook invokes a hidden, fast Jcode command;
+//! intercepting shell commands. The hook invokes a hidden, fast blaude command;
 //! this module then applies a cooldown and sends a local desktop notification.
 
 use super::{LAUNCH_HOTKEY_LEARNED_USES, SetupHintsState, active_primary_launch_hotkey};
@@ -106,11 +106,11 @@ pub(super) fn maybe_notify(source: &str) -> Result<()> {
     state.save()?;
 
     let body = format!(
-        "{} is open. Press {} anytime to launch Jcode.",
+        "{} is open. Press {} anytime to launch blaude.",
         source.label(),
         display
     );
-    send_desktop_notification("Jcode shortcut", &body);
+    send_desktop_notification("blaude shortcut", &body);
     Ok(())
 }
 
@@ -283,7 +283,7 @@ fn trusted_jcode_executable() -> Result<PathBuf> {
             let launcher = PathBuf::from(local_app_data)
                 .join("jcode")
                 .join("bin")
-                .join("jcode.exe");
+                .join("blaude.exe");
             if launcher.is_file() {
                 return Ok(launcher);
             }
@@ -300,7 +300,7 @@ fn trusted_jcode_executable() -> Result<PathBuf> {
         }
     }
 
-    std::env::current_exe().context("resolving the Jcode executable for lifecycle hooks")
+    std::env::current_exe().context("resolving the blaude executable for lifecycle hooks")
 }
 
 fn quote_hook_executable(path: &Path) -> String {
@@ -337,7 +337,7 @@ fn send_desktop_notification(title: &str, body: &str) {
     #[cfg(target_os = "linux")]
     {
         let _ = std::process::Command::new("notify-send")
-            .arg("--app-name=jcode")
+            .arg("--app-name=blaude")
             .arg(title)
             .arg(body)
             .stdin(std::process::Stdio::null())
@@ -419,7 +419,7 @@ mod tests {
                     "hooks": [
                         {
                             "type": "command",
-                            "command": "jcode setup-hotkey --notify-cli-launch old",
+                            "command": "blaude setup-hotkey --notify-cli-launch old",
                             "timeout": 30
                         },
                         {"type": "command", "command": "echo user-owned"}

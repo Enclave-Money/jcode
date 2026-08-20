@@ -5,13 +5,13 @@ use crate::gateway::control::{
 };
 
 const REMOTE_HELP: &str = "\
-**`/remote`** - use jcode from any device
+**`/remote`** - use blaude from any device
 
-`/remote` opens your Jcode account, the entry point for Jcode Cloud access.
-Cloud is being bundled with eligible Jcode subscriptions. The managed host
+`/remote` opens your blaude account, the entry point for blaude Cloud access.
+Cloud is being bundled with eligible blaude subscriptions. The managed host
 control plane is currently in early access.
 
-- `/remote` or `/remote cloud` - activate or manage Jcode Cloud
+- `/remote` or `/remote cloud` - activate or manage blaude Cloud
 - `/remote status` - local gateway state, dial address, paired devices
 - `/remote on` / `/remote off` - enable or disable the gateway
 - `/remote pair` - show a pairing code and QR for a new device
@@ -50,7 +50,7 @@ fn activate_cloud(app: &mut App) {
     let account_line = if signed_in {
         match tier {
             Some(tier) => format!("Signed in on the **{}** plan.", tier.display_name()),
-            None => "Signed in to your Jcode account.".to_string(),
+            None => "Signed in to your blaude account.".to_string(),
         }
     } else {
         "Not signed in yet. The account page will guide you through passwordless sign-in and subscription setup."
@@ -59,20 +59,20 @@ fn activate_cloud(app: &mut App) {
 
     let opened = super::helpers::open_path_or_url_detached(CLOUD_ACCOUNT_URL).is_ok();
     let open_line = if opened {
-        "Opened your secure Jcode account page in the browser."
+        "Opened your secure blaude account page in the browser."
     } else {
-        "Open your secure Jcode account page:"
+        "Open your secure blaude account page:"
     };
     app.push_display_message(DisplayMessage::system(format!(
-        "**Jcode Cloud early access**\n\n{account_line}\n\n{open_line}\n\n{CLOUD_ACCOUNT_URL}\n\n\
+        "**blaude Cloud early access**\n\n{account_line}\n\n{open_line}\n\n{CLOUD_ACCOUNT_URL}\n\n\
          The managed-host control plane is not generally available yet. Reference hosts wake on \
          demand and stop when idle. To use your own machine now, run \
          `/remote on`, restart the server, then `/remote pair`."
     )));
     app.set_status_notice(if opened {
-        "Jcode Cloud account opened"
+        "blaude Cloud account opened"
     } else {
-        "Jcode Cloud account link ready"
+        "blaude Cloud account link ready"
     });
 }
 
@@ -102,7 +102,7 @@ fn toggle(app: &mut App, enabled: bool) {
                 format!(
                     "Remote access **enabled** on port `{}`.\n\n\
                      Restart the server to open the port:\n\n\
-                     ```\njcode server reload\n```\n\n\
+                     ```\nblaude server reload\n```\n\n\
                      Then run `/remote pair` to authorize a device.\n\n\
                      Other machines will dial `{}`.\n",
                     status.port,
@@ -111,7 +111,7 @@ fn toggle(app: &mut App, enabled: bool) {
             } else {
                 "Remote access **disabled**.\n\n\
                  Restart the server to close the port:\n\n\
-                 ```\njcode server reload\n```\n\n\
+                 ```\nblaude server reload\n```\n\n\
                  Paired devices are kept; use `/remote revoke <device>` to remove them.\n"
                     .to_string()
             };

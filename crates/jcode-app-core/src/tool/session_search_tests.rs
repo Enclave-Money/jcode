@@ -195,7 +195,7 @@ fn bench_real_session_search_corpus() {
     }
 
     let sessions_dir = crate::storage::jcode_dir()
-        .expect("jcode dir")
+        .expect("blaude dir")
         .join("sessions");
     let mut options = SearchOptions::for_test("benchmark-current-session");
     options.include_external = false;
@@ -578,7 +578,7 @@ fn external_codex_sessions_are_searchable_without_jcode_session_dir() {
             .collect::<Vec<_>>()
             .join("\n");
         std::fs::write(codex_dir.join("codex-test.jsonl"), body).expect("write codex jsonl");
-        std::fs::remove_dir_all(home.join("sessions")).expect("remove jcode sessions dir");
+        std::fs::remove_dir_all(home.join("sessions")).expect("remove blaude sessions dir");
 
         let mut options = SearchOptions::for_test("current-session");
         options.source_filter = Some("codex".to_string());
@@ -639,7 +639,7 @@ fn external_cursor_sessions_are_searchable_without_jcode_session_dir() {
             .join("\n");
         std::fs::write(cursor_dir.join(format!("{session_id}.jsonl")), body)
             .expect("write cursor jsonl");
-        std::fs::remove_dir_all(home.join("sessions")).expect("remove jcode sessions dir");
+        std::fs::remove_dir_all(home.join("sessions")).expect("remove blaude sessions dir");
 
         let mut options = SearchOptions::for_test("current-session");
         options.source_filter = Some("cursor".to_string());

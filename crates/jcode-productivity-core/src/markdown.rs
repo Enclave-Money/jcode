@@ -33,7 +33,7 @@ pub fn hour_label_pub(h: u8) -> String {
 pub fn render_markdown(r: &ProductivityReport) -> String {
     let mut o = String::new();
 
-    o.push_str("# 📊 Your jcode Productivity Report\n\n");
+    o.push_str("# 📊 Your blaude Productivity Report\n\n");
     o.push_str(&format!(
         "**{}** · _{}_\n\n",
         r.archetype, r.archetype_blurb

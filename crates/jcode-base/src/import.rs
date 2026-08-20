@@ -375,7 +375,7 @@ fn find_session_file(session_id: &str) -> Result<PathBuf> {
     anyhow::bail!("Session {} not found", session_id);
 }
 
-/// Convert Claude Code content blocks to jcode ContentBlocks
+/// Convert Claude Code content blocks to blaude ContentBlocks
 fn convert_content_blocks(content: &ClaudeCodeContent) -> Vec<ContentBlock> {
     match content {
         ClaudeCodeContent::Empty => vec![],
@@ -585,7 +585,7 @@ fn normalize_imported_history(session: &mut Session, apply_limits: bool) -> bool
 }
 
 fn reuse_existing_imported_session(session_id: &str) -> bool {
-    // An imported snapshot becomes a normal jcode continuation as soon as the
+    // An imported snapshot becomes a normal blaude continuation as soon as the
     // user resumes it. Never rewrite that snapshot merely because the external
     // transcript changed or because an older import contains structured blocks:
     // doing so can discard jcode-only turns and journal state. New imports are
@@ -875,10 +875,10 @@ fn remove_prepared_takeover_session(session_id: &str) {
 /// Explicitly hand a currently-running Claude Code session over to Jcode.
 ///
 /// This is deliberately separate from normal resume. It first imports the
-/// current transcript into a fresh durable Jcode session, then gracefully stops
+/// current transcript into a fresh durable blaude session, then gracefully stops
 /// the exact PID guarded by Claude's process-start token. After Claude exits we
 /// refresh the prepared snapshot once to capture any final transcript flush.
-/// A stop failure rolls back the staged Jcode session and leaves ordinary
+/// A stop failure rolls back the staged blaude session and leaves ordinary
 /// resume behavior unchanged.
 pub fn take_over_live_claude_session(
     target: &jcode_session_types::ResumeTarget,
@@ -902,7 +902,7 @@ fn take_over_live_claude_session_with_timeout(
 
     let live = crate::claude_live::find_live_claude_session(session_id)?
         .ok_or_else(|| anyhow::anyhow!("Claude Code session {session_id} is no longer live"))?;
-    // Use a normal memorable Jcode session ID so the handed-off conversation
+    // Use a normal memorable blaude session ID so the handed-off conversation
     // remains visible and resumable later. Imported-prefixed IDs are hidden from
     // the native session list because their external source row represents them.
     let takeover_id = Session::create(None, None).id;
@@ -931,7 +931,7 @@ fn take_over_live_claude_session_with_timeout(
     if stop_outcome == crate::claude_live::StopLiveClaudeOutcome::ExitUnconfirmed {
         crate::session_list_cache::invalidate();
         anyhow::bail!(
-            "Claude Code process {} was asked to exit, but its exit was not confirmed; prepared Jcode session {} was preserved and can be resumed",
+            "Claude Code process {} was asked to exit, but its exit was not confirmed; prepared blaude session {} was preserved and can be resumed",
             live.pid,
             takeover_id
         );
@@ -959,7 +959,7 @@ fn take_over_live_claude_session_with_timeout(
         crate::session_list_cache::invalidate();
         return Err(err).with_context(|| {
             format!(
-                "Claude Code exited, but its final transcript could not be refreshed; prepared Jcode session {takeover_id} was preserved"
+                "Claude Code exited, but its final transcript could not be refreshed; prepared blaude session {takeover_id} was preserved"
             )
         });
     }

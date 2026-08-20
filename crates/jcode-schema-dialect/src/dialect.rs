@@ -2,7 +2,7 @@
 //!
 //! # Why this exists
 //!
-//! jcode advertises the *whole* tool array on every request, so one construct a
+//! blaude advertises the *whole* tool array on every request, so one construct a
 //! provider dislikes does not degrade one tool, it 400s every turn and the
 //! provider becomes unusable. That has now happened at least eight times, each
 //! with a different keyword and each fixed the same way: append the keyword to

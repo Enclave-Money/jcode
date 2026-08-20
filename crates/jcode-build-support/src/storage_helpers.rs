@@ -83,7 +83,7 @@ mod tests {
     #[test]
     fn jcode_home_override_wins_on_windows() {
         let resolved = resolve_builds_dir(
-            Some(PathBuf::from("/isolated-jcode")),
+            Some(PathBuf::from("/isolated-blaude")),
             Some(PathBuf::from("/local-app-data")),
             PathBuf::from("/home/test/.jcode"),
             true,

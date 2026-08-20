@@ -91,7 +91,7 @@ mod tests {
     fn windows_swap_replaces_existing_launcher_via_staged_file() {
         let dir = tempfile::tempdir().expect("temporary directory");
         let src = dir.path().join("source.exe");
-        let dst = dir.path().join("jcode.exe");
+        let dst = dir.path().join("blaude.exe");
         let temp = dir.path().join(".jcode-current");
         std::fs::write(&src, b"new binary").expect("source");
         std::fs::write(&dst, b"old binary").expect("destination");

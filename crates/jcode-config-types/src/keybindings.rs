@@ -1,7 +1,7 @@
 //! Per-platform keybinding default registry, provenance metadata, and a
 //! validation/"check" layer.
 //!
-//! Historically jcode used a single shared list of default keybindings for
+//! Historically blaude used a single shared list of default keybindings for
 //! every platform, and macOS support was implemented purely as a runtime
 //! translation layer (mapping Option-inserted Unicode characters and `Cmd`
 //! fallbacks back onto the shared `Alt`/`Ctrl` defaults).
@@ -322,7 +322,7 @@ pub const KEYBINDING_DEFAULTS: &[KeybindingDefault] = &[
     },
     KeybindingDefault {
         id: "new_terminal",
-        description: "Spawn a fresh jcode session in a new terminal window",
+        description: "Spawn a fresh blaude session in a new terminal window",
         // Companion to the system-wide launch hotkey (Cmd+; / Alt+;): the
         // shifted variant spawns a new session from inside jcode, reusing the
         // current session's working directory. Note: many macOS terminals
@@ -334,7 +334,7 @@ pub const KEYBINDING_DEFAULTS: &[KeybindingDefault] = &[
     KeybindingDefault {
         id: "open_resume",
         description: "Open the /resume session picker",
-        // Cmd+B is free in jcode on macOS. On Windows/Linux, Ctrl+R is already
+        // Cmd+B is free in blaude on macOS. On Windows/Linux, Ctrl+R is already
         // taken by session recovery, so use Alt+R there.
         macos: PlatformDefault::dev("cmd+b"),
         other: PlatformDefault::dev("alt+r"),

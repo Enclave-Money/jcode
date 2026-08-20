@@ -807,7 +807,7 @@ impl RelayLauncherClient {
             request.provider_key.as_deref(),
         )?;
         if !launched {
-            anyhow::bail!("no supported terminal found for headed Jcode launch")
+            anyhow::bail!("no supported terminal found for headed blaude launch")
         }
 
         let launched_data = serde_json::json!({
@@ -818,7 +818,7 @@ impl RelayLauncherClient {
         let _ = self
             .post_device_event(
                 "launch_status",
-                &format!("Launched headed Jcode session {session_id}"),
+                &format!("Launched headed blaude session {session_id}"),
                 event.seq,
                 Some(launched_data),
             )
@@ -1195,7 +1195,7 @@ async fn deliver_to_session(
         guard.get(session_id).cloned()
     };
     let Some(agent) = agent else {
-        anyhow::bail!("session '{session_id}' is not live in this Jcode server")
+        anyhow::bail!("session '{session_id}' is not live in this blaude server")
     };
 
     if agent.try_lock().is_err() {
@@ -1238,7 +1238,7 @@ async fn deliver_to_launched_session(
         guard.get(session_id).cloned()
     };
     let Some(agent) = agent else {
-        anyhow::bail!("session '{session_id}' is not live in this Jcode server")
+        anyhow::bail!("session '{session_id}' is not live in this blaude server")
     };
 
     // A just-spawned headed TUI briefly owns the agent lock while it subscribes

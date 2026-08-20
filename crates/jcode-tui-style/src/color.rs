@@ -44,7 +44,7 @@ pub fn pin_truecolor_for_tests() {
 /// churn (the macOS 26 "garbled glyphs" bug in the VS Code integrated terminal
 /// and Apple Terminal; see `jcode_app_core::perf` and issue #330). These
 /// renderers key their rasterized-glyph cache on the full 24-bit color, so the
-/// continuous color animations jcode emits (shimmer, rainbow, pulsing tool
+/// continuous color animations blaude emits (shimmer, rainbow, pulsing tool
 /// colors) generate an effectively unbounded set of atlas entries, overflowing
 /// it and re-rendering stale cached glyphs as boxes.
 ///

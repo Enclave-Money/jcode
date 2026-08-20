@@ -9,7 +9,7 @@ fn allow_runtime_identity_mismatch() -> bool {
     std::env::var_os("JCODE_ALLOW_SERVER_VERSION_MISMATCH").is_some()
 }
 
-/// Parse a jcode version string into an orderable `(major, minor, patch)`, but
+/// Parse a blaude version string into an orderable `(major, minor, patch)`, but
 /// only for *clean release* builds.
 ///
 /// Dev/dirty builds share a base semver and cannot be ordered against each other
@@ -1591,7 +1591,7 @@ pub(in crate::tui::app) fn handle_server_event(
                         "Connected server is an older release; reloading it before attach",
                     );
                     app.push_display_message(DisplayMessage::system(format!(
-                        "ℹ Connected server is running an older release ({}) than this client ({}). Reloading it before applying session state. If reload does not take, run `jcode server stop` and relaunch. Set JCODE_ALLOW_SERVER_VERSION_MISMATCH=1 only for intentional compatibility testing.",
+                        "ℹ Connected server is running an older release ({}) than this client ({}). Reloading it before applying session state. If reload does not take, run `blaude server stop` and relaunch. Set JCODE_ALLOW_SERVER_VERSION_MISMATCH=1 only for intentional compatibility testing.",
                         app.remote_server_version.as_deref().unwrap_or("unknown"),
                         jcode_build_meta::version(),
                     )));
@@ -2786,13 +2786,13 @@ pub(in crate::tui::app) fn handle_server_event(
                 Ok(false) => {
                     if let Some(label) = split_label.as_deref() {
                         app.push_display_message(DisplayMessage::system(format!(
-                            "🔍 {} session {} created.\n\nNo terminal found. Resume manually:\n  jcode --resume {}",
+                            "🔍 {} session {} created.\n\nNo terminal found. Resume manually:\n  blaude --resume {}",
                             label, new_session_name, new_session_id,
                         )));
                         app.set_status_notice(format!("{} session created", label));
                     } else {
                         app.push_display_message(DisplayMessage::system(format!(
-                            "✂ Split → {}\n\nNo terminal found. Resume manually:\n  jcode --resume {}",
+                            "✂ Split → {}\n\nNo terminal found. Resume manually:\n  blaude --resume {}",
                             new_session_name, new_session_id,
                         )));
                     }
@@ -2800,13 +2800,13 @@ pub(in crate::tui::app) fn handle_server_event(
                 Err(e) => {
                     if let Some(label) = split_label.as_deref() {
                         app.push_display_message(DisplayMessage::error(format!(
-                            "{} session {} was created but failed to open a window: {}\n\nResume manually: jcode --resume {}",
+                            "{} session {} was created but failed to open a window: {}\n\nResume manually: blaude --resume {}",
                             label, new_session_name, e, new_session_id,
                         )));
                         app.set_status_notice(format!("{} open failed", label));
                     } else {
                         app.push_display_message(DisplayMessage::error(format!(
-                            "Split created {} but failed to open window: {}\n\nResume manually: jcode --resume {}",
+                            "Split created {} but failed to open window: {}\n\nResume manually: blaude --resume {}",
                             new_session_name, e, new_session_id,
                         )));
                     }
@@ -2854,7 +2854,7 @@ fn runtime_activity_status_notice(message: &str) -> String {
             let line = line.trim();
             (!line.is_empty()).then_some(line)
         })
-        .unwrap_or("Jcode activity")
+        .unwrap_or("blaude activity")
         .trim_matches('*')
         .trim()
         .trim_end_matches('.')

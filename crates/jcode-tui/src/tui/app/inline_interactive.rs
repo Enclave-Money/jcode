@@ -788,7 +788,7 @@ impl App {
         if remote_available_entries.is_empty() {
             return;
         }
-        // Jcode subscription routes are a complete, server-managed catalog.
+        // blaude subscription routes are a complete, server-managed catalog.
         // Do not mix in locally configured Anthropic/OpenAI credentials merely
         // because a curated model also belongs to one of those upstreams.
         let provider_is_jcode_subscription = remote_provider_name.is_some_and(|name| {
@@ -884,7 +884,7 @@ impl App {
             }
         }
         // Detailed provider hydration describes ordinary configured routes. A
-        // signed-in Jcode subscriber still needs the managed route for each
+        // signed-in blaude subscriber still needs the managed route for each
         // entitled curated model alongside those Anthropic/OpenAI/etc. rows.
         // The curated client catalog is versioned with the backend and is the
         // authority for managed subscription entitlements. Do not hide newly
@@ -1292,7 +1292,10 @@ impl App {
             let body = render("critique", m);
             self.push_display_message(DisplayMessage::system(body));
         }
-        let mut joint = format!("═══ ⚖ joint plan (synthesized by {}) ═══\n", result.synthesizer);
+        let mut joint = format!(
+            "═══ ⚖ joint plan (synthesized by {}) ═══\n",
+            result.synthesizer
+        );
         match &result.joint_plan {
             Ok(text) if !text.trim().is_empty() => joint.push_str(text.trim()),
             Ok(_) => joint.push_str("(no joint plan produced)"),
@@ -2888,7 +2891,7 @@ impl App {
                     names.push(name);
                 }
                 Ok(false) | Err(_) => {
-                    // No terminal emulator could be spawned. For a single jcode
+                    // No terminal emulator could be spawned. For a single blaude
                     // session, fall back to resuming in the current terminal
                     // instead of dead-ending with a manual command (issue #203).
                     if targets.len() == 1
@@ -3043,7 +3046,7 @@ impl App {
         };
         let ResumeTarget::JcodeSession { session_id } = resolved else {
             self.push_display_message(DisplayMessage::error(
-                "Claude takeover did not produce a Jcode session.",
+                "Claude takeover did not produce a blaude session.",
             ));
             return false;
         };
@@ -3122,7 +3125,7 @@ impl App {
         } else if spawned > 0 {
             let manual: Vec<String> = failed
                 .iter()
-                .map(|id| format!("  jcode --resume {}", id))
+                .map(|id| format!("  blaude --resume {}", id))
                 .collect();
             self.push_display_message(DisplayMessage::system(format!(
                 "Restored {} session(s) in new windows. {} failed:\n{}",
@@ -3133,7 +3136,7 @@ impl App {
         } else {
             let manual: Vec<String> = recovered
                 .iter()
-                .map(|id| format!("  jcode --resume {}", id))
+                .map(|id| format!("  blaude --resume {}", id))
                 .collect();
             self.push_display_message(DisplayMessage::system(format!(
                 "No terminal found. Resume manually:\n{}",

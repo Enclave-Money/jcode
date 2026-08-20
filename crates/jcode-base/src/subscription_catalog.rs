@@ -13,7 +13,7 @@ pub const JCODE_PRICING_URL: &str = "https://jcode.sh/pricing";
 pub const JCODE_ACCOUNT_URL: &str = "https://jcode.sh/account";
 /// User-facing runtime identity. Keep "Subscription" in the name so picker,
 /// header, status, and diagnostics never resemble a generic model host.
-pub const JCODE_PROVIDER_DISPLAY_NAME: &str = "Jcode Subscription";
+pub const JCODE_PROVIDER_DISPLAY_NAME: &str = "blaude Subscription";
 pub const JCODE_ROUTE_API_METHOD: &str = "jcode-subscription";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -100,7 +100,7 @@ impl JcodeTier {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum UpstreamRoutingPolicy {
-    /// Routing is decided server-side by the jcode router (model -> provider +
+    /// Routing is decided server-side by the blaude router (model -> provider +
     /// org key). The client does not pick upstreams; this is the only policy for
     /// the managed subscription.
     ServerManaged,
@@ -126,7 +126,7 @@ pub const CURATED_MODELS: &[CuratedModel] = &[
         default_enabled: true,
         routing_policy: UpstreamRoutingPolicy::ServerManaged,
         min_tier: JcodeTier::Plus,
-        note: "Frontier model; routed server-side to Anthropic by the jcode router.",
+        note: "Frontier model; routed server-side to Anthropic by the blaude router.",
     },
     CuratedModel {
         id: "claude-opus-5",
@@ -135,7 +135,7 @@ pub const CURATED_MODELS: &[CuratedModel] = &[
         default_enabled: false,
         routing_policy: UpstreamRoutingPolicy::ServerManaged,
         min_tier: JcodeTier::Plus,
-        note: "Frontier model; routed server-side to Anthropic by the jcode router.",
+        note: "Frontier model; routed server-side to Anthropic by the blaude router.",
     },
     CuratedModel {
         id: "claude-sonnet-4-6",
@@ -149,7 +149,7 @@ pub const CURATED_MODELS: &[CuratedModel] = &[
         default_enabled: false,
         routing_policy: UpstreamRoutingPolicy::ServerManaged,
         min_tier: JcodeTier::Plus,
-        note: "Frontier model; routed server-side to Amazon Bedrock by the jcode router.",
+        note: "Frontier model; routed server-side to Amazon Bedrock by the blaude router.",
     },
     CuratedModel {
         id: "gpt-5.5",
@@ -158,7 +158,7 @@ pub const CURATED_MODELS: &[CuratedModel] = &[
         default_enabled: false,
         routing_policy: UpstreamRoutingPolicy::ServerManaged,
         min_tier: JcodeTier::Plus,
-        note: "Frontier model; routed server-side to OpenAI by the jcode router.",
+        note: "Frontier model; routed server-side to OpenAI by the blaude router.",
     },
     CuratedModel {
         id: "claude-fable-5",
@@ -167,7 +167,7 @@ pub const CURATED_MODELS: &[CuratedModel] = &[
         default_enabled: false,
         routing_policy: UpstreamRoutingPolicy::ServerManaged,
         min_tier: JcodeTier::Plus,
-        note: "Frontier model; routed server-side to Anthropic by the jcode router.",
+        note: "Frontier model; routed server-side to Anthropic by the blaude router.",
     },
     CuratedModel {
         id: "gpt-5.6-sol",
@@ -176,7 +176,7 @@ pub const CURATED_MODELS: &[CuratedModel] = &[
         default_enabled: false,
         routing_policy: UpstreamRoutingPolicy::ServerManaged,
         min_tier: JcodeTier::Plus,
-        note: "Frontier model; routed server-side to OpenAI by the jcode router.",
+        note: "Frontier model; routed server-side to OpenAI by the blaude router.",
     },
     CuratedModel {
         id: "qwen3-coder-next",
@@ -185,7 +185,7 @@ pub const CURATED_MODELS: &[CuratedModel] = &[
         default_enabled: false,
         routing_policy: UpstreamRoutingPolicy::ServerManaged,
         min_tier: JcodeTier::Plus,
-        note: "Open-weight coding model; routed server-side to Amazon Bedrock by the jcode router.",
+        note: "Open-weight coding model; routed server-side to Amazon Bedrock by the blaude router.",
     },
     CuratedModel {
         id: "devstral-2-123b",
@@ -198,7 +198,7 @@ pub const CURATED_MODELS: &[CuratedModel] = &[
         default_enabled: false,
         routing_policy: UpstreamRoutingPolicy::ServerManaged,
         min_tier: JcodeTier::Plus,
-        note: "Open-weight coding model; routed server-side to Amazon Bedrock by the jcode router.",
+        note: "Open-weight coding model; routed server-side to Amazon Bedrock by the blaude router.",
     },
     CuratedModel {
         id: "deepseek-v3.2",
@@ -207,7 +207,7 @@ pub const CURATED_MODELS: &[CuratedModel] = &[
         default_enabled: false,
         routing_policy: UpstreamRoutingPolicy::ServerManaged,
         min_tier: JcodeTier::Plus,
-        note: "Open-weight reasoning and coding model; routed server-side to Amazon Bedrock by the jcode router.",
+        note: "Open-weight reasoning and coding model; routed server-side to Amazon Bedrock by the blaude router.",
     },
     CuratedModel {
         id: "nova-2-lite",
@@ -216,7 +216,7 @@ pub const CURATED_MODELS: &[CuratedModel] = &[
         default_enabled: false,
         routing_policy: UpstreamRoutingPolicy::ServerManaged,
         min_tier: JcodeTier::Plus,
-        note: "Recent efficient multimodal model; routed server-side to Amazon Bedrock by the jcode router.",
+        note: "Recent efficient multimodal model; routed server-side to Amazon Bedrock by the blaude router.",
     },
     CuratedModel {
         id: "minimax-m2.5",
@@ -225,7 +225,7 @@ pub const CURATED_MODELS: &[CuratedModel] = &[
         default_enabled: false,
         routing_policy: UpstreamRoutingPolicy::ServerManaged,
         min_tier: JcodeTier::Plus,
-        note: "Recent reasoning and coding model; routed server-side to Amazon Bedrock by the jcode router.",
+        note: "Recent reasoning and coding model; routed server-side to Amazon Bedrock by the blaude router.",
     },
     CuratedModel {
         id: "mistral-large-3",
@@ -234,7 +234,7 @@ pub const CURATED_MODELS: &[CuratedModel] = &[
         default_enabled: false,
         routing_policy: UpstreamRoutingPolicy::ServerManaged,
         min_tier: JcodeTier::Plus,
-        note: "Open-weight general and coding model; routed server-side to Amazon Bedrock by the jcode router.",
+        note: "Open-weight general and coding model; routed server-side to Amazon Bedrock by the blaude router.",
     },
     CuratedModel {
         id: "kimi-k2.5",
@@ -243,7 +243,7 @@ pub const CURATED_MODELS: &[CuratedModel] = &[
         default_enabled: false,
         routing_policy: UpstreamRoutingPolicy::ServerManaged,
         min_tier: JcodeTier::Plus,
-        note: "Recent reasoning and agentic model; routed server-side to Amazon Bedrock by the jcode router.",
+        note: "Recent reasoning and agentic model; routed server-side to Amazon Bedrock by the blaude router.",
     },
     CuratedModel {
         id: "kimi-k2-thinking",
@@ -252,7 +252,7 @@ pub const CURATED_MODELS: &[CuratedModel] = &[
         default_enabled: false,
         routing_policy: UpstreamRoutingPolicy::ServerManaged,
         min_tier: JcodeTier::Plus,
-        note: "Reasoning-focused model; routed server-side to Amazon Bedrock by the jcode router.",
+        note: "Reasoning-focused model; routed server-side to Amazon Bedrock by the blaude router.",
     },
     CuratedModel {
         id: "nemotron-nano-3-30b",
@@ -265,7 +265,7 @@ pub const CURATED_MODELS: &[CuratedModel] = &[
         default_enabled: false,
         routing_policy: UpstreamRoutingPolicy::ServerManaged,
         min_tier: JcodeTier::Plus,
-        note: "Efficient open-weight reasoning model; routed server-side to Amazon Bedrock by the jcode router.",
+        note: "Efficient open-weight reasoning model; routed server-side to Amazon Bedrock by the blaude router.",
     },
     CuratedModel {
         id: "gpt-oss-120b",
@@ -274,7 +274,7 @@ pub const CURATED_MODELS: &[CuratedModel] = &[
         default_enabled: false,
         routing_policy: UpstreamRoutingPolicy::ServerManaged,
         min_tier: JcodeTier::Plus,
-        note: "Large open-weight reasoning model; routed server-side to Amazon Bedrock by the jcode router.",
+        note: "Large open-weight reasoning model; routed server-side to Amazon Bedrock by the blaude router.",
     },
     CuratedModel {
         id: "gpt-oss-20b",
@@ -283,7 +283,7 @@ pub const CURATED_MODELS: &[CuratedModel] = &[
         default_enabled: false,
         routing_policy: UpstreamRoutingPolicy::ServerManaged,
         min_tier: JcodeTier::Plus,
-        note: "Efficient open-weight reasoning model; routed server-side to Amazon Bedrock by the jcode router.",
+        note: "Efficient open-weight reasoning model; routed server-side to Amazon Bedrock by the blaude router.",
     },
     CuratedModel {
         id: "qwen3-next-80b",
@@ -292,7 +292,7 @@ pub const CURATED_MODELS: &[CuratedModel] = &[
         default_enabled: false,
         routing_policy: UpstreamRoutingPolicy::ServerManaged,
         min_tier: JcodeTier::Plus,
-        note: "Open-weight general and coding model; routed server-side to Amazon Bedrock by the jcode router.",
+        note: "Open-weight general and coding model; routed server-side to Amazon Bedrock by the blaude router.",
     },
     CuratedModel {
         id: "glm-5",
@@ -301,7 +301,7 @@ pub const CURATED_MODELS: &[CuratedModel] = &[
         default_enabled: false,
         routing_policy: UpstreamRoutingPolicy::ServerManaged,
         min_tier: JcodeTier::Plus,
-        note: "Recent general and coding model; routed server-side to Amazon Bedrock by the jcode router.",
+        note: "Recent general and coding model; routed server-side to Amazon Bedrock by the blaude router.",
     },
     CuratedModel {
         id: "glm-4.7-flash",
@@ -310,7 +310,7 @@ pub const CURATED_MODELS: &[CuratedModel] = &[
         default_enabled: false,
         routing_policy: UpstreamRoutingPolicy::ServerManaged,
         min_tier: JcodeTier::Plus,
-        note: "Efficient recent general model; routed server-side to Amazon Bedrock by the jcode router.",
+        note: "Efficient recent general model; routed server-side to Amazon Bedrock by the blaude router.",
     },
 ];
 
@@ -384,7 +384,7 @@ pub fn is_model_allowed_for_current_tier(model: &str) -> bool {
 pub fn routing_policy_detail(model: &CuratedModel) -> String {
     match model.routing_policy {
         UpstreamRoutingPolicy::ServerManaged => {
-            "Jcode hosted routing · managed server-side".to_string()
+            "blaude hosted routing · managed server-side".to_string()
         }
     }
 }
@@ -411,7 +411,7 @@ pub fn persist_account_credentials(
 ) -> anyhow::Result<()> {
     let api_key = api_key.trim();
     if api_key.is_empty() {
-        anyhow::bail!("refusing to persist an empty jcode account API key");
+        anyhow::bail!("refusing to persist an empty blaude account API key");
     }
 
     for (key, value) in [
@@ -465,7 +465,7 @@ pub fn ensure_account_credential_permissions() -> anyhow::Result<()> {
         let mode = std::fs::metadata(&path)?.permissions().mode() & 0o777;
         if mode & 0o077 != 0 {
             anyhow::bail!(
-                "jcode account credential file has unsafe permissions {:03o}; expected owner-only access",
+                "blaude account credential file has unsafe permissions {:03o}; expected owner-only access",
                 mode
             );
         }

@@ -479,7 +479,7 @@ mod tests {
             "GitHub timed out"
         );
         assert_eq!(
-            summarize_update_error("Checksum mismatch for jcode: expected a, got b"),
+            summarize_update_error("Checksum mismatch for blaude: expected a, got b"),
             "download failed checksum verification"
         );
         assert_eq!(

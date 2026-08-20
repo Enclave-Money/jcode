@@ -537,12 +537,12 @@ pub const AUTO_IMPORT_LOGIN_PROVIDER: LoginProviderDescriptor = LoginProviderDes
 
 pub const JCODE_LOGIN_PROVIDER: LoginProviderDescriptor = LoginProviderDescriptor {
     id: "jcode",
-    display_name: "Jcode Subscription",
+    display_name: "blaude Subscription",
     auth_kind: LoginProviderAuthKind::ApiKey,
     auth_state_key: LoginProviderAuthStateKey::Jcode,
     auth_status_method: "API key",
     aliases: &["subscription", "jcode-subscription"],
-    menu_detail: "curated jcode subscription models",
+    menu_detail: "curated blaude subscription models",
     recommended: false,
     target: LoginProviderTarget::Jcode,
     order: LoginProviderSurfaceOrder::new(Some(3), Some(3), Some(3), Some(3), Some(3)),
@@ -988,7 +988,7 @@ pub const XAI_LOGIN_PROVIDER: LoginProviderDescriptor = LoginProviderDescriptor 
     order: LoginProviderSurfaceOrder::new(Some(33), Some(33), Some(33), Some(33), Some(33)),
 };
 
-/// Grok Build is intentionally a separate identity from `xai`: Jcode manages
+/// Grok Build is intentionally a separate identity from `xai`: blaude manages
 /// its subscription backend and never consumes `XAI_API_KEY`.
 pub const GROK_BUILD_LOGIN_PROVIDER: LoginProviderDescriptor = LoginProviderDescriptor {
     id: "grok-build",
@@ -997,7 +997,7 @@ pub const GROK_BUILD_LOGIN_PROVIDER: LoginProviderDescriptor = LoginProviderDesc
     auth_state_key: LoginProviderAuthStateKey::GrokBuild,
     auth_status_method: "Grok Build subscription login",
     aliases: &[],
-    menu_detail: "Grok Build subscription managed by Jcode",
+    menu_detail: "Grok Build subscription managed by blaude",
     recommended: false,
     target: LoginProviderTarget::GrokBuild,
     order: LoginProviderSurfaceOrder::new(Some(100), Some(100), Some(100), Some(100), Some(100)),

@@ -6,12 +6,12 @@ use super::{
 use anyhow::{Context, Result};
 use std::path::{Path, PathBuf};
 
-const MACOS_APP_ICON_FILE_NAME: &str = "Jcode.icns";
+const MACOS_APP_ICON_FILE_NAME: &str = "blaude.icns";
 const MACOS_APP_ICON_BYTES: &[u8] = include_bytes!(concat!(
     env!("CARGO_MANIFEST_DIR"),
-    "/../../assets/app-icons/Jcode.icns"
+    "/../../assets/app-icons/blaude.icns"
 ));
-const MACOS_NOTIFICATION_APP_NAME: &str = "Jcode Notifications.app";
+const MACOS_NOTIFICATION_APP_NAME: &str = "blaude Notifications.app";
 const MACOS_NOTIFICATION_EXECUTABLE: &str = "jcode-notification-broker";
 const MACOS_NOTIFICATION_VERSION_MARKER: &str = "jcode-broker-version";
 
@@ -69,9 +69,9 @@ pub(super) fn install_macos_app_launcher() -> Result<(PathBuf, MacTerminalKind)>
 <plist version="1.0">
 <dict>
     <key>CFBundleName</key>
-    <string>Jcode</string>
+    <string>blaude</string>
     <key>CFBundleDisplayName</key>
-    <string>Jcode</string>
+    <string>blaude</string>
     <key>CFBundleIdentifier</key>
     <string>com.jcode.launcher</string>
     <key>CFBundleVersion</key>
@@ -110,12 +110,13 @@ pub(super) fn install_macos_app_launcher() -> Result<(PathBuf, MacTerminalKind)>
 
 fn macos_app_launcher_dir() -> Result<PathBuf> {
     let home = dirs::home_dir().context("Could not find home directory")?;
-    Ok(home.join("Applications").join("Jcode.app"))
+    Ok(home.join("Applications").join("blaude.app"))
 }
 
 fn legacy_macos_app_launcher_dir() -> Result<PathBuf> {
     let home = dirs::home_dir().context("Could not find home directory")?;
-    Ok(home.join("Applications").join("jcode.app"))
+    // The pre-rebrand launcher bundle old installs still have on disk.
+    Ok(home.join("Applications").join("Jcode.app"))
 }
 
 fn macos_notification_broker_dir() -> Result<PathBuf> {
@@ -165,7 +166,7 @@ fn install_macos_notification_broker(jcode_executable: &Path) -> Result<PathBuf>
     std::fs::create_dir_all(parent)?;
 
     let staging = parent.join(format!(
-        ".Jcode Notifications.app.installing-{}",
+        ".blaude Notifications.app.installing-{}",
         std::process::id()
     ));
     remove_path_if_exists(&staging)?;
@@ -225,9 +226,9 @@ fn macos_notification_info_plist() -> String {
 <plist version="1.0">
 <dict>
     <key>CFBundleName</key>
-    <string>Jcode Notifications</string>
+    <string>blaude Notifications</string>
     <key>CFBundleDisplayName</key>
-    <string>Jcode Notifications</string>
+    <string>blaude Notifications</string>
     <key>CFBundleIdentifier</key>
     <string>com.jcode.notifications</string>
     <key>CFBundleVersion</key>
@@ -346,11 +347,11 @@ fn macos_launcher_script(terminal: MacTerminalKind, exe_path: &str, app_dir: &Pa
     let shell_command = paused_jcode_shell_command(exe_path);
     let launch_command = launch_command_for_macos_terminal(terminal, &shell_command);
     let missing_message = escape_applescript_text(&format!(
-        "Jcode could not launch because the executable was not found.\n\nExpected path:\n{}\n\nTry reinstalling jcode or rerun:\njcode setup-launcher",
+        "blaude could not launch because the executable was not found.\n\nExpected path:\n{}\n\nTry reinstalling blaude or rerun:\nblaude setup-launcher",
         exe_path
     ));
     let terminal_failure_message = escape_applescript_text(&format!(
-        "Jcode could not open {}.\n\nTry rerunning:\njcode setup-launcher\n\nLauncher log:\n~/.jcode/launcher/macos-launcher.log",
+        "blaude could not open {}.\n\nTry rerunning:\nblaude setup-launcher\n\nLauncher log:\n~/.jcode/launcher/macos-launcher.log",
         terminal.label()
     ));
 
@@ -365,13 +366,13 @@ mkdir -p "$LOG_DIR" >/dev/null 2>&1 || true
 
 show_missing_executable() {{
   /usr/bin/osascript <<'APPLESCRIPT' >/dev/null 2>&1 || true
-display alert "Jcode launch failed" message "{missing_message}" as critical
+display alert "blaude launch failed" message "{missing_message}" as critical
 APPLESCRIPT
 }}
 
 show_terminal_launch_failure() {{
   /usr/bin/osascript <<'APPLESCRIPT' >/dev/null 2>&1 || true
-display alert "Jcode launch failed" message "{terminal_failure_message}" as critical
+display alert "blaude launch failed" message "{terminal_failure_message}" as critical
 APPLESCRIPT
 }}
 

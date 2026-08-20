@@ -47,19 +47,19 @@ impl App {
             );
             if let Some(target) = callback_target {
                 notices.push(format!(
-                    "Local callback target {} is unavailable, so jcode is using manual-safe paste completion instead.",
+                    "Local callback target {} is unavailable, so blaude is using manual-safe paste completion instead.",
                     target
                 ));
             } else {
                 notices.push(
-                    "The local callback listener is unavailable, so jcode is using manual-safe paste completion instead."
+                    "The local callback listener is unavailable, so blaude is using manual-safe paste completion instead."
                         .to_string(),
                 );
             }
         }
         if !notices.is_empty() {
             notices.push(format!(
-                "If login still fails, run jcode auth doctor {} for a guided diagnosis.",
+                "If login still fails, run blaude auth doctor {} for a guided diagnosis.",
                 provider_id
             ));
         }
@@ -72,13 +72,13 @@ impl App {
             .unwrap_or_else(|| crate::subscription_catalog::DEFAULT_JCODE_API_BASE.to_string());
         let runtime_mode = crate::subscription_catalog::is_runtime_mode_enabled();
 
-        let mut message = String::from("Jcode Hosted Model Status\n\n");
+        let mut message = String::from("blaude Hosted Model Status\n\n");
         message.push_str(&format!(
             "  - Credentials: {}\n",
             if configured_key {
                 "configured"
             } else {
-                "not configured (/login jcode)"
+                "not configured (/login blaude)"
             }
         ));
         message.push_str(&format!(
@@ -120,7 +120,7 @@ impl App {
         }
 
         message.push_str("\nBilling\n\n");
-        message.push_str("  - Set the monthly spending limit you control in your Jcode account\n");
+        message.push_str("  - Set the monthly spending limit you control in your blaude account\n");
         message.push_str("  - Email and account warnings are sent at usage milestones\n");
         message.push_str("  - Warning milestones do not rate limit hosted requests\n");
         message.push_str("  - Charges begin at $20, then use progressively larger tranches\n");
@@ -130,7 +130,7 @@ impl App {
             message.push_str("\nFetching hosted usage and spending limit...");
         } else {
             message.push_str(
-                "\nLog in with /login jcode to set a spending limit and connect hosted models.",
+                "\nLog in with /login blaude to set a spending limit and connect hosted models.",
             );
         }
 
@@ -155,7 +155,7 @@ impl App {
                                 crate::bus::UiActivity::background(
                                     Some(session_id),
                                     format!(
-                                        "Jcode Hosted Model Account\n\n  - Email: {}\n  - Billing: {}\n  - Spend: ${:.2} of ${:.2} monthly limit\n  - Billed in tranches: ${:.2}{}{}",
+                                        "blaude Hosted Model Account\n\n  - Email: {}\n  - Billing: {}\n  - Spend: ${:.2} of ${:.2} monthly limit\n  - Billed in tranches: ${:.2}{}{}",
                                         me.email,
                                         me.status,
                                         me.usage.used_usd,
@@ -177,11 +177,11 @@ impl App {
                                 == Some(&crate::subscription_api::AccountApiError::Unauthorized)
                             {
                                 let _ = crate::subscription_catalog::clear_account_credentials();
-                                "Jcode Account Status\n\nThe saved account key was revoked or expired. Local credentials were cleared. Use /account jcode login to sign in again."
+                                "blaude Account Status\n\nThe saved account key was revoked or expired. Local credentials were cleared. Use /account blaude login to sign in again."
                                     .to_string()
                             } else {
                                 format!(
-                                    "Jcode Account Status\n\nCould not load /v1/me: {}\n\nThe local credential was retained. Retry /account jcode status, open /account jcode manage, or use /account jcode logout.",
+                                    "blaude Account Status\n\nCould not load /v1/me: {}\n\nThe local credential was retained. Retry /account blaude status, open /account blaude manage, or use /account blaude logout.",
                                     error
                                 )
                             };
@@ -189,7 +189,7 @@ impl App {
                                 crate::bus::UiActivity::background(
                                     Some(session_id),
                                     message,
-                                    Some("Jcode account status unavailable"),
+                                    Some("blaude account status unavailable"),
                                 ),
                             ));
                         }
@@ -246,7 +246,7 @@ impl App {
             message.push('\n');
         }
         message.push_str(
-            "\nUse /login <provider> to authenticate. /login jcode is for curated jcode subscription access; /account opens the provider/account management center, /account <provider> settings shows provider-specific controls, and /auth doctor or /account <provider> doctor shows recovery steps.",
+            "\nUse /login <provider> to authenticate. /login blaude is for curated blaude subscription access; /account opens the provider/account management center, /account <provider> settings shows provider-specific controls, and /auth doctor or /account <provider> doctor shows recovery steps.",
         );
         self.push_display_message(DisplayMessage::system(message));
     }
@@ -372,7 +372,7 @@ impl App {
         Self::clear_api_key_logout_summary(
             &mut summary,
             &mut errors,
-            "jcode subscription API key",
+            "blaude subscription API key",
             crate::subscription_catalog::JCODE_API_KEY_ENV,
             crate::subscription_catalog::JCODE_ENV_FILE,
         );
@@ -387,7 +387,7 @@ impl App {
                 crate::subscription_catalog::JCODE_ENV_FILE,
                 None,
             ) {
-                errors.push(format!("jcode subscription {}: {}", env_key, err));
+                errors.push(format!("blaude subscription {}: {}", env_key, err));
             }
         }
 
@@ -575,7 +575,7 @@ impl App {
                     provider.auth_kind.label(),
                 );
                 self.push_display_message(DisplayMessage::error(
-                    "Google/Gmail login is only available from the CLI right now. Run jcode login --provider google."
+                    "Google/Gmail login is only available from the CLI right now. Run blaude login --provider google."
                         .to_string(),
                 ));
             }
@@ -597,14 +597,14 @@ impl App {
 
     fn start_jcode_login(&mut self) {
         self.push_display_message(DisplayMessage::system(
-            "Jcode Account Login\n\nRequesting a secure browser approval flow. No email or API key will be requested in the terminal."
+            "blaude Account Login\n\nRequesting a secure browser approval flow. No email or API key will be requested in the terminal."
                 .to_string(),
         ));
-        self.set_status_notice("Jcode account: requesting browser approval");
+        self.set_status_notice("blaude account: requesting browser approval");
         let session_id = self.session.id.clone();
         let Ok(handle) = tokio::runtime::Handle::try_current() else {
             self.push_display_message(DisplayMessage::error(
-                "Jcode account login requires the async runtime.".to_string(),
+                "blaude account login requires the async runtime.".to_string(),
             ));
             return;
         };
@@ -636,10 +636,10 @@ impl App {
                 Err(error) => {
                     publish(
                         format!(
-                            "Jcode Account Login\n\nCould not start browser approval: {}\n\nRetry /account jcode login. No credential was saved.",
+                            "blaude Account Login\n\nCould not start browser approval: {}\n\nRetry /account blaude login. No credential was saved.",
                             error
                         ),
-                        "Jcode account login failed",
+                        "blaude account login failed",
                     );
                     return;
                 }
@@ -648,7 +648,7 @@ impl App {
             let opened = App::open_auth_browser(&device.verification_uri_complete);
             publish(
                 format!(
-                    "Jcode Account Login\n\n{}\n\nApprove the request in the same browser. Jcode is waiting for the single-use exchange.{}",
+                    "blaude Account Login\n\n{}\n\nApprove the request in the same browser. blaude is waiting for the single-use exchange.{}",
                     device.verification_uri_complete,
                     if opened {
                         ""
@@ -656,7 +656,7 @@ impl App {
                         "\n\nThe browser could not be opened automatically. Open the public URL above manually."
                     }
                 ),
-                "Jcode account: waiting for browser approval",
+                "blaude account: waiting for browser approval",
             );
 
             let approved = {
@@ -686,7 +686,7 @@ impl App {
                                 .to_string(),
                         ),
                         Ok(TokenPollOutcome::Denied) => break Err(
-                            "Jcode account login was canceled or denied in the browser."
+                            "blaude account login was canceled or denied in the browser."
                                 .to_string(),
                         ),
                         Err(error) if error.is_temporary() => backoff.on_offline_error(),
@@ -698,8 +698,8 @@ impl App {
                 Ok(approved) => approved,
                 Err(error) => {
                     publish(
-                        format!("Jcode Account Login\n\n{error}\n\nRetry /account jcode login."),
-                        "Jcode account login stopped",
+                        format!("blaude Account Login\n\n{error}\n\nRetry /account blaude login."),
+                        "blaude account login stopped",
                     );
                     return;
                 }
@@ -712,18 +712,18 @@ impl App {
                 Some(&approved.tier),
             ) {
                 publish(
-                    format!("Jcode Account Login\n\nBrowser approval succeeded, but secure credential persistence failed: {error}"),
-                    "Jcode account credential save failed",
+                    format!("blaude Account Login\n\nBrowser approval succeeded, but secure credential persistence failed: {error}"),
+                    "blaude account credential save failed",
                 );
                 return;
             }
             crate::auth::AuthStatus::invalidate_cache();
             publish(
                 format!(
-                    "Jcode Account Approved\n\nSigned in as {}. The API key is stored with owner-only permissions. Finish setting your monthly spending limit in the browser; Jcode is checking /v1/me...",
+                    "blaude Account Approved\n\nSigned in as {}. The API key is stored with owner-only permissions. Finish setting your monthly spending limit in the browser; blaude is checking /v1/me...",
                     approved.email
                 ),
-                "Jcode account: waiting for spending limit",
+                "blaude account: waiting for spending limit",
             );
 
             match crate::subscription_api::poll_for_paid_activation(
@@ -737,11 +737,11 @@ impl App {
             {
                 ActivationOutcome::Active(me) => {
                     let message = format!(
-                        "Jcode Account Ready\n\nHosted models are enabled for {} with a ${:.2} monthly spending limit. Models are being refreshed automatically.\n\nUsage: /usage\nManage limit: /account jcode manage\nLogout: /account jcode logout",
+                        "blaude Account Ready\n\nHosted models are enabled for {} with a ${:.2} monthly spending limit. Models are being refreshed automatically.\n\nUsage: /usage\nManage limit: /account blaude manage\nLogout: /account blaude logout",
                         me.email,
                         me.usage.budget_usd
                     );
-                    publish(message.clone(), "Jcode hosted models ready");
+                    publish(message.clone(), "blaude hosted models ready");
 
                     // The device flow used to stop after saving the credential and
                     // publishing a status message. Unlike every other login flow it
@@ -759,21 +759,21 @@ impl App {
                     );
                 }
                 ActivationOutcome::Canceled(_) => publish(
-                    "Jcode Account Login\n\nBilling setup was canceled. The valid account key remains saved, but hosted usage is not enabled.\n\nStatus: /usage\nManage limit: /account jcode manage\nLogout: /account jcode logout".to_string(),
-                    "Jcode hosted billing not active",
+                    "blaude Account Login\n\nBilling setup was canceled. The valid account key remains saved, but hosted usage is not enabled.\n\nStatus: /usage\nManage limit: /account blaude manage\nLogout: /account blaude logout".to_string(),
+                    "blaude hosted billing not active",
                 ),
                 ActivationOutcome::TimedOut { last_error_was_offline } => publish(
                     format!(
-                        "Jcode Account Login\n\nA spending limit was not confirmed before timeout{}. The valid account key remains saved.\n\nStatus: /usage\nManage limit: /account jcode manage\nLogout: /account jcode logout",
+                        "blaude Account Login\n\nA spending limit was not confirmed before timeout{}. The valid account key remains saved.\n\nStatus: /usage\nManage limit: /account blaude manage\nLogout: /account blaude logout",
                         if last_error_was_offline { " because the API remained unreachable" } else { "" }
                     ),
-                    "Jcode hosted billing setup pending",
+                    "blaude hosted billing setup pending",
                 ),
                 ActivationOutcome::Revoked | ActivationOutcome::Denied => {
                     let _ = crate::subscription_catalog::clear_account_credentials();
                     publish(
-                        "Jcode Account Login\n\nThe issued key was revoked or denied during activation checks. Local credentials were cleared. Retry /account jcode login.".to_string(),
-                        "Jcode account key rejected",
+                        "blaude Account Login\n\nThe issued key was revoked or denied during activation checks. Local credentials were cleared. Retry /account blaude login.".to_string(),
+                        "blaude account key rejected",
                     );
                 }
             }
@@ -784,7 +784,7 @@ impl App {
         let url = crate::subscription_catalog::JCODE_ACCOUNT_URL;
         let opened = Self::open_auth_browser(url);
         self.push_display_message(DisplayMessage::system(format!(
-            "Jcode Account Management\n\n{}{}",
+            "blaude Account Management\n\n{}{}",
             url,
             if opened {
                 "\n\nOpened in your browser."
@@ -792,21 +792,21 @@ impl App {
                 "\n\nThe browser could not be opened automatically. Open the public URL above manually."
             }
         )));
-        self.set_status_notice("Jcode account management");
+        self.set_status_notice("blaude account management");
     }
 
     pub(super) fn start_jcode_account_logout(&mut self) {
-        self.set_status_notice("Jcode account: logging out");
+        self.set_status_notice("blaude account: logging out");
         let session_id = self.session.id.clone();
         let Ok(handle) = tokio::runtime::Handle::try_current() else {
             let result = crate::subscription_catalog::clear_account_credentials();
             match result {
                 Ok(()) => self.push_display_message(DisplayMessage::system(
-                    "Jcode account credentials and cache were cleared locally. Remote revocation could not be attempted without the async runtime."
+                    "blaude account credentials and cache were cleared locally. Remote revocation could not be attempted without the async runtime."
                         .to_string(),
                 )),
                 Err(error) => self.push_display_message(DisplayMessage::error(format!(
-                    "Failed to clear local Jcode account credentials: {error}"
+                    "Failed to clear local blaude account credentials: {error}"
                 ))),
             }
             return;
@@ -827,21 +827,21 @@ impl App {
             crate::auth::AuthStatus::invalidate_cache();
             let message = match local {
                 Err(error) => format!(
-                    "Jcode Account Logout\n\nFailed to securely clear local credentials: {error}"
+                    "blaude Account Logout\n\nFailed to securely clear local credentials: {error}"
                 ),
                 Ok(()) => match (api_key.is_some(), remote) {
-                    (false, _) => "Jcode Account Logout\n\nNo local credential was present. Local account cache is clear.".to_string(),
-                    (true, Ok(())) => "Jcode Account Logout\n\nThe current key was revoked. Local credentials and account cache were securely cleared.".to_string(),
-                    (true, Err(crate::subscription_api::AccountApiError::Unauthorized)) => "Jcode Account Logout\n\nThe key was already revoked. Local credentials and account cache were securely cleared.".to_string(),
-                    (true, Err(crate::subscription_api::AccountApiError::Offline(_))) => "Jcode Account Logout\n\nLocal credentials and account cache were securely cleared. The API was offline, so remote revocation could not be confirmed.".to_string(),
-                    (true, Err(error)) => format!("Jcode Account Logout\n\nLocal credentials and account cache were securely cleared. Remote revocation could not be confirmed: {error}"),
+                    (false, _) => "blaude Account Logout\n\nNo local credential was present. Local account cache is clear.".to_string(),
+                    (true, Ok(())) => "blaude Account Logout\n\nThe current key was revoked. Local credentials and account cache were securely cleared.".to_string(),
+                    (true, Err(crate::subscription_api::AccountApiError::Unauthorized)) => "blaude Account Logout\n\nThe key was already revoked. Local credentials and account cache were securely cleared.".to_string(),
+                    (true, Err(crate::subscription_api::AccountApiError::Offline(_))) => "blaude Account Logout\n\nLocal credentials and account cache were securely cleared. The API was offline, so remote revocation could not be confirmed.".to_string(),
+                    (true, Err(error)) => format!("blaude Account Logout\n\nLocal credentials and account cache were securely cleared. Remote revocation could not be confirmed: {error}"),
                 },
             };
             crate::bus::Bus::global().publish(crate::bus::BusEvent::UiActivity(
                 crate::bus::UiActivity::background(
                     Some(session_id),
                     message,
-                    Some("Jcode account logout complete"),
+                    Some("blaude account logout complete"),
                 ),
             ));
         });
@@ -1646,7 +1646,7 @@ impl App {
     fn start_azure_login(&mut self) {
         self.push_display_message(DisplayMessage::system(
             "Azure OpenAI Login\n\n\
-             jcode uses Azure OpenAI's /openai/v1 API with either Microsoft Entra ID or an API key.\n\n\
+             blaude uses Azure OpenAI's /openai/v1 API with either Microsoft Entra ID or an API key.\n\n\
              Enter your Azure OpenAI endpoint, for example https://your-resource.openai.azure.com, or type /cancel to abort."
                 .to_string(),
         ));
@@ -1661,7 +1661,7 @@ impl App {
             "Cursor API Key\n\n\
              Get your API key from: https://cursor.com/settings\n\
              (Dashboard > Integrations > User API Keys)\n\n\
-             jcode will save it securely and use the native Cursor HTTPS transport.\n\n\
+             blaude will save it securely and use the native Cursor HTTPS transport.\n\n\
              Paste your API key below, or type /cancel to abort."
                 .to_string(),
         ));
@@ -1835,7 +1835,7 @@ impl App {
                     Bus::global().publish(BusEvent::LoginCompleted(LoginCompleted {
                         provider: "grok-build".to_string(),
                         success: true,
-                        message: "Grok Build login complete. Jcode is refreshing the provider and model list."
+                        message: "Grok Build login complete. blaude is refreshing the provider and model list."
                             .to_string(),
                     }));
                 }
@@ -2281,7 +2281,7 @@ impl App {
                 // Record the key-save attempt before touching disk. This is the
                 // single most important breadcrumb for issue #312 ("paste API
                 // key for OpenAI-compatible/opencode silently returns to menu"):
-                // it proves the input was received and which env var/file jcode
+                // it proves the input was received and which env var/file blaude
                 // tried to write, without logging the key itself.
                 crate::logging::event_info(
                     "login_api_key_save_attempt",
@@ -2410,20 +2410,20 @@ impl App {
                         let guidance = if key_name == crate::subscription_catalog::JCODE_API_KEY_ENV
                         {
                             format!(
-                                "Use /login jcode to access curated models via your router. If the model list looks stale, run /refresh-model-list.\nDocs: {}",
+                                "Use /login blaude to access curated models via your router. If the model list looks stale, run /refresh-model-list.\nDocs: {}",
                                 docs_url
                             )
                         } else if let Some(resolved) = resolved_openai_compatible.as_ref() {
                             if resolved.requires_api_key {
-                                "Fetching models now. Jcode will switch to an accessible model returned by the live catalog and show the catalog diff when discovery finishes. If the model list looks stale, run /refresh-model-list.".to_string()
+                                "Fetching models now. blaude will switch to an accessible model returned by the live catalog and show the catalog diff when discovery finishes. If the model list looks stale, run /refresh-model-list.".to_string()
                             } else {
                                 format!(
-                                    "Local endpoint configured at {}. Fetching models now; Jcode will switch to an accessible model returned by the live catalog and show the catalog diff when discovery finishes. If the model list looks stale, run /refresh-model-list.",
+                                    "Local endpoint configured at {}. Fetching models now; blaude will switch to an accessible model returned by the live catalog and show the catalog diff when discovery finishes. If the model list looks stale, run /refresh-model-list.",
                                     endpoint.as_deref().unwrap_or(resolved.api_base.as_str()),
                                 )
                             }
                         } else if key_name == crate::provider::bedrock::API_KEY_ENV {
-                            "You can now use /model to switch to Bedrock models. TUI onboarding saved region us-east-2; for a different region, run jcode login --provider bedrock from a terminal.".to_string()
+                            "You can now use /model to switch to Bedrock models. TUI onboarding saved region us-east-2; for a different region, run blaude login --provider bedrock from a terminal.".to_string()
                         } else if key_name == "OPENROUTER_API_KEY" {
                             "You can now use /model to switch to OpenRouter models. If the model list looks stale, run /refresh-model-list.".to_string()
                         } else {
@@ -2644,7 +2644,7 @@ impl App {
                             success: true,
                             message: "Cursor API key saved.\n\n\
                              Stored at ~/.config/jcode/cursor.env.\n\
-                             jcode will use it with the native Cursor HTTPS transport."
+                             blaude will use it with the native Cursor HTTPS transport."
                                 .to_string(),
                         }));
                     }
@@ -3028,7 +3028,7 @@ impl App {
             crate::bus::UiActivity::catalog(
                 Some(self.session.id.clone()),
                 format!(
-                    "{} Model Discovery Started\n\nSaved credentials are active. Jcode is fetching the live model catalog, will only switch to a model returned by that catalog, and will show what changed when discovery finishes.",
+                    "{} Model Discovery Started\n\nSaved credentials are active. blaude is fetching the live model catalog, will only switch to a model returned by that catalog, and will show what changed when discovery finishes.",
                     provider_label
                 ),
                 Some(format!("{}: fetching models...", provider_label)),
@@ -3185,7 +3185,7 @@ impl App {
                                 crate::bus::UiActivity::catalog(
                                     Some(session_id),
                                     format!(
-                                        "{} Model Discovery Still Updating\n\nSaved credentials are active, but this local refresh pass did not find a selectable {} route yet. Jcode is still processing the auth-change catalog refresh and will switch once provider routes are available. If the model list still looks stale after the auth catalog update, run /refresh-model-list.",
+                                        "{} Model Discovery Still Updating\n\nSaved credentials are active, but this local refresh pass did not find a selectable {} route yet. blaude is still processing the auth-change catalog refresh and will switch once provider routes are available. If the model list still looks stale after the auth catalog update, run /refresh-model-list.",
                                         provider_label, provider_label
                                     ),
                                     Some(format!(
@@ -3208,7 +3208,7 @@ impl App {
                             crate::bus::UiActivity::catalog(
                                 Some(session_id),
                                 format!(
-                                    "{} Model Discovery Still Updating\n\nSaved credentials are active, but this local refresh pass failed before the server auth-change catalog refresh finished. Jcode is still processing the auth-change catalog refresh and will switch once provider routes are available. If the model list still looks stale after the auth catalog update, run /refresh-model-list.\n\nLocal refresh error: {}",
+                                    "{} Model Discovery Still Updating\n\nSaved credentials are active, but this local refresh pass failed before the server auth-change catalog refresh finished. blaude is still processing the auth-change catalog refresh and will switch once provider routes are available. If the model list still looks stale after the auth catalog update, run /refresh-model-list.\n\nLocal refresh error: {}",
                                     provider_label, error
                                 ),
                                 Some(format!(

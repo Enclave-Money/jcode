@@ -240,7 +240,7 @@ fn import_review_collects_checked_logins() {
         ExternalAuthReviewCandidate::fixture("Gemini", "Gemini CLI"),
     ])
     .unwrap();
-    // The default is the summary screen with Jcode subscription preselected.
+    // The default is the summary screen with blaude subscription preselected.
     assert!(!review.choosing);
     assert!(!review.continue_focused);
     assert_eq!(review.summary_pill, crate::tui::app::onboarding_flow::SummaryPill::Subscription);
@@ -475,7 +475,7 @@ fn subscription_choice_exposes_the_canonical_pricing_page() {
         assert_eq!(
             app.status_notice(),
             Some(format!(
-                "Open Jcode pricing: {}",
+                "Open blaude pricing: {}",
                 crate::subscription_catalog::JCODE_PRICING_URL
             ))
         );
@@ -820,7 +820,7 @@ fn startup_check_skips_selfdev_canary_session() {
         let mut app = create_test_app();
         app.onboarding_flow = None;
         app.onboarding_startup_checked = false;
-        // Self-dev / canary sessions (e.g. the niri `jcode self-dev` hotkey) take
+        // Self-dev / canary sessions (e.g. the niri `blaude self-dev` hotkey) take
         // a launch path that never bumps `launch_count`, so without this guard the
         // new-user heuristic would re-onboard on every spawn.
         app.session.is_canary = true;
@@ -995,11 +995,11 @@ fn local_post_import_validation_waits_for_model_activation() {
 fn startup_check_skips_user_with_established_session_history() {
     with_temp_jcode_home(|| {
         // A low/missing launch_count alone must NOT classify someone as a new
-        // user when their jcode home has a substantial native session history
+        // user when their blaude home has a substantial native session history
         // (e.g. setup_hints.json was reset or lost). Seed >=10 native session
         // files in the temp home.
         let sessions_dir = crate::storage::jcode_dir()
-            .expect("jcode dir")
+            .expect("blaude dir")
             .join("sessions");
         std::fs::create_dir_all(&sessions_dir).expect("create sessions dir");
         for i in 0..10 {
@@ -1030,7 +1030,7 @@ fn startup_check_imported_transcripts_do_not_count_as_history() {
         // Imported Codex/Claude transcripts exist on genuinely fresh installs
         // that chose to import history; they must not suppress onboarding.
         let sessions_dir = crate::storage::jcode_dir()
-            .expect("jcode dir")
+            .expect("blaude dir")
             .join("sessions");
         std::fs::create_dir_all(&sessions_dir).expect("create sessions dir");
         for i in 0..20 {
@@ -1366,7 +1366,7 @@ fn import_failure_h_key_prepares_agent_repair_brief() {
             .find(|m| m.content.contains("Agent repair brief"))
             .map(|m| m.content.clone())
             .expect("repair brief message");
-        assert!(brief.contains("jcode auth-test --provider openai --json"), "{brief}");
+        assert!(brief.contains("blaude auth-test --provider openai --json"), "{brief}");
         assert!(brief.contains("--api-key-stdin"), "{brief}");
         assert!(brief.contains("the saved credential was rejected"), "{brief}");
         // The brief was also persisted to a stable path a helper agent can read.
@@ -1374,7 +1374,7 @@ fn import_failure_h_key_prepares_agent_repair_brief() {
             .expect("repair brief path");
         assert!(brief_path.exists(), "brief file should be written: {brief_path:?}");
         let on_disk = std::fs::read_to_string(&brief_path).expect("read brief file");
-        assert!(on_disk.contains("jcode auth-test --provider openai --json"), "{on_disk}");
+        assert!(on_disk.contains("blaude auth-test --provider openai --json"), "{on_disk}");
         assert!(brief.contains(&brief_path.display().to_string()), "brief cites its own path");
         // Staying on the recovery screen, Enter still opens the provider picker.
         assert!(app.handle_onboarding_continue_prompt_key(KeyCode::Enter));
@@ -1414,7 +1414,7 @@ fn import_summary_defaults_to_continue_and_enter_imports_all() {
         ])
         .unwrap();
         // Import tests explicitly select Continue because the product default is
-        // now Jcode subscription.
+        // now blaude subscription.
         assert!(!review.choosing);
         review.focus_summary_pill(crate::tui::app::onboarding_flow::SummaryPill::Continue);
         assert!(review.continue_focused);

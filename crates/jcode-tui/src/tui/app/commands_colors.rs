@@ -245,7 +245,7 @@ fn reset_colors(app: &mut App, role_key: Option<&str>) {
 /// Mutate `[display.colors]`, save, and reinstall the live palette.
 ///
 /// Reload-then-patch-then-save (rather than serializing cached state) so a
-/// concurrent config edit by another jcode session is not clobbered.
+/// concurrent config edit by another blaude session is not clobbered.
 fn persist(
     mutate: impl FnOnce(&mut std::collections::BTreeMap<String, String>),
 ) -> anyhow::Result<()> {

@@ -90,7 +90,7 @@ fn probe_generic_provider_auth(
     report.push_step(
         "refresh_probe",
         true,
-        "Skipped: provider does not expose a dedicated refresh probe in jcode today.".to_string(),
+        "Skipped: provider does not expose a dedicated refresh probe in blaude today.".to_string(),
     );
 }
 
@@ -299,7 +299,7 @@ async fn probe_cursor_auth(report: &mut AuthTestProviderReport) {
     report.push_step(
         "refresh_probe",
         true,
-        "Skipped: Cursor provider does not expose a native refresh-token probe in jcode today."
+        "Skipped: Cursor provider does not expose a native refresh-token probe in blaude today."
             .to_string(),
     );
 }

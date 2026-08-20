@@ -9,8 +9,8 @@ use super::Config;
 /// The color config a user actually writes must survive a real file round trip.
 ///
 /// The template tests check the string we ship; this checks the whole path a
-/// user takes: jcode writes the default file, the user uncomments the color
-/// example, and jcode loads it back through the same cache the running process
+/// user takes: blaude writes the default file, the user uncomments the color
+/// example, and blaude loads it back through the same cache the running process
 /// uses. A schema or template mistake that only shows up on disk lands here.
 #[test]
 fn configured_colors_survive_a_real_config_file_round_trip() {
@@ -20,7 +20,7 @@ fn configured_colors_survive_a_real_config_file_round_trip() {
     crate::env::set_var("JCODE_HOME", dir.path());
     Config::invalidate_cache();
 
-    // The file jcode writes for a new user must document colors and parse.
+    // The file blaude writes for a new user must document colors and parse.
     let path = Config::create_default_config_file().expect("create default config file");
     let generated = std::fs::read_to_string(&path).expect("read generated config");
     assert!(

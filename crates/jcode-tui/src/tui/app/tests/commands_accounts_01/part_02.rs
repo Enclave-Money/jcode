@@ -228,11 +228,11 @@ fn test_subscription_command_shows_jcode_status_scaffold() {
         .last()
         .expect("missing /subscription response");
     assert_eq!(msg.role, "system");
-    assert!(msg.content.contains("Jcode Hosted Model Status"));
+    assert!(msg.content.contains("blaude Hosted Model Status"));
     assert!(msg.content.contains("pay as you go, no subscription fee"));
     assert!(msg.content.contains("monthly spending limit"));
     assert!(msg.content.contains("progressively larger tranches"));
-    assert!(msg.content.contains("/login jcode"));
+    assert!(msg.content.contains("/login blaude"));
     assert!(msg.content.contains("Claude Opus 4.8"));
     assert!(msg.content.contains("GPT-5.5"));
     assert!(msg.content.contains("Claude Fable 5"));
@@ -253,11 +253,11 @@ fn test_subscribe_command_shows_hosted_pitch_and_next_step() {
         .last()
         .expect("missing /subscribe response");
     assert_eq!(msg.role, "system");
-    assert!(msg.content.contains("Jcode hosted models"));
+    assert!(msg.content.contains("blaude hosted models"));
     assert!(msg.content.contains("No subscription"));
     assert!(msg.content.contains("monthly spending limit"));
     assert!(msg.content.contains("open source"));
-    assert!(msg.content.contains("/login jcode"));
+    assert!(msg.content.contains("/login blaude"));
     assert!(msg.content.contains("/usage"));
     assert!(msg.content.contains("$20 of usage"));
 }

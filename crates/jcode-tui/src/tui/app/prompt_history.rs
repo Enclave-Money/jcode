@@ -70,7 +70,7 @@ pub(crate) fn load_from_path(path: &Path) -> Vec<String> {
 
 /// Append one prompt to the history file, compacting when the append-only
 /// file grows past [`COMPACT_THRESHOLD_LINES`]. Appends (rather than
-/// rewriting) so concurrent jcode processes do not clobber each other;
+/// rewriting) so concurrent blaude processes do not clobber each other;
 /// dedupe happens at load and compaction time.
 pub(crate) fn append_to_path(path: &Path, text: &str) {
     let trimmed = text.trim();

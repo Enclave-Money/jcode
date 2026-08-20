@@ -767,7 +767,7 @@ fn route_matches_activation(route: &ModelRoute, activation: &AuthActivationResul
             );
         }
         "jcode" => {
-            // Jcode subscription routes deliberately keep their managed public
+            // blaude subscription routes deliberately keep their managed public
             // identity even though the runtime reuses OpenRouter transport code.
             return matches!(
                 api_method,
@@ -1362,7 +1362,7 @@ mod tests {
             ("openai", "openai", "OpenAI"),
             ("openai-key", "openai-api", "OpenAI API"),
             ("openrouter", "openrouter", "OpenRouter"),
-            ("subscription", "jcode", "Jcode Subscription"),
+            ("subscription", "jcode", "blaude Subscription"),
             ("bedrock", "bedrock", "AWS Bedrock"),
             ("cursor", "cursor", "Cursor"),
             ("copilot", "copilot", "GitHub Copilot"),
@@ -1617,7 +1617,7 @@ mod tests {
     fn jcode_auth_lifecycle_matches_only_managed_subscription_routes() {
         let activation = AuthActivationResult {
             provider_id: Some("jcode".to_string()),
-            provider_label: Some("Jcode Subscription".to_string()),
+            provider_label: Some("blaude Subscription".to_string()),
             activated_model: Some("gpt-5.5".to_string()),
             expected_runtime: Some("jcode-subscription".to_string()),
             expected_catalog_namespace: Some("jcode-subscription".to_string()),
@@ -1626,7 +1626,7 @@ mod tests {
             route("gpt-5.5", "OpenRouter", "openrouter", true),
             route(
                 "gpt-5.5",
-                "Jcode Subscription",
+                "blaude Subscription",
                 crate::subscription_catalog::JCODE_ROUTE_API_METHOD,
                 true,
             ),
@@ -1635,7 +1635,7 @@ mod tests {
         let report = validate_catalog_invariants(&activation, Some("gpt-5.5"), &routes);
         assert!(
             report.ok(),
-            "canonical Jcode route should match: {report:?}"
+            "canonical blaude route should match: {report:?}"
         );
         assert_eq!(report.selectable_provider_routes, 1);
         assert_eq!(
@@ -1646,7 +1646,7 @@ mod tests {
             )]
         );
         assert_eq!(
-            activation.model_switch_request("Jcode Subscription", "gpt-5.5"),
+            activation.model_switch_request("blaude Subscription", "gpt-5.5"),
             "gpt-5.5"
         );
     }
@@ -2515,7 +2515,7 @@ mod tests {
     }
 
     /// Copilot proxies both families; the cross-family tie-break must prefer the
-    /// Claude flagship over the OpenAI flagship to mirror jcode's default model.
+    /// Claude flagship over the OpenAI flagship to mirror blaude's default model.
     #[test]
     fn post_auth_model_selection_copilot_prefers_claude_family_over_openai() {
         let activation = activation_for_provider_id("copilot");

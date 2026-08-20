@@ -7,7 +7,7 @@
 //!
 //! Kept deliberately self-contained and additive: it lives in its own file with
 //! its own on-disk state (`~/.jcode/councils.json`) rather than extending an
-//! upstream config struct, so pulling upstream jcode stays a clean merge.
+//! upstream config struct, so pulling upstream blaude stays a clean merge.
 
 use std::path::PathBuf;
 

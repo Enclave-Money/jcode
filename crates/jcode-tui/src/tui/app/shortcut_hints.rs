@@ -1,6 +1,6 @@
 //! Learned-keybinding nudges.
 //!
-//! jcode tracks, per action, how often the user reaches a result via its
+//! blaude tracks, per action, how often the user reaches a result via its
 //! configured keyboard shortcut (the *fast* path) versus the slow way (typing a
 //! slash command). From those two counters we infer which keybindings the user
 //! has *learned* and which they keep paying a "tax" on, and we occasionally

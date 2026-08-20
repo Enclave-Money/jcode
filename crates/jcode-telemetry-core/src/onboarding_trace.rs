@@ -170,7 +170,7 @@ impl TraceRecorder {
         }
     }
 
-    /// Exactly the bytes that would be sent, for `jcode telemetry show-last-trace`.
+    /// Exactly the bytes that would be sent, for `blaude telemetry show-last-trace`.
     ///
     /// If a user can read the whole payload in a few lines, trust is cheap.
     pub fn preview_json(&self, outcome: TraceOutcome) -> String {

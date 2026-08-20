@@ -83,7 +83,7 @@ impl Tool for MaintainerFeedbackTool {
     }
 
     fn description(&self) -> &str {
-        "Send product feedback to Jcode's maintainer. Respects telemetry settings."
+        "Send product feedback to blaude's maintainer. Respects telemetry settings."
     }
 
     fn parameters_schema(&self) -> Value {
@@ -131,7 +131,7 @@ impl Tool for MaintainerFeedbackTool {
         }
         crate::telemetry::record_feedback(&text);
         Ok(ToolOutput::new(
-            "Feedback queued for the Jcode maintainer. Thank you.",
+            "Feedback queued for the blaude maintainer. Thank you.",
         ))
     }
 }

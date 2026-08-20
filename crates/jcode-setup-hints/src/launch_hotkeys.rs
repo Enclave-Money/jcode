@@ -1,4 +1,4 @@
-//! Resolve the global "launch a new jcode" hotkeys from config into a concrete
+//! Resolve the global "launch a new blaude" hotkeys from config into a concrete
 //! list of (chord, shell command, script file) tuples.
 //!
 //! There are two layers here:
@@ -30,7 +30,7 @@ fn escape_shell_single_quotes(input: &str) -> String {
     input.replace('\'', r#"'\''"#)
 }
 
-/// Build a jcode launch snippet that pauses on non-zero exit so the user can
+/// Build a blaude launch snippet that pauses on non-zero exit so the user can
 /// read the error before the terminal closes. Mirrors the macOS launcher's
 /// behavior; kept local so the resolver is platform-independent.
 #[cfg(any(test, target_os = "macos"))]
@@ -43,7 +43,7 @@ fn paused_jcode_shell_command_with_args(exe_path: &str, args: &[String]) -> Stri
         arg_str.push('\'');
     }
     format!(
-        r#"if [ ! -x '{exe}' ]; then printf 'jcode executable not found.\n'; exit 127; fi; '{exe}'{args}; status=$?; if [ "$status" -ne 0 ]; then printf '\nJcode exited with status %s.\n' "$status"; printf 'Press Enter to close... '; read -r _; fi; exit "$status""#,
+        r#"if [ ! -x '{exe}' ]; then printf 'blaude executable not found.\n'; exit 127; fi; '{exe}'{args}; status=$?; if [ "$status" -ne 0 ]; then printf '\nblaude exited with status %s.\n' "$status"; printf 'Press Enter to close... '; read -r _; fi; exit "$status""#,
         exe = escaped_exe,
         args = arg_str,
     )
@@ -246,7 +246,7 @@ pub(crate) fn shell_command_for(entry: &ResolvedLaunchHotkey, exe_path: &str) ->
     )
 }
 
-/// Map a jcode key token onto a `global_hotkey` `Code`. Returns `None` for
+/// Map a blaude key token onto a `global_hotkey` `Code`. Returns `None` for
 /// tokens we cannot register (the caller logs and skips).
 #[cfg(target_os = "macos")]
 pub(crate) fn key_token_to_code(key: &str) -> Option<global_hotkey::hotkey::Code> {

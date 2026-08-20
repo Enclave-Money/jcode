@@ -633,7 +633,7 @@ pub(super) fn mask_email(email: &str) -> String {
     format!("{}@{}", masked_local, domain)
 }
 
-/// Spawn a new terminal window that resumes a jcode session.
+/// Spawn a new terminal window that resumes a blaude session.
 /// Returns Ok(true) if a terminal was successfully launched, Ok(false) if no terminal found.
 fn resume_invocation_args(session_id: &str, socket: Option<&str>) -> Vec<String> {
     let mut args = vec![
@@ -747,7 +747,7 @@ pub(super) fn spawn_resume_target_in_new_terminal(
     spawn_command_in_new_terminal(&program, &args, &title, cwd)
 }
 
-/// Build the terminal command used to spawn a brand-new jcode session.
+/// Build the terminal command used to spawn a brand-new blaude session.
 /// Split from `spawn_fresh_session_in_new_terminal` so tests can verify the
 /// invocation without launching a window.
 fn build_fresh_session_command(socket: Option<&str>) -> crate::terminal_launch::TerminalCommand {
@@ -758,12 +758,12 @@ fn build_fresh_session_command(socket: Option<&str>) -> crate::terminal_launch::
         args.push(socket.to_string());
     }
     crate::terminal_launch::TerminalCommand::new(&exe, args)
-        .title("jcode · new session".to_string())
+        .title("blaude · new session".to_string())
         .kind("new-terminal")
         .fresh_spawn()
 }
 
-/// Spawn a brand-new jcode session in a new terminal window, staying on the
+/// Spawn a brand-new blaude session in a new terminal window, staying on the
 /// same server socket when one is configured. Returns Ok(true) when a terminal
 /// was launched, Ok(false) when no supported terminal was found.
 pub(super) fn spawn_fresh_session_in_new_terminal(cwd: &Path) -> anyhow::Result<bool> {
@@ -784,9 +784,9 @@ fn resumed_window_title(session_id: &str) -> String {
     let fallback_label = if let Some(server_info) =
         crate::registry::find_server_by_socket_sync(&crate::server::socket_path())
     {
-        format!("jcode/{} {}", server_info.name, session_label)
+        format!("blaude/{} {}", server_info.name, session_label)
     } else {
-        format!("jcode {}", session_label)
+        format!("blaude {}", session_label)
     };
     crate::process_title::terminal_window_title(
         icon,

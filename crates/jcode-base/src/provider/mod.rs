@@ -84,7 +84,7 @@ pub(crate) use routing::{
 ///
 /// The memory sidecar ([`crate::sidecar::Sidecar`]) needs to make small,
 /// cheap model calls (rerank / relevance / extraction). It has dedicated fast
-/// paths for OpenAI (codex-spark) and Claude (haiku) OAuth, but jcode also runs
+/// paths for OpenAI (codex-spark) and Claude (haiku) OAuth, but blaude also runs
 /// on Copilot, Antigravity, Gemini, Cursor, Bedrock, and OpenRouter. For those
 /// providers there is no standalone sidecar HTTP client, so the sidecar falls
 /// back to *this* handle and dispatches through the already-working
@@ -840,7 +840,7 @@ impl MultiProvider {
             }
             ActiveProvider::OpenRouter => {
                 // The OpenRouter slot multiplexes the public aggregator, the
-                // jcode subscription, and direct OpenAI-compatible profiles.
+                // blaude subscription, and direct OpenAI-compatible profiles.
                 let label = self
                     .active_openrouter_execution_provider()
                     .map(|execution| execution.runtime_display_name())
@@ -1020,7 +1020,7 @@ impl MultiProvider {
         self.set_model_on_provider_with_credential_modes(provider, model, None, None)
     }
 
-    /// Bind the shared OpenAI-compatible slot to the managed jcode endpoint.
+    /// Bind the shared OpenAI-compatible slot to the managed blaude endpoint.
     ///
     /// Subscription model ids intentionally overlap with direct Anthropic and
     /// OpenAI ids. A picker selection therefore cannot be reduced to a bare
@@ -1046,7 +1046,7 @@ impl MultiProvider {
             ModelRouteApiMethod::parse(api_method) == ModelRouteApiMethod::JcodeSubscription
         }) {
             anyhow::bail!(
-                "Refusing to select jcode subscription: managed runtime identity was not established"
+                "Refusing to select blaude subscription: managed runtime identity was not established"
             );
         }
 
@@ -1120,7 +1120,7 @@ impl MultiProvider {
                     claude.set_model(&model)?;
                 } else {
                     anyhow::bail!(
-                        "Claude credentials not available. Run `jcode login --provider claude` first."
+                        "Claude credentials not available. Run `blaude login --provider claude` first."
                     );
                 }
                 self.set_active_provider(ActiveProvider::Claude);
@@ -1141,7 +1141,7 @@ impl MultiProvider {
                         );
                     }
                     anyhow::bail!(
-                        "OpenAI credentials not available. Run `jcode login --provider openai` first."
+                        "OpenAI credentials not available. Run `blaude login --provider openai` first."
                     );
                 };
                 if let Some(mode) = openai_credential_mode {
@@ -1154,7 +1154,7 @@ impl MultiProvider {
             ActiveProvider::Copilot => {
                 let Some(copilot) = self.copilot_provider() else {
                     anyhow::bail!(
-                        "GitHub Copilot credentials not available. Run `jcode login --provider copilot` first."
+                        "GitHub Copilot credentials not available. Run `blaude login --provider copilot` first."
                     );
                 };
                 copilot.set_model(model)?;
@@ -1164,7 +1164,7 @@ impl MultiProvider {
             ActiveProvider::Antigravity => {
                 let Some(antigravity) = self.antigravity_provider() else {
                     anyhow::bail!(
-                        "Antigravity credentials not available. Run `jcode login --provider antigravity` first."
+                        "Antigravity credentials not available. Run `blaude login --provider antigravity` first."
                     );
                 };
                 antigravity.set_model(model)?;
@@ -1174,7 +1174,7 @@ impl MultiProvider {
             ActiveProvider::Gemini => {
                 let Some(gemini) = self.gemini_provider() else {
                     anyhow::bail!(
-                        "Gemini credentials not available. Run `jcode login --provider gemini` first."
+                        "Gemini credentials not available. Run `blaude login --provider gemini` first."
                     );
                 };
                 gemini.set_model(model)?;
@@ -1184,7 +1184,7 @@ impl MultiProvider {
             ActiveProvider::Cursor => {
                 let Some(cursor) = self.cursor_provider() else {
                     anyhow::bail!(
-                        "Cursor credentials not available. Run `jcode login --provider cursor` first."
+                        "Cursor credentials not available. Run `blaude login --provider cursor` first."
                     );
                 };
                 cursor.set_model(model)?;
@@ -1254,7 +1254,7 @@ impl MultiProvider {
                 } else {
                     let Some(openrouter) = self.openrouter_provider() else {
                         anyhow::bail!(
-                            "OpenRouter/OpenAI-compatible credentials not available. Set the configured API key or run `jcode login --provider openrouter` first."
+                            "OpenRouter/OpenAI-compatible credentials not available. Set the configured API key or run `blaude login --provider openrouter` first."
                         );
                     };
                     (openrouter, false)
@@ -1285,7 +1285,7 @@ impl MultiProvider {
         let resolved = crate::provider_catalog::resolve_openai_compatible_profile(profile);
         if !crate::provider_catalog::openai_compatible_profile_is_configured(profile) {
             anyhow::bail!(
-                "{} credentials not available. Run `jcode login --provider {}` first.",
+                "{} credentials not available. Run `blaude login --provider {}` first.",
                 resolved.display_name,
                 resolved.id,
             );
@@ -2374,7 +2374,7 @@ impl Provider for MultiProvider {
     fn handles_tools_internally(&self) -> bool {
         match self.active_provider() {
             ActiveProvider::Claude => {
-                // Direct API does NOT handle tools internally - jcode executes them
+                // Direct API does NOT handle tools internally - blaude executes them
                 if self.anthropic_provider().is_some() {
                     false
                 } else {
@@ -2397,8 +2397,8 @@ impl Provider for MultiProvider {
                 .cursor_provider()
                 .map(|o| o.handles_tools_internally())
                 .unwrap_or(false),
-            ActiveProvider::Bedrock => false, // jcode executes Bedrock tool calls
-            ActiveProvider::OpenRouter => false, // jcode executes tools
+            ActiveProvider::Bedrock => false, // blaude executes Bedrock tool calls
+            ActiveProvider::OpenRouter => false, // blaude executes tools
         }
     }
 
@@ -2982,7 +2982,7 @@ pub fn cache_ttl_for_provider_model(provider: &str, model: Option<&str>) -> Opti
             }
         }
         "openrouter" => Some(300),
-        "jcode subscription" => Some(300),
+        "blaude subscription" => Some(300),
         "gemini" => Some(300),
         "copilot" => None,
         "cursor" => None,

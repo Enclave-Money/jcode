@@ -47,7 +47,7 @@ fn create_repo_fixture() -> tempfile::TempDir {
     std::fs::create_dir_all(temp.path().join(".git")).expect("git dir");
     std::fs::write(
         temp.path().join("Cargo.toml"),
-        "[package]\nname = \"jcode\"\nversion = \"0.1.0\"\n",
+        "[package]\nname = \"blaude\"\nversion = \"0.1.0\"\n",
     )
     .expect("cargo toml");
     temp
@@ -105,7 +105,7 @@ fn request_fixture(
 #[test]
 fn build_lock_is_removed_on_drop_and_can_be_reacquired() {
     let _env_lock = crate::storage::lock_test_env();
-    let temp = tempfile::tempdir().expect("temp jcode home");
+    let temp = tempfile::tempdir().expect("temp blaude home");
     let _home = EnvVarGuard::set("JCODE_HOME", temp.path());
     let scope = format!("lock-drop-{}", std::process::id());
     let path = SelfDevTool::build_lock_path(&scope).expect("lock path");
@@ -129,7 +129,7 @@ fn terminal_request_history_is_archived_without_touching_active_requests() {
     // One shared env lock only: `lock_test_env` is a plain non-reentrant mutex,
     // so taking a second env guard here would self-deadlock (issue #593).
     let _storage_guard = crate::storage::lock_test_env();
-    let temp = tempfile::tempdir().expect("temp jcode home");
+    let temp = tempfile::tempdir().expect("temp blaude home");
     let _home = EnvVarGuard::set("JCODE_HOME", temp.path());
     let _limit = EnvVarGuard::set("JCODE_SELFDEV_REQUEST_HISTORY_LIMIT", "2");
 
@@ -495,7 +495,7 @@ async fn test_action_queues_command_in_test_mode() {
         .execute(
             json!({
                 "action": "test",
-                "command": "cargo test -p jcode selfdev_build_command",
+                "command": "cargo test -p blaude selfdev_build_command",
                 "reason": "verify selfdev test queue"
             }),
             ctx,
@@ -507,7 +507,7 @@ async fn test_action_queues_command_in_test_mode() {
     assert!(
         output
             .output
-            .contains("cargo test -p jcode selfdev_build_command")
+            .contains("cargo test -p blaude selfdev_build_command")
     );
 }
 
@@ -586,7 +586,7 @@ async fn enter_creates_selfdev_session_in_test_mode() {
     let ctx = create_test_context(&parent.id, Some(repo.path().to_path_buf()));
     let output = tool
         .execute(
-            json!({"action": "enter", "prompt": "Work on jcode itself"}),
+            json!({"action": "enter", "prompt": "Work on blaude itself"}),
             ctx,
         )
         .await
@@ -1063,7 +1063,7 @@ fn status_output_prunes_stale_pending_requests() {
         repo_dir: "/tmp/jcode".to_string(),
         repo_scope: source.repo_scope.clone(),
         worktree_scope: source.worktree_scope.clone(),
-        command: "scripts/dev_cargo.sh build --profile selfdev -p jcode --bin jcode".to_string(),
+        command: "scripts/dev_cargo.sh build --profile selfdev -p blaude --bin blaude".to_string(),
         // Outside the bootstrap grace window: a request with a missing status
         // file is only pruned once it is old enough that the queue handler
         // cannot still be mid-spawn.
@@ -1131,7 +1131,7 @@ fn freshly_queued_request_survives_reconcile_before_task_metadata_exists() {
         repo_dir: "/tmp/jcode".to_string(),
         repo_scope: source.repo_scope.clone(),
         worktree_scope: source.worktree_scope.clone(),
-        command: "scripts/dev_cargo.sh build --profile selfdev -p jcode --bin jcode".to_string(),
+        command: "scripts/dev_cargo.sh build --profile selfdev -p blaude --bin blaude".to_string(),
         requested_at: Utc::now().to_rfc3339(),
         started_at: None,
         completed_at: None,
@@ -1216,7 +1216,7 @@ async fn build_ignores_stale_pending_requests_when_computing_queue_position() {
         repo_dir: repo.path().display().to_string(),
         repo_scope: source.repo_scope.clone(),
         worktree_scope: source.worktree_scope.clone(),
-        command: "scripts/dev_cargo.sh build --profile selfdev -p jcode --bin jcode".to_string(),
+        command: "scripts/dev_cargo.sh build --profile selfdev -p blaude --bin blaude".to_string(),
         // Backdated beyond the 30s bootstrap grace so reconciliation treats the
         // dead-task request as genuinely stale (a fresh timestamp would keep it
         // alive and Queued, which is the bootstrap-race protection, not the
@@ -1317,7 +1317,7 @@ fn reconcile_pending_state_maps_superseded_background_status() {
         repo_dir: "/tmp/jcode".to_string(),
         repo_scope: source.repo_scope.clone(),
         worktree_scope: source.worktree_scope.clone(),
-        command: "scripts/dev_cargo.sh build --profile selfdev -p jcode --bin jcode".to_string(),
+        command: "scripts/dev_cargo.sh build --profile selfdev -p blaude --bin blaude".to_string(),
         requested_at: Utc::now().to_rfc3339(),
         started_at: Some(Utc::now().to_rfc3339()),
         completed_at: None,
@@ -1407,7 +1407,7 @@ fn reconcile_keeps_running_request_not_yet_registered_in_live_task_map() {
         repo_dir: "/tmp/jcode".to_string(),
         repo_scope: source.repo_scope.clone(),
         worktree_scope: source.worktree_scope.clone(),
-        command: "scripts/dev_cargo.sh build --profile selfdev -p jcode --bin jcode".to_string(),
+        command: "scripts/dev_cargo.sh build --profile selfdev -p blaude --bin blaude".to_string(),
         requested_at: Utc::now().to_rfc3339(),
         started_at: None,
         completed_at: None,

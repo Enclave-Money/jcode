@@ -1,6 +1,6 @@
 //! Native macOS turn-notification broker.
 //!
-//! This module is entered only by the generated `Jcode Notifications.app`
+//! This module is entered only by the generated `blaude Notifications.app`
 //! bundle. It owns Notification Center identity/authorization, consumes the
 //! durable inbox written by local TUI clients, and activates the route embedded
 //! in a notification when the user clicks it.

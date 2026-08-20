@@ -320,7 +320,7 @@ pub(super) fn is_jcode_repo_dir(dir: &Path) -> bool {
     }
 
     std::fs::read_to_string(cargo_toml)
-        .map(|content| content.contains("name = \"jcode\""))
+        .map(|content| content.contains("name = \"blaude\""))
         .unwrap_or(false)
 }
 

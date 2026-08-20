@@ -42,7 +42,7 @@ const OAUTH_BETA_HEADERS: &str = "oauth-2025-04-20,claude-code-20250219";
 
 /// Claude Code identity block required for OAuth direct API access
 const CLAUDE_CODE_IDENTITY: &str = "You are Claude Code, Anthropic's official CLI for Claude.";
-const CLAUDE_CODE_JCODE_NOTICE: &str = "You are jcode, powered by Claude Code. You are a third-party CLI, not the official Claude Code CLI.";
+const CLAUDE_CODE_JCODE_NOTICE: &str = "You are blaude, powered by Claude Code. You are a third-party CLI, not the official Claude Code CLI.";
 
 /// Maximum tokens for sidecar responses (keep small for speed/cost)
 const DEFAULT_MAX_TOKENS: u32 = 1024;
@@ -187,7 +187,7 @@ impl Sidecar {
     /// Preference order:
     /// 1. OpenAI GPT-5.6 Luna at reasoning=none if Codex creds exist.
     /// 2. Claude haiku (dedicated fast/cheap OAuth path) if Claude creds exist.
-    /// 3. The live agent provider (works for EVERY provider jcode supports:
+    /// 3. The live agent provider (works for EVERY provider blaude supports:
     ///    Copilot, Antigravity, Gemini, Cursor, Bedrock, OpenRouter, and even
     ///    OpenAI/Claude API-key setups), dispatched via `complete_simple`.
     ///
@@ -279,7 +279,7 @@ impl Sidecar {
 
     /// Complete via the live agent provider (`complete_simple`).
     ///
-    /// This is the universal path: it works for every provider jcode supports,
+    /// This is the universal path: it works for every provider blaude supports,
     /// because `complete_simple` is a default method on the `Provider` trait that
     /// collects the streamed `TextDelta`s into a single string. The provider was
     /// forked at construction time, so it carries the user's selected model.
@@ -1020,7 +1020,7 @@ fn build_claude_system_param(system: &str) -> Option<ClaudeApiSystem<'_>> {
 
 /// Build the system param for the direct API-key path.
 ///
-/// The "You are Claude Code" identity spoof and jcode notice are only valid
+/// The "You are Claude Code" identity spoof and blaude notice are only valid
 /// for the OAuth/subscription endpoint; a direct API key talks to the standard
 /// Messages API and must not impersonate the official CLI. So this only carries
 /// the caller's own system prompt (if any).
@@ -1162,7 +1162,7 @@ mod tests {
     fn test_backend_selection_prefers_openai() {
         // Make backend selection deterministic by isolating credentials.
         let _guard = crate::storage::lock_test_env();
-        let temp = tempfile::TempDir::new().expect("create temp jcode home");
+        let temp = tempfile::TempDir::new().expect("create temp blaude home");
         let _home = EnvVarGuard::set_path("JCODE_HOME", temp.path());
         let _openai = EnvVarGuard::unset("OPENAI_API_KEY");
 
@@ -1189,7 +1189,7 @@ mod tests {
     #[test]
     fn test_chatgpt_oauth_uses_luna_with_no_reasoning_when_available() {
         let _guard = crate::storage::lock_test_env();
-        let temp = tempfile::TempDir::new().expect("create temp jcode home");
+        let temp = tempfile::TempDir::new().expect("create temp blaude home");
         let _home = EnvVarGuard::set_path("JCODE_HOME", temp.path());
         codex::set_active_account_override(Some("openai-1".to_string()));
         crate::provider::clear_all_model_unavailability_for_account();
@@ -1208,7 +1208,7 @@ mod tests {
     #[test]
     fn test_chatgpt_oauth_falls_back_to_gpt_5_4_low_when_luna_unavailable() {
         let _guard = crate::storage::lock_test_env();
-        let temp = tempfile::TempDir::new().expect("create temp jcode home");
+        let temp = tempfile::TempDir::new().expect("create temp blaude home");
         let _home = EnvVarGuard::set_path("JCODE_HOME", temp.path());
         codex::set_active_account_override(Some("openai-1".to_string()));
         crate::provider::clear_all_model_unavailability_for_account();
@@ -1307,7 +1307,7 @@ mod tests {
     #[test]
     fn sidecar_uses_active_provider_when_no_oauth_creds() {
         let _guard = crate::storage::lock_test_env();
-        let temp = tempfile::TempDir::new().expect("create temp jcode home");
+        let temp = tempfile::TempDir::new().expect("create temp blaude home");
         let _home = EnvVarGuard::set_path("JCODE_HOME", temp.path());
         let _openai = EnvVarGuard::unset("OPENAI_API_KEY");
 
@@ -1334,13 +1334,13 @@ mod tests {
         assert_eq!(out, "[2,1]", "sidecar must return the provider's text");
     }
 
-    /// Every provider jcode supports should drive the sidecar end-to-end via the
+    /// Every provider blaude supports should drive the sidecar end-to-end via the
     /// universal `complete_simple` path. We iterate over each provider label to
     /// make the "works for ALL providers" guarantee explicit and regression-proof.
     #[test]
     fn sidecar_provider_path_works_for_all_providers() {
         let _guard = crate::storage::lock_test_env();
-        let temp = tempfile::TempDir::new().expect("create temp jcode home");
+        let temp = tempfile::TempDir::new().expect("create temp blaude home");
         let _home = EnvVarGuard::set_path("JCODE_HOME", temp.path());
         let _openai = EnvVarGuard::unset("OPENAI_API_KEY");
 

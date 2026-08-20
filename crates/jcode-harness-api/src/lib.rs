@@ -1,4 +1,4 @@
-//! Stable, versioned client API for the jcode harness (agent runtime).
+//! Stable, versioned client API for the blaude harness (agent runtime).
 //!
 //! This crate defines the *public* boundary between the harness and any UI
 //! (TUI, desktop, web, scripts). It is deliberately smaller than the internal

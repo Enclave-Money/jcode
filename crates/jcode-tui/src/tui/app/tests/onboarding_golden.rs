@@ -263,7 +263,7 @@ fn onboarding_golden_walks_every_phase() {
 
     // 2. Login with detected imports: the default SUMMARY screen. It lists
     // everything we detected read-only and lands focus on a preselected
-    // import action, with a Jcode subscription alternative and secondary
+    // import action, with a blaude subscription alternative and secondary
     // import/telemetry controls beside it.
     {
         let review = ImportReview::new(vec![
@@ -286,10 +286,10 @@ fn onboarding_golden_walks_every_phase() {
         assert!(text.contains("Codex auth.json"), "source 1: {text}");
         assert!(text.contains("Claude"), "provider 2: {text}");
         assert!(text.contains('✓'), "detected checkmark: {text}");
-        // The primary actions explicitly offer import or a Jcode subscription.
+        // The primary actions explicitly offer import or a blaude subscription.
         assert!(text.contains("Import"), "import pill label: {text}");
         assert!(
-            text.contains("Jcode subscription"),
+            text.contains("blaude subscription"),
             "subscription pill label: {text}"
         );
         assert!(text.contains("Import less"), "import-less pill: {text}");
@@ -364,7 +364,7 @@ fn onboarding_golden_walks_every_phase() {
         assert!(text.contains("Cursor"), "single login row: {text}");
         assert!(text.contains("Import"), "import pill: {text}");
         assert!(
-            text.contains("Jcode subscription"),
+            text.contains("blaude subscription"),
             "subscription pill: {text}"
         );
     }
@@ -397,7 +397,7 @@ fn onboarding_golden_walks_every_phase() {
         let app = app_in_phase(OnboardingPhase::Suggestions);
         let text = render_onboarding_text(&app, width, height);
         dump("Suggestions", &text);
-        assert!(text.contains("Welcome to jcode onboarding"), "{text}");
+        assert!(text.contains("Welcome to blaude onboarding"), "{text}");
     }
 }
 
@@ -423,7 +423,7 @@ fn onboarding_golden_walks_failure_and_async_states() {
     // Helper: assert the shared polish invariants for a guided screen.
     let assert_guided_polish = |title: &str, text: &str| {
         assert!(
-            text.contains("Welcome to jcode onboarding"),
+            text.contains("Welcome to blaude onboarding"),
             "{title}: must render the welcome title\n{text}"
         );
         assert!(

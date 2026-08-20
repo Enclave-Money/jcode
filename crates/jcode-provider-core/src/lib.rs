@@ -398,12 +398,12 @@ pub trait Provider: Send + Sync {
         String::new()
     }
 
-    /// Returns true if jcode should use its own compaction for this provider.
+    /// Returns true if blaude should use its own compaction for this provider.
     fn supports_compaction(&self) -> bool {
         false
     }
 
-    /// Returns true if jcode should proactively run its own summary-based compaction.
+    /// Returns true if blaude should proactively run its own summary-based compaction.
     fn uses_jcode_compaction(&self) -> bool {
         self.supports_compaction()
     }
@@ -584,7 +584,7 @@ impl NativeToolResult {
     }
 }
 
-/// Canonical User-Agent for generic outbound Jcode HTTP requests.
+/// Canonical User-Agent for generic outbound blaude HTTP requests.
 pub const JCODE_USER_AGENT: &str = concat!("jcode/", env!("CARGO_PKG_VERSION"));
 
 /// Read an HTTP error body without hiding failures behind an empty string.
@@ -624,7 +624,7 @@ pub fn shared_http_client() -> reqwest::Client {
                 .pool_max_idle_per_host(8)
                 .build()
                 .unwrap_or_else(|err| {
-                    eprintln!("jcode: failed to build shared provider HTTP client: {err}");
+                    eprintln!("blaude: failed to build shared provider HTTP client: {err}");
                     match reqwest::Client::builder()
                         .user_agent(JCODE_USER_AGENT)
                         .build()
@@ -632,7 +632,7 @@ pub fn shared_http_client() -> reqwest::Client {
                         Ok(client) => client,
                         Err(fallback_err) => {
                             eprintln!(
-                                "jcode: failed to build fallback provider HTTP client: {fallback_err}"
+                                "blaude: failed to build fallback provider HTTP client: {fallback_err}"
                             );
                             reqwest::Client::new()
                         }

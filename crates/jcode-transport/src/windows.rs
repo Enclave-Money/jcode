@@ -383,7 +383,7 @@ mod tests {
                 r"C:\Users\jeremy\AppData\Local\jcode\run\jcode-api.sock",
                 r"\\.\pipe\jcode-api-5e00c01702e8cfe4",
             ),
-            (r"C:\a\b\jcode.sock", r"\\.\pipe\jcode-52dfdb00b2f35a71"),
+            (r"C:\a\b\blaude.sock", r"\\.\pipe\jcode-52dfdb00b2f35a71"),
         ] {
             assert_eq!(
                 path_to_pipe_name(Path::new(path)),
@@ -395,7 +395,7 @@ mod tests {
 
     #[test]
     fn pipe_name_is_stable_and_normalizes_case_and_separators() {
-        let a = path_to_pipe_name(Path::new(r"C:\Temp\Jcode\server.sock"));
+        let a = path_to_pipe_name(Path::new(r"C:\Temp\blaude\server.sock"));
         let b = path_to_pipe_name(Path::new("c:/temp/jcode/server.sock"));
         assert_eq!(a, b, "pipe names should be normalized consistently");
         assert!(

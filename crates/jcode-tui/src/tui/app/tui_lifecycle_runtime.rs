@@ -95,9 +95,9 @@ impl App {
         let icon = connection_type_icon(self.connection_type.as_deref()).unwrap_or(session_icon);
         let session_label = crate::process_title::terminal_session_label(&session_name, None);
         let fallback_label = if server_name.eq_ignore_ascii_case("jcode") {
-            format!("jcode {session_label}")
+            format!("blaude {session_label}")
         } else {
-            format!("jcode/{} {session_label}", server_name.to_lowercase())
+            format!("blaude/{} {session_label}", server_name.to_lowercase())
         };
         if server_name.eq_ignore_ascii_case("jcode") {
             crate::process_title::set_client_display_title(&session_name, is_canary);
@@ -133,7 +133,7 @@ impl App {
     /// (`pending_reload_session_id`), then the resume target the client was
     /// launched with. Only when none of those is known do we fabricate a fresh
     /// `ses_*` id. Fabricating eagerly is what caused issue #328: the re-exec
-    /// would `jcode --resume <bogus-id>` and crash with "No session found
+    /// would `blaude --resume <bogus-id>` and crash with "No session found
     /// matching ..." after an auto-update, because the version-mismatch defer
     /// path returns before `remote_session_id` is ever assigned.
     pub(super) fn reload_handoff_session_id(&self) -> String {

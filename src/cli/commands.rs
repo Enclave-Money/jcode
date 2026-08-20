@@ -1537,7 +1537,7 @@ async fn run_ambient_visible() -> Result<()> {
 
     let _ = crossterm::execute!(
         std::io::stdout(),
-        crossterm::terminal::SetTitle(terminal_title("🤖 jcode ambient cycle"))
+        crossterm::terminal::SetTitle(terminal_title("🤖 blaude ambient cycle"))
     );
 
     let result = app.run(terminal).await;
@@ -1847,18 +1847,18 @@ pub fn run_pair_command(list: bool, revoke: Option<String>) -> Result<()> {
         eprintln!("    \x1b[2m[gateway]\x1b[0m");
         eprintln!("    \x1b[2menabled = true\x1b[0m");
         eprintln!("    \x1b[2mport = {}\x1b[0m\n", gw_config.port);
-        eprintln!("  Then restart the jcode server.\n");
+        eprintln!("  Then restart the blaude server.\n");
     }
 
     let code = registry.generate_pairing_code();
     let connect_host = resolve_connect_host(&gw_config.bind_addr);
     let pair_uri = format!(
-        "jcode://pair?host={}&port={}&code={}",
+        "blaude://pair?host={}&port={}&code={}",
         connect_host, gw_config.port, code
     );
 
     eprintln!();
-    eprintln!("  \x1b[1mScan with the jcode iOS app:\x1b[0m\n");
+    eprintln!("  \x1b[1mScan with the blaude iOS app:\x1b[0m\n");
     match crate::login_qr::render_unicode_qr(&pair_uri) {
         Ok(qr) => {
             for line in qr.lines() {
@@ -1952,10 +1952,10 @@ pub async fn run_browser(action: &str) -> Result<()> {
                 println!("\nBuilt-in browser tool is ready.");
             } else if status.responding && !status.compatible {
                 println!(
-                    "\nThe browser bridge is connected, but the installed Firefox extension is out of date for this jcode build. Run `jcode browser setup` to repair or update it."
+                    "\nThe browser bridge is connected, but the installed Firefox extension is out of date for this blaude build. Run `blaude browser setup` to repair or update it."
                 );
             } else {
-                println!("\nRun `jcode browser setup` to install or repair it.");
+                println!("\nRun `blaude browser setup` to install or repair it.");
             }
         }
         other => {
@@ -2060,13 +2060,13 @@ pub fn run_server_promote_command(version: Option<&str>, emit_json: bool) -> Res
     let promoted = previous.as_deref() != Some(version.as_str());
     let detail = if promoted {
         format!(
-            "shared-server channel {} -> {}. Run `jcode server reload` to apply it to the running daemon.",
+            "shared-server channel {} -> {}. Run `blaude server reload` to apply it to the running daemon.",
             previous.as_deref().unwrap_or("<unset>"),
             version
         )
     } else {
         format!(
-            "shared-server channel already points to {}. Run `jcode server reload` if the running daemon has not applied it.",
+            "shared-server channel already points to {}. Run `blaude server reload` if the running daemon has not applied it.",
             version
         )
     };
@@ -2128,15 +2128,15 @@ pub async fn run_server_reload_command(force: bool, emit_json: bool) -> Result<(
     };
 
     // No server? Nothing to reload. This is a success so an installer can call
-    // `jcode server reload` unconditionally after swapping the binary.
+    // `blaude server reload` unconditionally after swapping the binary.
     if !crate::server::has_live_listener(&socket).await {
         // Reap a stale socket left by a crashed daemon so the next launch binds
         // cleanly instead of wedging in a connect-retry loop.
         let reaped = crate::server::reap_stale_socket_if_dead(&socket).await;
         let detail = if reaped {
-            "No running jcode server found; cleared a stale socket.".to_string()
+            "No running blaude server found; cleared a stale socket.".to_string()
         } else {
-            "No running jcode server found; nothing to reload.".to_string()
+            "No running blaude server found; nothing to reload.".to_string()
         };
         return emit(ServerReloadReport {
             socket: socket.display().to_string(),
@@ -2226,7 +2226,7 @@ pub async fn run_server_reload_command(force: bool, emit_json: bool) -> Result<(
             reloaded: false,
             already_current: true,
             handoff_ready: true,
-            detail: "jcode server is already running the newest binary; no reload needed."
+            detail: "blaude server is already running the newest binary; no reload needed."
                 .to_string(),
         });
     }
@@ -2239,9 +2239,9 @@ pub async fn run_server_reload_command(force: bool, emit_json: bool) -> Result<(
     );
 
     let detail = if handoff_ready {
-        "jcode server reloaded onto the newest binary.".to_string()
+        "blaude server reloaded onto the newest binary.".to_string()
     } else {
-        "jcode server reload requested; the new server is still coming up.".to_string()
+        "blaude server reload requested; the new server is still coming up.".to_string()
     };
 
     emit(ServerReloadReport {
@@ -2270,8 +2270,8 @@ pub async fn run_server_stop_command(force: bool, emit_json: bool) -> Result<()>
     use std::time::{Duration, Instant};
 
     if !force {
-        let msg = "`jcode server stop` terminates the daemon and drops any live headless/swarm sessions. \
-Prefer `jcode server reload` to pick up an upgrade gracefully. \
+        let msg = "`blaude server stop` terminates the daemon and drops any live headless/swarm sessions. \
+Prefer `blaude server reload` to pick up an upgrade gracefully. \
 Re-run with `--force` if you really want to stop the server.";
         if emit_json {
             println!(
@@ -2316,10 +2316,10 @@ Re-run with `--force` if you really want to stop the server.";
                 match crate::platform::signal_detached_process_group(pid, libc::SIGTERM) {
                     Ok(()) => {
                         signaled_pid = Some(pid);
-                        detail = format!("Sent SIGTERM to jcode server (pid {pid}).");
+                        detail = format!("Sent SIGTERM to blaude server (pid {pid}).");
                     }
                     Err(e) => {
-                        detail = format!("Failed to signal jcode server (pid {pid}): {e}");
+                        detail = format!("Failed to signal blaude server (pid {pid}): {e}");
                     }
                 }
             }
@@ -2328,15 +2328,15 @@ Re-run with `--force` if you really want to stop the server.";
                 match crate::platform::signal_detached_process_group(pid, 0) {
                     Ok(()) => {
                         signaled_pid = Some(pid);
-                        detail = format!("Terminated jcode server (pid {pid}).");
+                        detail = format!("Terminated blaude server (pid {pid}).");
                     }
                     Err(e) => {
-                        detail = format!("Failed to terminate jcode server (pid {pid}): {e}");
+                        detail = format!("Failed to terminate blaude server (pid {pid}): {e}");
                     }
                 }
             }
         } else {
-            detail = format!("Registered jcode server (pid {pid}) is not running.");
+            detail = format!("Registered blaude server (pid {pid}) is not running.");
         }
     } else if had_listener {
         // A listener answers but no registry entry maps to it. We deliberately
@@ -2345,7 +2345,7 @@ Re-run with `--force` if you really want to stop the server.";
         // registry entry.)
         detail = "Found a live server socket with no registry entry.".to_string();
     } else {
-        detail = "No running jcode server found.".to_string();
+        detail = "No running blaude server found.".to_string();
     }
 
     // Wait for the listener to disappear after signalling. Escalate to SIGKILL
@@ -2400,16 +2400,16 @@ Re-run with `--force` if you really want to stop the server.";
             println!("{detail}");
         }
         if stopped && signaled_pid.is_some() {
-            println!("jcode server stopped.");
+            println!("blaude server stopped.");
         } else if stopped && !had_listener && signaled_pid.is_none() {
             // Nothing was running; this is still a success for an installer.
         } else if !stopped {
             println!(
-                "jcode server did not exit cleanly; it may still be shutting down. Re-run if needed."
+                "blaude server did not exit cleanly; it may still be shutting down. Re-run if needed."
             );
         }
         if reaped {
-            println!("Cleared a stale jcode socket.");
+            println!("Cleared a stale blaude socket.");
         }
     }
 
@@ -2430,7 +2430,7 @@ pub async fn run_single_message_command(
         super::provider_init::init_provider_for_validation(choice, model).await?
     };
     let registry = crate::tool::Registry::new(provider.clone()).await;
-    // Load MCP servers from ~/.jcode/mcp.json so headless `jcode run` has the
+    // Load MCP servers from ~/.jcode/mcp.json so headless `blaude run` has the
     // same `mcp__*` tools as interactive/server sessions. This is non-blocking:
     // `register_mcp_tools` advertises cached tool schemas synchronously (so the
     // first locked tool snapshot already contains MCP tools, for zero
@@ -2441,9 +2441,9 @@ pub async fn run_single_message_command(
         registry.register_mcp_tools(None, None, None).await;
         // Cold-cache gap: when a configured MCP server has no cached schema yet
         // (first ever use, or reconfigured), advertise-early registers nothing
-        // for it, and a single-turn `jcode run` locks its tool snapshot before
+        // for it, and a single-turn `blaude run` locks its tool snapshot before
         // the background connection finishes, so the model would never see those
-        // tools. Long-lived sessions recover on a later turn, but `jcode run`
+        // tools. Long-lived sessions recover on a later turn, but `blaude run`
         // has no later turn. So, only when the cache is cold for some configured
         // server, briefly wait for the first connection to register tools before
         // the agent runs. Warm runs skip this entirely and stay instant. (#390)
@@ -2481,7 +2481,7 @@ fn run_command_auto_poke_enabled() -> bool {
         .unwrap_or_else(|| crate::config::config().features.auto_poke)
 }
 
-/// Whether headless `jcode run` should load MCP servers from `~/.jcode/mcp.json`.
+/// Whether headless `blaude run` should load MCP servers from `~/.jcode/mcp.json`.
 /// Enabled by default; set `JCODE_RUN_MCP=0` (or `false`/`off`/`no`) to skip MCP
 /// registration for latency-sensitive scripting. (#390)
 fn run_command_mcp_enabled() -> bool {
@@ -2494,7 +2494,7 @@ fn run_command_mcp_enabled() -> bool {
         .unwrap_or(true)
 }
 
-/// Max time `jcode run` waits for cold-cache MCP servers to register their
+/// Max time `blaude run` waits for cold-cache MCP servers to register their
 /// tools before running the single turn. Override with `JCODE_RUN_MCP_WAIT_MS`
 /// (0 disables the wait).
 fn run_command_mcp_cold_wait() -> std::time::Duration {
@@ -2523,7 +2523,7 @@ fn cold_cache_mcp_servers() -> Vec<String> {
         .collect()
 }
 
-/// Bridge the cold-cache gap for `jcode run`: if any configured MCP server has
+/// Bridge the cold-cache gap for `blaude run`: if any configured MCP server has
 /// no cached schema, briefly poll the registry until its `mcp__*` tools appear
 /// (or the budget elapses) so the single turn's locked tool snapshot includes
 /// them. Warm caches return immediately because `cold_cache_mcp_servers` is
@@ -2538,7 +2538,7 @@ async fn wait_for_cold_cache_mcp_tools(registry: &crate::tool::Registry) {
         return;
     }
     crate::logging::info(&format!(
-        "jcode run: waiting up to {}ms for cold-cache MCP server(s) to register tools: {}",
+        "blaude run: waiting up to {}ms for cold-cache MCP server(s) to register tools: {}",
         budget.as_millis(),
         cold_servers.join(", ")
     ));
@@ -2551,13 +2551,13 @@ async fn wait_for_cold_cache_mcp_tools(registry: &crate::tool::Registry) {
         });
         if covered {
             crate::logging::info(
-                "jcode run: cold-cache MCP server(s) registered tools; proceeding",
+                "blaude run: cold-cache MCP server(s) registered tools; proceeding",
             );
             return;
         }
         if std::time::Instant::now() >= deadline {
             crate::logging::warn(
-                "jcode run: timed out waiting for cold-cache MCP server(s); \
+                "blaude run: timed out waiting for cold-cache MCP server(s); \
                  their tools may be missing from this run",
             );
             return;

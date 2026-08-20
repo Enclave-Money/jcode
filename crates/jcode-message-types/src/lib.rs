@@ -169,7 +169,7 @@ pub enum ContentBlock {
         data: String,
     },
     /// Hidden OpenAI Responses compaction item used to preserve native
-    /// compaction state across turns/saves when jcode explicitly triggers it.
+    /// compaction state across turns/saves when blaude explicitly triggers it.
     OpenAICompaction {
         encrypted_content: String,
     },
@@ -714,7 +714,7 @@ pub enum StreamEvent {
     /// about to retry the same request from the top. Consumers must discard
     /// any partial output accumulated for the current attempt (text, tool
     /// calls, reasoning) so the replayed stream renders cleanly instead of
-    /// duplicating. Safe for jcode HTTP providers because tools only execute
+    /// duplicating. Safe for blaude HTTP providers because tools only execute
     /// after the stream completes, so a partial attempt has no side effects.
     RetryRollback { attempt: u32, max: u32 },
     /// Token usage update

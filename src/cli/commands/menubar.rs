@@ -1,4 +1,4 @@
-//! `jcode menubar` - a lightweight live indicator of how many jcode sessions
+//! `blaude menubar` - a lightweight live indicator of how many blaude sessions
 //! are running and how many are actively streaming a model response.
 //!
 //! On macOS this renders a native menu bar (`NSStatusItem`) item that updates
@@ -133,9 +133,9 @@ pub fn run_menubar_command(once: bool, json: bool) -> Result<()> {
     }
 }
 
-/// Ensure a single background `jcode menubar` helper is running on macOS so the
+/// Ensure a single background `blaude menubar` helper is running on macOS so the
 /// session-count indicator shows up automatically for every macOS user without
-/// them needing to run `jcode menubar` by hand.
+/// them needing to run `blaude menubar` by hand.
 ///
 /// This is a best-effort, fire-and-forget singleton: it records the helper's
 /// PID in the *global* `~/.jcode/menubar.pid` (see [`global_menubar_dir`]) and
@@ -143,7 +143,7 @@ pub fn run_menubar_command(once: bool, json: bool) -> Result<()> {
 /// Failures are silently ignored so they never disrupt normal session startup.
 ///
 /// The macOS menu bar is a single per-login-session resource, so this guards
-/// hard against sandboxed jcode processes (tests, self-dev, onboarding) ever
+/// hard against sandboxed blaude processes (tests, self-dev, onboarding) ever
 /// spawning a helper: each such process runs with a throwaway `$JCODE_HOME`,
 /// and without this guard every distinct sandbox home spawned its own helper
 /// and drew its own duplicate status item into the one real menu bar.
@@ -157,7 +157,7 @@ pub fn ensure_menubar_helper_running() {
         return;
     }
 
-    // Sandboxed jcode (tests / self-dev / onboarding, anything with a throwaway
+    // Sandboxed blaude (tests / self-dev / onboarding, anything with a throwaway
     // `$JCODE_HOME`) must never manage the real user's global menu bar.
     if running_in_menubar_sandbox() {
         return;
@@ -208,7 +208,7 @@ pub fn ensure_menubar_helper_running() {}
 /// state - the "only one helper" lock and the helper pid file.
 ///
 /// The macOS menu bar is a single per-login-session resource shared by every
-/// jcode process for this user, so this state must live at a fixed location
+/// blaude process for this user, so this state must live at a fixed location
 /// that does **not** depend on `$JCODE_HOME`. Sandboxes (tests, self-dev,
 /// onboarding) override `$JCODE_HOME` with throwaway temp dirs; anchoring to
 /// the real home (`$HOME/.jcode`) gives every process the same lock inode so
@@ -223,7 +223,7 @@ fn global_menubar_dir() -> Option<std::path::PathBuf> {
     Some(dir)
 }
 
-/// True when this process is a sandboxed jcode that must not own the real
+/// True when this process is a sandboxed blaude that must not own the real
 /// user's global menu bar. A throwaway `$JCODE_HOME` (anything other than the
 /// real `~/.jcode`) or an explicit test/temp marker means "sandbox".
 #[cfg(target_os = "macos")]
@@ -318,7 +318,7 @@ mod macos {
     ///
     /// Uses a non-blocking `flock(LOCK_EX | LOCK_NB)` on the *global*
     /// `~/.jcode/menubar.lock` (see [`super::global_menubar_dir`]) so the lock
-    /// is shared across every jcode process for this OS user, including ones
+    /// is shared across every blaude process for this OS user, including ones
     /// running with a sandboxed `$JCODE_HOME`. The menu bar itself is a single
     /// per-login-session resource, so the guard must be global too.
     ///
@@ -390,7 +390,7 @@ mod macos {
 
            impl MenuHandler {
                /// Open the clicked session (stored in the item's representedObject)
-               /// in a new terminal window via `jcode --resume <id>`.
+               /// in a new terminal window via `blaude --resume <id>`.
                #[unsafe(method(openSession:))]
                fn open_session(&self, sender: &NSMenuItem)
     {
@@ -403,7 +403,7 @@ mod macos {
                    launch_jcode_window(vec!["--resume".to_string(), session_id.to_string()]);
                }
 
-               /// Launch a brand-new jcode session in a new terminal window.
+               /// Launch a brand-new blaude session in a new terminal window.
                #[unsafe(method(newWindow:))]
                fn new_window(&self, _sender: &NSMenuItem) {
                    launch_jcode_window(Vec::new());
@@ -418,13 +418,13 @@ mod macos {
         }
     }
 
-    /// Launch a jcode window off the main thread so slow terminal startup
+    /// Launch a blaude window off the main thread so slow terminal startup
     /// (osascript / `open`) never blocks the menu bar UI.
     fn launch_jcode_window(args: Vec<String>) {
         std::thread::spawn(move || {
             if let Err(err) = crate::setup_hints::launch_jcode_in_macos_terminal(&args) {
                 crate::logging::warn(&format!(
-                    "menubar: failed to launch jcode window ({args:?}): {err}"
+                    "menubar: failed to launch blaude window ({args:?}): {err}"
                 ));
             }
         });
@@ -432,13 +432,13 @@ mod macos {
 
     pub(super) fn run_status_item_app() {
         let mtm = MainThreadMarker::new()
-            .expect("jcode menubar must run on the main thread (the process entry point)");
+            .expect("blaude menubar must run on the main thread (the process entry point)");
 
         // Defense in depth: a process running under an explicit test/temp marker
         // must never paint into the real user's menu bar. The real protection
         // against duplicates is `ensure_menubar_helper_running` (which refuses
         // to spawn from sandboxes) plus the global singleton lock below, but a
-        // stray `jcode menubar` invoked directly inside a test harness should
+        // stray `blaude menubar` invoked directly inside a test harness should
         // still never realize a status item.
         if super::env_truthy("JCODE_TEST_SESSION") || super::env_truthy("JCODE_TEMP_SERVER") {
             return;
@@ -462,7 +462,7 @@ mod macos {
         // Accessory: no Dock icon, no main menu, just a menu bar item.
         app.setActivationPolicy(NSApplicationActivationPolicy::Accessory);
 
-        // Follow the system's Light/Dark setting explicitly. `jcode` runs as a
+        // Follow the system's Light/Dark setting explicitly. `blaude` runs as a
         // bare Mach-O with no Info.plist app bundle, so AppKit defaults the
         // process to the light Aqua appearance and never auto-adopts macOS Dark
         // Mode. That made the status item's template icon and `labelColor` text
@@ -508,7 +508,7 @@ mod macos {
         if let Some(button) = status_item.button(mtm) {
             let icon = NSImage::imageWithSystemSymbolName_accessibilityDescription(
                 ns_string!("terminal.fill"),
-                Some(ns_string!("jcode sessions")),
+                Some(ns_string!("blaude sessions")),
             );
             if let Some(icon) = icon.as_deref() {
                 icon.setTemplate(true);
@@ -534,7 +534,7 @@ mod macos {
         let new_window_item = unsafe {
             NSMenuItem::initWithTitle_action_keyEquivalent(
                 NSMenuItem::alloc(mtm),
-                ns_string!("New jcode Window"),
+                ns_string!("New blaude Window"),
                 Some(sel!(newWindow:)),
                 ns_string!("n"),
             )
@@ -546,7 +546,7 @@ mod macos {
         let quit_item = unsafe {
             NSMenuItem::initWithTitle_action_keyEquivalent(
                 NSMenuItem::alloc(mtm),
-                ns_string!("Quit jcode menu bar"),
+                ns_string!("Quit blaude menu bar"),
                 Some(objc2::sel!(terminate:)),
                 ns_string!("q"),
             )
@@ -625,7 +625,7 @@ mod macos {
 
     /// Pin the application's appearance to the system Light/Dark setting.
     ///
-    /// `jcode` runs as a bare executable without an `Info.plist` app bundle, so
+    /// `blaude` runs as a bare executable without an `Info.plist` app bundle, so
     /// AppKit defaults the process to the light `Aqua` appearance and does not
     /// follow the user's macOS Dark Mode preference. With a light appearance the
     /// status item's template SF Symbol and `labelColor` title both resolve to a

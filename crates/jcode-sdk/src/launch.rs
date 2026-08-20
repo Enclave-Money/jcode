@@ -1,4 +1,4 @@
-//! Runtime startup and private jcode instances.
+//! Runtime startup and private blaude instances.
 //!
 //! [`ensure_runtime`] attaches applications to the user's shared runtime.
 //! [`launch_instance`] instead creates an isolated runtime directory and state
@@ -49,7 +49,7 @@ const EXTERNAL_CREDENTIAL_FILES: &[&str] = &[
     ".local/share/opencode/auth.json",
 ];
 
-/// Options for starting a private jcode instance.
+/// Options for starting a private blaude instance.
 pub struct LaunchOptions {
     /// State directory for the instance. A temporary, drop-cleaned directory is
     /// used when omitted; an explicit directory is persistent.
@@ -58,7 +58,7 @@ pub struct LaunchOptions {
     pub working_dir: Option<PathBuf>,
     /// Share the user's provider login files. Enabled by default.
     pub inherit_logins: bool,
-    /// jcode executable. Defaults to `jcode` on `$PATH`.
+    /// blaude executable. Defaults to `jcode` on `$PATH`.
     pub binary: Option<PathBuf>,
     /// Extra environment variables for the private instance.
     pub env: HashMap<OsString, OsString>,
@@ -160,9 +160,9 @@ pub fn launch_instance(options: &LaunchOptions) -> Result<LaunchedInstance> {
     let socket_path = runtime_dir.join("jcode-api.sock");
     for stale in [
         "jcode-api.sock",
-        "jcode.sock",
+        "blaude.sock",
         "jcode-debug.sock",
-        "jcode.sock.hash",
+        "blaude.sock.hash",
     ] {
         let _ = fs::remove_file(runtime_dir.join(stale));
     }
@@ -196,7 +196,7 @@ pub fn launch_instance(options: &LaunchOptions) -> Result<LaunchedInstance> {
         .env("JCODE_HOME", &jcode_home)
         .env("JCODE_RUNTIME_DIR", &runtime_dir)
         .env("JCODE_API_SOCKET", &socket_path)
-        .env("JCODE_SOCKET", runtime_dir.join("jcode.sock"))
+        .env("JCODE_SOCKET", runtime_dir.join("blaude.sock"))
         .envs(options.env.iter())
         .stdin(Stdio::null())
         .stdout(Stdio::null())
@@ -212,7 +212,7 @@ pub fn launch_instance(options: &LaunchOptions) -> Result<LaunchedInstance> {
             cleanup_on_error();
             let message = if cause.kind() == std::io::ErrorKind::NotFound {
                 format!(
-                    "could not run `{}`: jcode is not installed, or not on PATH. Install it from https://jcode.sh, or pass `binary` with its full path.",
+                    "could not run `{}`: blaude is not installed, or not on PATH. Install it from https://jcode.sh, or pass `binary` with its full path.",
                     binary.display()
                 )
             } else {
@@ -267,7 +267,7 @@ pub fn launch_instance(options: &LaunchOptions) -> Result<LaunchedInstance> {
                 return Err(Error::new(
                     ErrorKind::StartupFailed,
                     format!(
-                        "jcode exited during startup ({status}){}",
+                        "blaude exited during startup ({status}){}",
                         stderr_suffix(&stderr)
                     ),
                 ));
@@ -291,7 +291,7 @@ pub fn launch_instance(options: &LaunchOptions) -> Result<LaunchedInstance> {
     Err(Error::new(
         ErrorKind::StartupTimeout,
         format!(
-            "jcode did not create its API socket at {} within {:?}{}",
+            "blaude did not create its API socket at {} within {:?}{}",
             socket_path.display(),
             options.startup_timeout,
             stderr_suffix(&stderr)
@@ -299,7 +299,7 @@ pub fn launch_instance(options: &LaunchOptions) -> Result<LaunchedInstance> {
     ))
 }
 
-/// Resolve the user's normal jcode home before a private instance overrides it.
+/// Resolve the user's normal blaude home before a private instance overrides it.
 pub fn user_jcode_home() -> PathBuf {
     std::env::var_os("JCODE_HOME")
         .map(PathBuf::from)
@@ -323,7 +323,7 @@ pub fn inherit_credentials(from_home: &Path, to_home: &Path) -> Result<Vec<PathB
     if from_home.exists() && fs::canonicalize(from_home).ok() == fs::canonicalize(to_home).ok() {
         return Err(Error::new(
             ErrorKind::InvalidInstanceHome,
-            "instance home must be different from the user's jcode home",
+            "instance home must be different from the user's blaude home",
         ));
     }
 
@@ -465,14 +465,14 @@ pub fn ensure_runtime(options: &LaunchOptions, progress: &Progress<'_>) -> Resul
     }
     let legacy = jcode_harness_api::legacy_socket_path();
     if !socket_accepts(&legacy) {
-        progress("starting jcode runtime...");
+        progress("starting blaude runtime...");
         spawn_detached(&sibling_exe("jcode"), &["serve"]).map_err(|error| {
             Error::new(
                 ErrorKind::LaunchFailed,
-                format!("could not start the jcode runtime: {error}"),
+                format!("could not start the blaude runtime: {error}"),
             )
         })?;
-        wait_for_socket(&legacy, "jcode runtime", options.start_timeout)?;
+        wait_for_socket(&legacy, "blaude runtime", options.start_timeout)?;
     }
     progress("starting harness API bridge...");
     spawn_detached(&sibling_exe("jcode-harness-api-bridge"), &[]).map_err(|error| {
@@ -520,7 +520,7 @@ pub fn wait_for_socket(path: &Path, what: &str, timeout: Duration) -> Result<()>
 fn read_daemon_pid(home: &Path, runtime_dir: &Path) -> Option<i32> {
     let raw = fs::read(home.join("servers.json")).ok()?;
     let registry: Value = serde_json::from_slice(&raw).ok()?;
-    let socket = runtime_dir.join("jcode.sock");
+    let socket = runtime_dir.join("blaude.sock");
     registry.as_object()?.values().find_map(|entry| {
         let entry = entry.as_object()?;
         if Path::new(entry.get("socket")?.as_str()?) != socket {
@@ -617,7 +617,7 @@ fn home_dir() -> PathBuf {
         .unwrap_or_else(|| PathBuf::from("."))
 }
 
-/// Resolve the user's platform jcode config directory.
+/// Resolve the user's platform blaude config directory.
 pub fn user_app_config_dir() -> PathBuf {
     #[cfg(target_os = "macos")]
     {

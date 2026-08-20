@@ -34,7 +34,7 @@ fn compile_static_regex(pattern: &str) -> Option<Regex> {
         Ok(regex) => Some(regex),
         Err(err) => {
             logging::error(&format!("failed to compile static message regex: {err}"));
-            eprintln!("jcode: failed to compile static regex: {err}");
+            eprintln!("blaude: failed to compile static regex: {err}");
             None
         }
     }
@@ -335,7 +335,7 @@ pub fn generated_image_visual_context_blocks(
     ));
     let (media_type, data_b64) = generated_image_payload(path, output_format)?;
     let mut reminder = format!(
-        "<system-reminder>\nA provider-native image generation call created `{}`. Jcode attached the image pixels as visual context for future turns because the active provider supports image input and the file is under the safe {} MB limit.\nFormat: {}",
+        "<system-reminder>\nA provider-native image generation call created `{}`. blaude attached the image pixels as visual context for future turns because the active provider supports image input and the file is under the safe {} MB limit.\nFormat: {}",
         path,
         GENERATED_IMAGE_MAX_AUTO_VISION_BYTES / 1024 / 1024,
         output_format,

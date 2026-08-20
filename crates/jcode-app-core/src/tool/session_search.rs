@@ -93,13 +93,13 @@ struct SearchInput {
     /// Restrict to sessions updated/messages at or before this RFC3339 timestamp or YYYY-MM-DD date.
     #[serde(default)]
     before: Option<String>,
-    /// Restrict Jcode sessions by saved/bookmarked flag.
+    /// Restrict blaude sessions by saved/bookmarked flag.
     #[serde(default)]
     saved: Option<bool>,
-    /// Restrict Jcode sessions by debug flag.
+    /// Restrict blaude sessions by debug flag.
     #[serde(default)]
     debug: Option<bool>,
-    /// Restrict Jcode sessions by canary flag.
+    /// Restrict blaude sessions by canary flag.
     #[serde(default)]
     canary: Option<bool>,
     /// Restrict source: jcode, claude, codex, pi, opencode, cursor, or all.
@@ -117,7 +117,7 @@ struct SearchInput {
     /// Bound the number of recent sessions scanned per source.
     #[serde(default)]
     max_scan_sessions: Option<i64>,
-    /// Scan every available Jcode session instead of the recent indexed subset.
+    /// Scan every available blaude session instead of the recent indexed subset.
     #[serde(default)]
     exhaustive: Option<bool>,
 }
@@ -138,7 +138,7 @@ impl Default for SessionSearchTool {
 
 /// Warm the recent-session search indexes in the background so the first
 /// interactive `session_search` call does not pay the cold indexing cost.
-/// Covers the jcode store plus the external stores (claude/codex/pi/cursor).
+/// Covers the blaude store plus the external stores (claude/codex/pi/cursor).
 pub fn spawn_recent_index_warmup() {
     tokio::task::spawn_blocking(|| {
         let start = std::time::Instant::now();
@@ -155,7 +155,7 @@ pub fn spawn_recent_index_warmup() {
             Ok(collection.files.len())
         })()
         .unwrap_or_else(|err| {
-            crate::logging::info(&format!("jcode session index warmup skipped: {err}"));
+            crate::logging::info(&format!("blaude session index warmup skipped: {err}"));
             0
         });
 
@@ -183,7 +183,7 @@ pub fn spawn_recent_index_warmup() {
         }
 
         crate::logging::info(&format!(
-            "Session search index warmup completed for {jcode_count} jcode + {external_count} external session(s) in {}ms",
+            "Session search index warmup completed for {jcode_count} blaude + {external_count} external session(s) in {}ms",
             start.elapsed().as_millis()
         ));
     });
@@ -357,15 +357,15 @@ impl Tool for SessionSearchTool {
                 },
                 "saved": {
                     "type": "boolean",
-                    "description": "Restrict Jcode sessions by saved/bookmarked flag."
+                    "description": "Restrict blaude sessions by saved/bookmarked flag."
                 },
                 "debug": {
                     "type": "boolean",
-                    "description": "Restrict Jcode sessions by debug/test flag."
+                    "description": "Restrict blaude sessions by debug/test flag."
                 },
                 "canary": {
                     "type": "boolean",
-                    "description": "Restrict Jcode sessions by canary flag."
+                    "description": "Restrict blaude sessions by canary flag."
                 },
                 "source": {
                     "type": "string",
@@ -578,7 +578,7 @@ fn normalize_source_filter(raw: Option<&str>) -> std::result::Result<Option<Stri
             Ok(Some(normalized.replace("claude-code", "claude")))
         }
         _ => Err(format!(
-            "source must be one of all, jcode, claude, codex, pi, opencode, or cursor; received {source}."
+            "source must be one of all, blaude, claude, codex, pi, opencode, or cursor; received {source}."
         )),
     }
 }
@@ -812,7 +812,7 @@ fn remove_legacy_index() {
     }
 }
 
-/// Build/update the incremental jcode session index and return the candidate
+/// Build/update the incremental blaude session index and return the candidate
 /// subset of `files` that plausibly match `query`.
 fn jcode_index_candidates(
     files: &[SessionFileCandidate],
@@ -1061,7 +1061,7 @@ fn collect_external_jsonl_source(
     report.external_sources.push(source);
     let paths = collect_recent_files_recursive(&root, "jsonl", options.max_scan_sessions);
     let mut candidates = external_index_candidate_paths(source, &paths, query);
-    // Like the jcode path, cap how many candidate files get fully parsed.
+    // Like the blaude path, cap how many candidate files get fully parsed.
     // Candidates arrive most-recent-first; exhaustive mode skips the cap.
     if !options.exhaustive {
         let budget = indexed_candidate_budget(options);

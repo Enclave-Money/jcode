@@ -5,7 +5,7 @@ use std::process::{Command, Stdio};
 use std::sync::{Mutex, OnceLock};
 use tokio::time::{Duration, timeout};
 
-const CLIENT_TITLE_PREFIXES: &[&str] = &["jcode:d:", "jcode:c:"];
+const CLIENT_TITLE_PREFIXES: &[&str] = &["blaude:d:", "blaude:c:"];
 
 #[derive(Debug, Clone)]
 pub struct DictationRun {
@@ -89,7 +89,7 @@ pub fn remember_last_focused_session(session_id: &str) -> Result<()> {
     if let Some(parent) = path.parent() {
         crate::storage::ensure_dir(parent)?;
     }
-    std::fs::write(&path, session_id).context("failed to persist last focused jcode session")?;
+    std::fs::write(&path, session_id).context("failed to persist last focused blaude session")?;
 
     if let Ok(mut cache) = last_focused_session_write_cache().lock() {
         *cache = Some(session_id.to_string());
@@ -103,7 +103,7 @@ pub fn last_focused_session() -> Result<Option<String>> {
     let session_id = match std::fs::read_to_string(path) {
         Ok(text) => text.trim().to_string(),
         Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(None),
-        Err(err) => return Err(err).context("failed to read last focused jcode session"),
+        Err(err) => return Err(err).context("failed to read last focused blaude session"),
     };
     if session_id.is_empty() {
         return Ok(None);

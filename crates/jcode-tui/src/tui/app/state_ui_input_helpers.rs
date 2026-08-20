@@ -155,13 +155,13 @@ const REGISTERED_COMMANDS: &[RegisteredCommand] = &[
         "Generate a shareable usage report + dashboard image",
     ),
     RegisteredCommand::public("/wrapped", "Alias for /productivity"),
-    RegisteredCommand::public("/feedback", "Send feedback about jcode"),
-    RegisteredCommand::public("/telemetry", "Show or change what jcode sends"),
+    RegisteredCommand::public("/feedback", "Send feedback about blaude"),
+    RegisteredCommand::public("/telemetry", "Show or change what blaude sends"),
     RegisteredCommand::public("/support", "Email support with diagnostics prefilled"),
-    RegisteredCommand::public("/subscription", "Show jcode subscription status"),
-    RegisteredCommand::public("/subscribe", "Why and how to subscribe to jcode"),
+    RegisteredCommand::public("/subscription", "Show blaude subscription status"),
+    RegisteredCommand::public("/subscribe", "Why and how to subscribe to blaude"),
     RegisteredCommand::public("/config", "Show or edit configuration"),
-    RegisteredCommand::public("/log", "Mark the current location in the jcode logs"),
+    RegisteredCommand::public("/log", "Mark the current location in the blaude logs"),
     RegisteredCommand::public(
         "/keys",
         "Show keybinding conflicts with your terminal and OS (/keys refresh to rescan)",
@@ -182,7 +182,7 @@ const REGISTERED_COMMANDS: &[RegisteredCommand] = &[
     RegisteredCommand::public("/reload", "Reload into newest available binary"),
     RegisteredCommand::public("/restart", "Restart with current binary"),
     RegisteredCommand::public("/rebuild", "Background rebuild and auto reload"),
-    RegisteredCommand::public("/selfdev", "Open a new self-dev jcode session"),
+    RegisteredCommand::public("/selfdev", "Open a new self-dev blaude session"),
     RegisteredCommand::public("/update", "Background update and auto reload"),
     RegisteredCommand::public("/resume", "Open session picker"),
     RegisteredCommand::public("/sessions", "Alias for /resume"),
@@ -197,7 +197,7 @@ const REGISTERED_COMMANDS: &[RegisteredCommand] = &[
     RegisteredCommand::hidden("/split", "Alias for /fork"),
     RegisteredCommand::public("/transfer", "Compact context into a fresh handoff session"),
     RegisteredCommand::public("/workspace", "Niri-style session workspace"),
-    RegisteredCommand::public("/quit", "Exit jcode"),
+    RegisteredCommand::public("/quit", "Exit blaude"),
     RegisteredCommand::public("/auth", "Show authentication status"),
     RegisteredCommand::public("/login", "Login to a provider"),
     RegisteredCommand::public("/logout", "Log out of a provider"),
@@ -2006,7 +2006,7 @@ mod external_cli_suggestion_tests {
         std::fs::write(
             &path,
             r#"{"type":"session_meta","payload":{"id":"sid","cwd":"/home/jeremy/jcode"}}
-{"type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"check in on jcode"}]}}
+{"type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"check in on blaude"}]}}
 "#,
         )
         .expect("write fixture");

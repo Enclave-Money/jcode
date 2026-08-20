@@ -10,7 +10,7 @@
 //!   - At most once per week across all sessions (persisted timestamp), and
 //!     at most once per session.
 //!   - Never while onboarding is active, never for users who already hold
-//!     jcode account credentials, never in replay/test runtimes.
+//!     blaude account credentials, never in replay/test runtimes.
 //!
 //! `/subscribe` remains a compatibility alias for the hosted-model pitch.
 
@@ -26,9 +26,9 @@ const LONG_TASK_MIN_ELAPSED: Duration = Duration::from_secs(60 * 60);
 
 /// Copy appended to the rate-limit system message (trigger A).
 pub(super) const RATE_LIMIT_NUDGE_LINE: &str =
-    "Avoid provider rate limits with Jcode hosted models: /hosted";
+    "Avoid provider rate limits with blaude hosted models: /hosted";
 /// Status-line tail shared by trigger B.
-const SUPPORT_NUDGE_NOTICE: &str = "Try Jcode hosted models: /hosted";
+const SUPPORT_NUDGE_NOTICE: &str = "Try blaude hosted models: /hosted";
 
 /// Why a nudge fired. Used to build the message and recorded in the state file
 /// so we can tune trigger mix later.
@@ -49,7 +49,7 @@ impl SubscribeNudgeTrigger {
     }
 }
 
-/// Persisted nudge bookkeeping (one small JSON file under the jcode dir).
+/// Persisted nudge bookkeeping (one small JSON file under the blaude dir).
 #[derive(Debug, Default, serde::Serialize, serde::Deserialize)]
 struct NudgeState {
     /// Unix seconds when a nudge was last shown, across all sessions.
@@ -129,7 +129,7 @@ fn format_elapsed(elapsed: Duration) -> String {
 /// The goodwill message for a completed long task.
 fn long_task_message(elapsed: Duration) -> String {
     format!(
-        "✦ jcode just worked {} for you. {}",
+        "✦ blaude just worked {} for you. {}",
         format_elapsed(elapsed),
         SUPPORT_NUDGE_NOTICE
     )
@@ -138,7 +138,7 @@ fn long_task_message(elapsed: Duration) -> String {
 /// The full hosted-model pitch. Reuses the live curated catalog so models
 /// never drift from the account status surface.
 pub(super) fn subscribe_pitch_markdown() -> String {
-    let mut message = String::from("Jcode hosted models\n\n");
+    let mut message = String::from("blaude hosted models\n\n");
     message.push_str("No subscription. Set a monthly spending limit and pay only for usage:\n\n");
     message.push_str("  - You control the monthly limit and can change it from your account\n");
     message.push_str("  - Usage milestones send warnings without slowing your requests\n");
@@ -152,14 +152,15 @@ pub(super) fn subscribe_pitch_markdown() -> String {
             model_names.join(", ")
         ));
     }
-    message.push_str("  - Sign in once: Jcode saves the hosted API key and routes the rest\n");
+    message.push_str("  - Sign in once: blaude saves the hosted API key and routes the rest\n");
     message.push_str("  - Automatic failover routing when a provider has a bad day\n");
     message
         .push_str("  - Billing starts at $20 of usage, then uses progressively larger tranches\n");
     message.push_str("  - Any remaining usage is billed at your limit or at month end\n");
-    message.push_str("  - Funds Jcode development while the software stays open source\n");
+    message.push_str("  - Funds blaude development while the software stays open source\n");
 
-    message.push_str("\nStart: /login jcode (browser approval, no key pasted into the terminal)\n");
+    message
+        .push_str("\nStart: /login blaude (browser approval, no key pasted into the terminal)\n");
     message.push_str("Usage anytime: /usage");
     message
 }
@@ -191,7 +192,7 @@ impl App {
         if self.onboarding_flow_active() {
             return false;
         }
-        // Never pitch existing jcode account holders.
+        // Never pitch existing blaude account holders.
         if crate::subscription_catalog::has_credentials() {
             return false;
         }
@@ -251,7 +252,7 @@ impl App {
     /// Render the `/subscribe` pitch into the transcript.
     pub(super) fn show_subscribe_pitch(&mut self) {
         self.push_display_message(DisplayMessage::system(subscribe_pitch_markdown()));
-        self.set_status_notice("Hosted models: /login jcode to start");
+        self.set_status_notice("Hosted models: /login blaude to start");
     }
 }
 
@@ -330,7 +331,7 @@ mod tests {
         let message = long_task_message(Duration::from_secs(60 * 83));
         assert_eq!(
             message,
-            "✦ jcode just worked 1h 23m for you. Try Jcode hosted models: /hosted"
+            "✦ blaude just worked 1h 23m for you. Try blaude hosted models: /hosted"
         );
         assert!(long_task_message(Duration::from_secs(3600)).contains("worked 1h for you"));
         assert!(long_task_message(Duration::from_secs(59 * 60)).contains("worked 59m for you"));
@@ -352,7 +353,7 @@ mod tests {
         assert!(pitch.contains("progressively larger tranches"));
         assert!(pitch.contains("month end"));
         assert!(pitch.contains("open source"));
-        assert!(pitch.contains("/login jcode"));
+        assert!(pitch.contains("/login blaude"));
         assert!(pitch.contains("/usage"));
         for model in crate::subscription_catalog::curated_models() {
             assert!(pitch.contains(model.display_name));

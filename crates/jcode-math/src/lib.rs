@@ -1,4 +1,4 @@
-//! TeX-style math typesetting for jcode front-ends.
+//! TeX-style math typesetting for blaude front-ends.
 //!
 //! `jcode-math` turns LaTeX math source into positioned glyphs and rules using
 //! the OpenType MATH table of a real math font (STIX Two Math, vendored). It

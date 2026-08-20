@@ -374,7 +374,7 @@ mod tests {
 
     impl IsolatedHome {
         fn new() -> Self {
-            let temp = tempfile::TempDir::new().expect("jcode home");
+            let temp = tempfile::TempDir::new().expect("blaude home");
             let prev_home = std::env::var_os("JCODE_HOME");
             crate::env::set_var("JCODE_HOME", temp.path());
             Self {

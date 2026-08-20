@@ -51,7 +51,7 @@ pub const API_KEY_ENV: &str = "AWS_BEARER_TOKEN_BEDROCK";
 pub const REGION_ENV: &str = "JCODE_BEDROCK_REGION";
 #[cfg(not(feature = "aws-sdk"))]
 const NO_AWS_SDK_SUPPORT: &str =
-    "jcode was built without AWS Bedrock support (feature `bedrock` disabled)";
+    "blaude was built without AWS Bedrock support (feature `bedrock` disabled)";
 
 #[derive(Debug, Clone)]
 struct BedrockModelInfo {
@@ -134,7 +134,7 @@ impl BedrockProvider {
         if let Some(profile) = profile {
             // Pin the credential provider itself, not just the profile name.
             // The default AWS chain checks process-wide AWS_ACCESS_KEY_ID first,
-            // which could otherwise override an explicit Jcode Bedrock profile.
+            // which could otherwise override an explicit blaude Bedrock profile.
             if let Some(credentials) = Self::credentials_from_aws_login_profile(&profile).await {
                 loader = loader.credentials_provider(credentials);
             } else {

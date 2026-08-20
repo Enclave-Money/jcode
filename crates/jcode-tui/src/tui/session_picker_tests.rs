@@ -1329,7 +1329,7 @@ fn onboarding_banner_offers_review_then_new_session() {
 fn onboarding_banner_renders_prompt_and_both_action_rows() {
     let mut picker = SessionPicker::new(Vec::new());
     picker.activate_onboarding_banner(vec![
-        Line::from("Welcome to jcode"),
+        Line::from("Welcome to blaude"),
         Line::from("Choose how to begin."),
     ]);
 
@@ -1350,7 +1350,7 @@ fn onboarding_banner_renders_prompt_and_both_action_rows() {
         .collect::<Vec<_>>();
 
     assert!(
-        text.contains("Welcome to jcode"),
+        text.contains("Welcome to blaude"),
         "onboarding prompt should render in the banner: {text:?}"
     );
     assert!(
@@ -1372,7 +1372,7 @@ fn onboarding_banner_renders_prompt_and_both_action_rows() {
 
     let welcome_y = lines
         .iter()
-        .position(|line| line.contains("Welcome to jcode"))
+        .position(|line| line.contains("Welcome to blaude"))
         .expect("welcome row");
     let review_y = lines
         .iter()

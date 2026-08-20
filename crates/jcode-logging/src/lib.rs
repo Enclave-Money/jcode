@@ -208,11 +208,11 @@ impl Logger {
         let ctx = context_prefix();
         let line = format!("[{}] [{}] {}{}\n", timestamp, level, ctx, message);
         if let Err(err) = self.file.write_all(line.as_bytes()) {
-            eprintln!("jcode logger write failed: {err}");
+            eprintln!("blaude logger write failed: {err}");
             return;
         }
         if let Err(err) = self.file.flush() {
-            eprintln!("jcode logger flush failed: {err}");
+            eprintln!("blaude logger flush failed: {err}");
         }
     }
 }
@@ -603,7 +603,7 @@ fn cleanup_old_logs_in(log_dir: &std::path::Path, now: chrono::DateTime<Local>) 
             if modified < cutoff
                 && let Err(err) = fs::remove_file(entry.path())
             {
-                eprintln!("jcode logger cleanup failed: {err}");
+                eprintln!("blaude logger cleanup failed: {err}");
             }
         }
     }
@@ -780,9 +780,9 @@ mod tests {
 
         cleanup_old_logs_in(&dir, Local::now());
 
-        assert!(!old_log.exists(), "old jcode log should be deleted");
+        assert!(!old_log.exists(), "old blaude log should be deleted");
         assert!(!old_desktop.exists(), "old desktop log should be deleted");
-        assert!(new_log.exists(), "recent jcode log must survive");
+        assert!(new_log.exists(), "recent blaude log must survive");
         assert!(old_memory.exists(), "memory-events jsonl must survive");
         assert!(old_other.exists(), "unrelated files must survive");
         assert!(subdir.is_dir(), "subdirectories must survive");

@@ -152,7 +152,7 @@ async fn coverage_clipboard_scripting_system() {
     assert!(c.output.contains("cov-clip"));
     ok(json!({"action":"run_applescript","script":"return 7 * 6"})).await;
     ok(json!({"action":"run_jxa","script":"2 + 3"})).await;
-    ok(json!({"action":"notify","text":"jcode coverage test","title":"jcode"})).await;
+    ok(json!({"action":"notify","text":"blaude coverage test","title":"jcode"})).await;
     // wait_for against a known app/text with short timeout (Finder always has a menu)
     textedit_new().await;
     let _ =
