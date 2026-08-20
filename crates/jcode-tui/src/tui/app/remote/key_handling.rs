@@ -626,7 +626,22 @@ async fn handle_remote_key_internal(
     }
 
     if code == KeyCode::BackTab {
-        app.cycle_model_favorite_hotkey();
+        // Claude Code parity (and identical to the local path): Shift+Tab
+        // cycles the working mode — auto (tools run) or plan (propose only).
+        app.plan_mode = !app.plan_mode;
+        if app.plan_mode {
+            app.push_display_message(DisplayMessage::system(
+                "⏸ plan mode on — the model researches and proposes, no edits. Shift+Tab to go back to auto."
+                    .to_string(),
+            ));
+            app.set_status_notice("plan mode on");
+        } else {
+            app.push_display_message(DisplayMessage::system(
+                "▶ auto mode on — the model executes with tools. Shift+Tab for plan mode."
+                    .to_string(),
+            ));
+            app.set_status_notice("auto mode on");
+        }
         return Ok(());
     }
 

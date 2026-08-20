@@ -406,8 +406,8 @@ pub(super) fn build_registry(inputs: &RegistryInputs<'_>) -> Vec<KnownHotkey> {
         // Registered as Shift+Tab: `matches` normalizes BackTab to the same
         // chord, and the label formats as "Shift+Tab" instead of "Key".
         key(KeyCode::Tab, KeyModifiers::SHIFT),
-        "model_favorite_cycle",
-        "cycle favorite models",
+        "mode_cycle",
+        "toggle plan/auto mode",
     ));
     out.push(KnownHotkey::new(
         key(KeyCode::Char(' '), KeyModifiers::ALT),
