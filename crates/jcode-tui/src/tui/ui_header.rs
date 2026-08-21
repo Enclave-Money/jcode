@@ -1,11 +1,10 @@
 use super::box_utils::render_rounded_box;
 use super::changelog::get_unseen_changelog_entries;
-use super::{
-    TuiState, dim_color, header_name_color, is_running_stable_release, semver, shorten_model_name,
-};
+use super::{TuiState, dim_color, header_name_color, shorten_model_name};
 use crate::auth::{AuthState, AuthStatus};
 use crate::tui::color_support::rgb;
-use crate::tui::connection_type_icon;
+#[cfg(test)]
+use crate::tui::ui::status_support::semver;
 use ratatui::prelude::*;
 #[cfg(test)]
 use std::sync::OnceLock;
@@ -639,6 +638,163 @@ fn configured_auth_count(auth: &AuthStatus) -> usize {
     .count()
 }
 
+/// The constant top-of-screen header: identity + model + cwd on line one,
+/// accounts + subscription limits on line two, a dim rule under it. Rendered
+/// pinned above the transcript every frame (never scrolls), so the trivia the
+/// old floating side boxes carried has one stable home.
+pub(super) fn build_pinned_header(app: &dyn TuiState, width: u16) -> Vec<Line<'static>> {
+    let w = width as usize;
+    let auth = app.auth_status();
+    let active = ActiveCredentialOverrides::from_app(app);
+    let mut lines: Vec<Line> = Vec::new();
+
+    // Line 1: ✳ blaude [self-dev] · <model> · <cwd (branch)>
+    {
+        let mut spans = vec![
+            Span::styled(
+                "✳ ".to_string(),
+                Style::default().fg(jcode_tui_style::theme::header_icon_color()),
+            ),
+            Span::styled(
+                "blaude".to_string(),
+                Style::default().fg(header_name_color()).bold(),
+            ),
+        ];
+        let mut used = 8usize;
+        if app.is_canary() {
+            spans.push(Span::styled(
+                " self-dev".to_string(),
+                Style::default().fg(dim_color()),
+            ));
+            used += 9;
+        }
+        let model = app.provider_model();
+        let nice_model = header_model_display_name(&model, &app.provider_name());
+        if !nice_model.is_empty() && !model.trim().is_empty() {
+            let seg = format!(" · {nice_model}");
+            if used + seg.chars().count() <= w {
+                used += seg.chars().count();
+                spans.push(Span::styled(
+                    " · ".to_string(),
+                    Style::default().fg(dim_color()),
+                ));
+                spans.push(Span::styled(
+                    nice_model,
+                    Style::default().fg(rgb(255, 150, 200)).bold(),
+                ));
+            }
+        }
+        if let Some(dir) = app.working_dir() {
+            let mut text = abbreviate_home(&dir);
+            if let Some(branch) = app.git_branch() {
+                text = format!("{text} ({branch})");
+            }
+            let seg = format!(" · {text}");
+            if used + seg.chars().count() <= w {
+                spans.push(Span::styled(seg, Style::default().fg(dim_color())));
+            }
+        }
+        lines.push(Line::from(spans));
+    }
+
+    // Line 2: accounts + limits, trimmed from the right when narrow.
+    {
+        let mut segments: Vec<(String, Style)> = Vec::new();
+
+        let claude_accounts: Vec<String> = crate::auth::claude::list_accounts()
+            .map(|accs| {
+                accs.into_iter()
+                    .map(|a| a.email.unwrap_or(a.label))
+                    .collect()
+            })
+            .unwrap_or_default();
+        if !claude_accounts.is_empty() {
+            let dot_style = Style::default().fg(auth_dot_color(auth.anthropic.state));
+            segments.push(("● ".to_string(), dot_style));
+            segments.push((
+                format!("claude: {}", claude_accounts.join(", ")),
+                Style::default().fg(dim_color()),
+            ));
+        }
+        let codex_accounts: Vec<String> = crate::auth::codex::list_accounts()
+            .map(|accs| accs.into_iter().map(|a| a.label).collect())
+            .unwrap_or_default();
+        if !codex_accounts.is_empty() {
+            let dot_style = Style::default().fg(auth_dot_color(auth.openai));
+            segments.push(("  ● ".to_string(), dot_style));
+            segments.push((
+                format!("codex: {}", codex_accounts.join(", ")),
+                Style::default().fg(dim_color()),
+            ));
+        }
+        let _ = active;
+
+        if let Some(info) = app.info_widget_data().usage_info.as_ref().filter(|info| {
+            info.available
+                && !matches!(
+                    info.provider,
+                    crate::tui::info_widget::UsageProvider::Copilot
+                        | crate::tui::info_widget::UsageProvider::CostBased
+                )
+        }) {
+            let five_left =
+                100u8.saturating_sub((info.five_hour * 100.0).round().clamp(0.0, 100.0) as u8);
+            let week_left =
+                100u8.saturating_sub((info.seven_day * 100.0).round().clamp(0.0, 100.0) as u8);
+            let mut text = format!("  ·  5h {five_left}% left");
+            if let Some(reset) = info
+                .five_hour_resets_at
+                .as_deref()
+                .map(crate::usage::format_reset_time)
+            {
+                text.push_str(&format!(" ({reset})"));
+            }
+            text.push_str(&format!("  ·  wk {week_left}% left"));
+            if let Some(reset) = info
+                .seven_day_resets_at
+                .as_deref()
+                .map(crate::usage::format_reset_time)
+            {
+                text.push_str(&format!(" ({reset})"));
+            }
+            let color = if five_left < 15 || week_left < 15 {
+                rgb(255, 170, 100)
+            } else {
+                dim_color()
+            };
+            segments.push((text, Style::default().fg(color)));
+        }
+
+        if segments.is_empty() {
+            segments.push((
+                "/login to add a Claude or Codex account".to_string(),
+                Style::default().fg(dim_color()),
+            ));
+        }
+
+        // Trim whole segments from the right until the line fits.
+        let mut spans: Vec<Span> = Vec::new();
+        let mut used = 0usize;
+        for (text, style) in segments {
+            let n = text.chars().count();
+            if used + n > w {
+                break;
+            }
+            used += n;
+            spans.push(Span::styled(text, style));
+        }
+        lines.push(Line::from(spans));
+    }
+
+    // Line 3: a dim rule separating the header from the transcript.
+    lines.push(Line::from(Span::styled(
+        "─".repeat(w.min(500)),
+        Style::default().fg(rgb(60, 60, 66)),
+    )));
+
+    lines
+}
+
 #[cfg(test)]
 pub(super) fn build_persistent_header(app: &dyn TuiState, width: u16) -> Vec<Line<'static>> {
     let auth = app.auth_status();
@@ -653,14 +809,6 @@ fn build_persistent_header_with_auth(
     active: ActiveCredentialOverrides,
 ) -> Vec<Line<'static>> {
     let model = app.provider_model();
-    let session_name = app.session_display_name().unwrap_or_default();
-    let server_name = app.server_display_name();
-    // The client line is identified by its session name, so show that name's
-    // icon (e.g. "ram" -> 🐏). Previously a remote http/ws connection icon
-    // (🌐/🔌) replaced it entirely, which hid the name icon for every remote
-    // client. Keep the connection icon as a separate trailing hint instead.
-    let icon = crate::id::session_icon(&session_name);
-    let connection_icon = connection_type_icon(app.connection_type().as_deref());
     let nice_model = header_model_display_name(&model, &app.provider_name());
     let align = Alignment::Left;
     let mut lines: Vec<Line> = Vec::new();
@@ -686,35 +834,10 @@ fn build_persistent_header_with_auth(
         status_items.push(badge);
     }
 
-    // Labeled versions for the `server:` / `client:` lines. Lots of users run
-    // mismatched client/server binaries, so both lines carry their own version
-    // label (and highlight on mismatch) instead of relying on the single
-    // ambiguous version line at the bottom.
-    let server_version_full = app.server_display_version();
-    let client_version_full = server_name
-        .as_ref()
-        .map(|_| jcode_build_meta::version().to_string());
-    let version_mismatch = matches!(
-        (&server_version_full, &client_version_full),
-        (Some(server), Some(client)) if server.trim() != client.trim()
-    );
-    let include_hash = version_mismatch
-        && matches!(
-            (&server_version_full, &client_version_full),
-            (Some(server), Some(client))
-                if compact_version_label(server) == compact_version_label(client)
-        );
-    let version_style = if version_mismatch {
-        Style::default().fg(rgb(255, 200, 100))
-    } else {
-        Style::default().fg(dim_color())
-    };
-    let server_version_label = server_version_full
-        .as_deref()
-        .map(|version| header_version_label(version, include_hash));
-    let client_version_label = client_version_full
-        .as_deref()
-        .map(|version| header_version_label(version, include_hash));
+    // Server/client codenames and per-binary version labels moved out of the
+    // welcome: the pinned header carries identity and `/status` keeps the
+    // plumbing detail. A version mismatch still surfaces via the srv↑ /
+    // cli↑ badges on the first line.
 
     // First line: `jcode` (+ `self-dev` when running a dev/canary build),
     // followed by any remaining status badges rendered dimly.
@@ -742,52 +865,6 @@ fn build_persistent_header_with_auth(
             ));
         }
         lines.push(Line::from(spans).alignment(align));
-    }
-
-    if let Some(server_name) = server_name.as_deref() {
-        let server_icon = app.server_display_icon().unwrap_or_default();
-        let server_text = if server_icon.is_empty() {
-            format!("server: {}", capitalize(server_name))
-        } else {
-            format!("server: {} {}", capitalize(server_name), server_icon)
-        };
-        let mut spans = vec![Span::styled(
-            server_text.clone(),
-            Style::default().fg(dim_color()),
-        )];
-        if let Some(version) = server_version_label.as_deref() {
-            let suffix = format!(" · {}", version);
-            if server_text.chars().count() + suffix.chars().count() <= w {
-                spans.push(Span::styled(suffix, version_style));
-            }
-        }
-        lines.push(Line::from(spans).alignment(align));
-    }
-
-    if !session_name.is_empty() {
-        let client_text = match connection_icon {
-            Some(conn) => format!("client: {} {} {}", capitalize(&session_name), icon, conn),
-            None => format!("client: {} {}", capitalize(&session_name), icon),
-        };
-        let mut spans = vec![Span::styled(
-            client_text.clone(),
-            Style::default().fg(dim_color()),
-        )];
-        if let Some(version) = client_version_label.as_deref() {
-            let suffix = format!(" · {}", version);
-            if client_text.chars().count() + suffix.chars().count() <= w {
-                spans.push(Span::styled(suffix, version_style));
-            }
-        }
-        lines.push(Line::from(spans).alignment(align));
-    } else if server_name.is_none() {
-        lines.push(
-            Line::from(Span::styled(
-                "blaude".to_string(),
-                Style::default().fg(header_name_color()),
-            ))
-            .alignment(align),
-        );
     }
 
     // Single model line: dim active-route method on the left, styled model
@@ -848,25 +925,6 @@ fn build_persistent_header_with_auth(
         lines.push(Line::from(model_spans).alignment(align));
     }
 
-    // When there is no server/client version labeling (standalone mode),
-    // still surface the running version on the blaude line's own row.
-    if client_version_label.is_none() {
-        let version_text = if is_running_stable_release() {
-            let tag = jcode_build_meta::git_tag();
-            if tag.is_empty() || tag.contains('-') {
-                format!("{} · release", semver())
-            } else {
-                format!("{} · release {}", semver(), tag)
-            }
-        } else {
-            semver().to_string()
-        };
-        lines.push(
-            Line::from(Span::styled(version_text, Style::default().fg(dim_color())))
-                .alignment(align),
-        );
-    }
-
     lines
 }
 
@@ -887,20 +945,9 @@ fn build_header_lines_with_auth(
     let align = ratatui::layout::Alignment::Left;
     let w = width as usize;
 
-    // Auth inventory: `/login` heading, then one provider per line (dim
-    // hollow dot for unconfigured providers).
-    let auth_lines = build_auth_status_lines(auth, active);
-    let login_heading = "/login to add provider".to_string();
-    lines.push(
-        Line::from(Span::styled(
-            login_heading,
-            Style::default().fg(dim_color()),
-        ))
-        .alignment(align),
-    );
-    for line in auth_lines {
-        lines.push(line.alignment(align));
-    }
+    // Accounts, limits, and the working directory live in the pinned
+    // header now; the welcome stays a quiet transcript entry.
+    let _ = (auth, active);
 
     let mcps = app.mcp_servers();
     if !mcps.is_empty() {
@@ -925,41 +972,6 @@ fn build_header_lines_with_auth(
         }
         lines.push(
             Line::from(Span::styled(mcp_text, Style::default().fg(dim_color()))).alignment(align),
-        );
-    }
-
-    let skills = app.available_skills();
-    if !skills.is_empty() {
-        const MAX_SKILLS: usize = 6;
-        let shown: Vec<String> = skills
-            .iter()
-            .take(MAX_SKILLS)
-            .map(|s| format!("/{}", s))
-            .collect();
-        let mut skills_text = format!("skills: {}", shown.join(" "));
-        if skills.len() > MAX_SKILLS {
-            skills_text.push_str(&format!(" +{} more", skills.len() - MAX_SKILLS));
-        }
-        if skills_text.chars().count() > w {
-            skills_text = format!("skills: {} loaded", skills.len());
-        }
-        lines.push(
-            Line::from(Span::styled(skills_text, Style::default().fg(dim_color())))
-                .alignment(align),
-        );
-    }
-
-    if let Some(dir) = app.working_dir() {
-        let display_dir = abbreviate_home(&dir);
-        let mut text = display_dir;
-        if let Some(branch) = app.git_branch() {
-            let with_branch = format!("{} ({})", text, branch);
-            if with_branch.chars().count() <= w {
-                text = with_branch;
-            }
-        }
-        lines.push(
-            Line::from(Span::styled(text, Style::default().fg(dim_color()))).alignment(align),
         );
     }
 
@@ -1123,7 +1135,10 @@ mod tests {
         let mut app = create_test_app();
         app.set_centered(false);
 
-        let lines = build_header_lines(&app, 80);
+        // The secondary header is minimal now (accounts/limits live in the
+        // pinned header); check alignment across both sections instead.
+        let (persistent, secondary) = build_header_sections(&app, 80);
+        let lines: Vec<Line<'static>> = persistent.into_iter().chain(secondary).collect();
         let non_empty: Vec<&Line<'_>> = lines
             .iter()
             .filter(|line| !line.spans.iter().all(|span| span.content.trim().is_empty()))
@@ -1167,7 +1182,7 @@ mod tests {
     }
 
     #[test]
-    fn persistent_header_labels_server_and_client_versions() {
+    fn persistent_header_omits_server_client_plumbing() {
         let mut app = create_test_app();
         app.set_remote_server_identity_for_tests(
             Some("blazing"),
@@ -1177,153 +1192,40 @@ mod tests {
         );
 
         let lines = rendered_header_lines(&app, 120);
-        let server_line = lines
-            .iter()
-            .find(|line| line.contains("server:"))
-            .expect("server line");
-        let client_line = lines
-            .iter()
-            .find(|line| line.contains("client:"))
-            .expect("client line");
-
         assert!(
-            server_line.contains("server: Blazing 🔥 · v0.14.2-dev"),
-            "server line should carry the server version: {server_line}"
-        );
-        let client_version = compact_version_label(jcode_build_meta::version());
-        assert!(
-            client_line.contains("client: Fox"),
-            "client line should keep the session name: {client_line}"
-        );
-        assert!(
-            client_line.contains(&format!("· {}", client_version)),
-            "client line should carry the client version: {client_line}"
-        );
-    }
-
-    #[test]
-    fn persistent_header_keeps_git_hash_when_semvers_match_but_builds_differ() {
-        let mut app = create_test_app();
-        let client_semver = compact_version_label(jcode_build_meta::version());
-        let fake_server_version = format!("{} (0000000)", client_semver);
-        app.set_remote_server_identity_for_tests(
-            Some("blazing"),
-            None,
-            Some(&fake_server_version),
-            Some("session_fox_1705012345678"),
-        );
-
-        let lines = rendered_header_lines(&app, 160);
-        let server_line = lines
-            .iter()
-            .find(|line| line.contains("server:"))
-            .expect("server line");
-        let client_line = lines
-            .iter()
-            .find(|line| line.contains("client:"))
-            .expect("client line");
-
-        assert!(
-            server_line.contains("(0000000)"),
-            "same-semver mismatch should keep the server git hash: {server_line}"
-        );
-        assert!(
-            client_line.contains(&format!("· {}", jcode_build_meta::version())),
-            "same-semver mismatch should keep the client git hash: {client_line}"
-        );
-    }
-
-    #[test]
-    fn persistent_header_omits_version_suffix_when_too_narrow() {
-        let mut app = create_test_app();
-        app.set_remote_server_identity_for_tests(
-            Some("blazing"),
-            Some("🔥"),
-            Some("v0.14.2-dev (old1234)"),
-            Some("session_fox_1705012345678"),
-        );
-
-        let lines = rendered_header_lines(&app, 18);
-        let server_line = lines
-            .iter()
-            .find(|line| line.contains("server:"))
-            .expect("server line");
-        assert!(
-            !server_line.contains("v0.14.2"),
-            "narrow widths should drop the version suffix: {server_line}"
-        );
-    }
-
-    #[test]
-    fn persistent_header_local_mode_has_no_version_labels() {
-        let app = create_test_app();
-        let lines = rendered_header_lines(&app, 120);
-        assert!(
-            !lines.iter().any(|line| line.contains("server:")),
-            "local mode should not render a server line: {lines:?}"
-        );
-        assert!(
-            !lines
+            lines
                 .iter()
-                .any(|line| line.contains("client:") && line.contains(" · v")),
-            "local mode client line should not carry a version label: {lines:?}"
+                .all(|line| !line.contains("server:") && !line.contains("client:")),
+            "server/client plumbing lines moved to /status; the welcome stays quiet: {lines:?}"
+        );
+        assert!(
+            lines.iter().any(|line| line.contains("blaude")),
+            "identity line survives: {lines:?}"
         );
     }
 
     #[test]
-    fn persistent_header_client_line_shows_name_icon_with_connection_hint() {
-        let mut app = create_test_app();
-        app.set_remote_server_identity_for_tests(
-            Some("blazing"),
-            Some("🔥"),
-            Some("v0.14.2-dev (old1234)"),
-            Some("session_ram_1705012345678"),
-        );
-        app.set_connection_type_for_tests(Some("https/sse"));
+    fn pinned_header_carries_model_accounts_and_limits_home() {
+        let app = create_test_app();
+        let lines = build_pinned_header(&app, 100);
+        assert_eq!(lines.len(), 3, "identity, accounts/limits, rule");
 
-        let lines = rendered_header_lines(&app, 120);
-        let client_line = lines
-            .iter()
-            .find(|line| line.contains("client:"))
-            .expect("client line");
-
-        // The session name's own icon (ram -> 🐏) must be present rather than
-        // being replaced by the connection icon.
+        let text =
+            |line: &Line<'_>| -> String { line.spans.iter().map(|s| s.content.as_ref()).collect() };
+        let first = text(&lines[0]);
         assert!(
-            client_line.contains("client: Ram 🐏"),
-            "client line should show the name icon: {client_line}"
+            first.contains("blaude"),
+            "line one is the identity line: {first}"
         );
-        // The connection icon is kept as a trailing hint, not a replacement.
+        let second = text(&lines[1]);
         assert!(
-            client_line.contains('🌐'),
-            "client line should keep the connection hint icon: {client_line}"
+            !second.trim().is_empty(),
+            "line two always says something — accounts or the /login hint: {second}"
         );
-    }
-
-    #[test]
-    fn persistent_header_client_line_has_no_connection_hint_when_unknown() {
-        let mut app = create_test_app();
-        app.set_remote_server_identity_for_tests(
-            Some("blazing"),
-            Some("🔥"),
-            Some("v0.14.2-dev (old1234)"),
-            Some("session_fox_1705012345678"),
-        );
-        app.set_connection_type_for_tests(None);
-
-        let lines = rendered_header_lines(&app, 120);
-        let client_line = lines
-            .iter()
-            .find(|line| line.contains("client:"))
-            .expect("client line");
-
+        let rule = text(&lines[2]);
         assert!(
-            client_line.contains("client: Fox 🦊"),
-            "client line should show the name icon: {client_line}"
-        );
-        assert!(
-            !client_line.contains('🌐') && !client_line.contains('🔌'),
-            "client line should not carry a connection hint when unknown: {client_line}"
+            rule.chars().all(|c| c == '─') && !rule.is_empty(),
+            "line three is the separator rule: {rule}"
         );
     }
 

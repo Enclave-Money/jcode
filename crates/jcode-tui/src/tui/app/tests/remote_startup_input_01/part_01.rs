@@ -1094,12 +1094,13 @@ fn test_model_picker_remote_falls_back_to_current_model_when_catalog_empty() {
             .as_ref()
             .expect("model picker should open with current-model fallback");
 
-        assert_eq!(picker.entries.len(), 1);
-        assert_eq!(picker.entries[0].name, "anthropic/claude-sonnet-4");
-        assert_eq!(picker.entries[0].options.len(), 1);
-        assert_eq!(picker.entries[0].options[0].provider, "openrouter");
-        assert_eq!(picker.entries[0].options[0].api_method, "current");
-        assert!(picker.entries[0].options[0].available);
+        let models = crate::tui::app::inline_interactive::non_council_entries(picker);
+        assert_eq!(models.len(), 1);
+        assert_eq!(models[0].name, "anthropic/claude-sonnet-4");
+        assert_eq!(models[0].options.len(), 1);
+        assert_eq!(models[0].options[0].provider, "openrouter");
+        assert_eq!(models[0].options[0].api_method, "current");
+        assert!(models[0].options[0].available);
     });
 }
 

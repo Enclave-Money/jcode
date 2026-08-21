@@ -1123,9 +1123,10 @@ fn test_model_picker_opens_simplified_state_before_async_routes_complete() {
         .inline_interactive_state
         .as_ref()
         .expect("loading picker should open immediately");
-    assert_eq!(picker.entries.len(), 1);
-    assert_eq!(picker.entries[0].name, "counting-a");
-    assert_eq!(picker.entries[0].options[0].detail, "simplified catalog");
+    let models = crate::tui::app::inline_interactive::non_council_entries(picker);
+    assert_eq!(models.len(), 1);
+    assert_eq!(models[0].name, "counting-a");
+    assert_eq!(models[0].options[0].detail, "simplified catalog");
     assert!(app.pending_model_picker_load.is_some());
     assert_eq!(
         app.status_notice(),
@@ -1436,8 +1437,12 @@ fn test_login_completed_surfaces_new_provider_models_in_local_model_picker() {
         route.provider == "Copilot" && route.api_method == "copilot" && route.available
     }));
 
+    let first_model = crate::tui::app::inline_interactive::non_council_entries(picker)
+        .into_iter()
+        .next()
+        .expect("at least one model row");
     assert!(
-        picker.entries[0]
+        first_model
             .options
             .iter()
             .any(|route| route.provider == "Copilot" && route.detail.contains("recently added")),
@@ -1751,7 +1756,9 @@ fn test_local_model_picker_render_shows_antigravity_models_exactly_as_user_sees_
         picker.filter = filter.to_string();
         App::apply_inline_interactive_filter(picker);
         let _render_lock = scroll_render_test_lock();
-        let backend = ratatui::backend::TestBackend::new(90, 14);
+        // Tall enough that the pinned header + bordered composer chrome
+        // (6 rows) still leaves the picker room to render model rows.
+        let backend = ratatui::backend::TestBackend::new(90, 20);
         let mut terminal = ratatui::Terminal::new(backend).expect("failed to create test terminal");
         render_and_snap(app, &mut terminal)
     };

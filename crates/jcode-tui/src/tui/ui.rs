@@ -545,7 +545,7 @@ pub(super) fn hash_text_for_cache(text: &str) -> u64 {
 #[path = "ui_layout.rs"]
 mod layout_support;
 #[path = "ui_status.rs"]
-mod status_support;
+pub(crate) mod status_support;
 #[path = "ui_theme.rs"]
 mod theme_support;
 use super::color_support::rgb;
@@ -556,9 +556,7 @@ use layout_support::{
 };
 #[cfg(test)]
 pub(crate) use status_support::calculate_input_lines;
-use status_support::{
-    format_status_for_debug, is_running_stable_release, semver, shorten_model_name,
-};
+use status_support::{format_status_for_debug, shorten_model_name};
 use theme_support::{
     accent_color, activity_indicator, activity_indicator_frame_index, ai_color, ai_text,
     animated_tool_color, asap_color, blend_color, dim_color, file_link_color, header_icon_color,
@@ -3013,12 +3011,14 @@ fn draw_inner(frame: &mut Frame, app: &dyn TuiState) {
     // Calculate input height based on the same wrapping logic used for rendering
     // (max 10 lines visible, scrolls if more).
     let base_input_height =
-        input_ui::wrapped_input_line_count(app, chat_area.width, next_prompt).min(10) as u16;
+        input_ui::wrapped_input_line_count(app, chat_area.width.saturating_sub(2), next_prompt)
+            .min(10) as u16;
     // Add 1 line for command suggestions, shell mode hints, or the Ctrl+Enter hint.
     let hint_line_height = input_ui::input_hint_line_height(app);
     let inline_block_height: u16 = inline_ui_height(app);
     let inline_ui_gap_height: u16 = if inline_block_height > 0 { 1 } else { 0 };
-    let input_height = base_input_height + hint_line_height;
+    // +2 for the composer box borders, +1 for the persistent mode line.
+    let input_height = base_input_height + hint_line_height + 3;
 
     if let Some(ref mut capture) = debug_capture {
         capture.render_order.push("prepare_messages".to_string());
@@ -3307,7 +3307,23 @@ fn draw_inner(frame: &mut Frame, app: &dyn TuiState) {
     let draw_start = Instant::now();
 
     // Messages area is chunks[0] within the chat column (already excludes diagram).
-    let messages_area = chunks[0];
+    // The pinned header (model · accounts · limits) takes the top rows and
+    // never scrolls with the transcript — Claude Code keeps its chrome out of
+    // the conversation too. Skipped on very short frames.
+    let full_messages_area = chunks[0];
+    let pinned_rows: u16 = if full_messages_area.height >= 8 { 3 } else { 0 };
+    let pinned_area = Rect::new(
+        full_messages_area.x,
+        full_messages_area.y,
+        full_messages_area.width,
+        pinned_rows,
+    );
+    let messages_area = Rect::new(
+        full_messages_area.x,
+        full_messages_area.y + pinned_rows,
+        full_messages_area.width,
+        full_messages_area.height.saturating_sub(pinned_rows),
+    );
     let _ = swarm_strip_height;
     note_chat_layout(ChatLayoutMetrics {
         chat_area,
@@ -3376,6 +3392,10 @@ fn draw_inner(frame: &mut Frame, app: &dyn TuiState) {
         )
     };
 
+    if pinned_rows > 0 {
+        let lines = header::build_pinned_header(app, pinned_area.width);
+        frame.render_widget(Paragraph::new(lines), pinned_area);
+    }
     crate::tui::reset_pinned_diagram_debug_snapshot();
     // Render pinned diagram if we have one
     if let (Some(diagram_info), Some(area)) = (&pinned_diagram, diagram_area) {

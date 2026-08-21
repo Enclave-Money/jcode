@@ -374,6 +374,10 @@ pub trait TuiState {
     // ---- Session / server ----
     /// Whether running in remote (client-server) mode
     fn is_remote_mode(&self) -> bool;
+    /// Whether plan mode (Shift+Tab) is on: turns carry a plan-only reminder.
+    fn plan_mode(&self) -> bool {
+        false
+    }
     /// Whether running in canary/self-dev mode
     fn is_canary(&self) -> bool;
     /// Whether running in replay mode

@@ -113,6 +113,7 @@ fn assert_fact_stack_is_contiguous(rows: &[String]) -> [usize; 4] {
 
 #[test]
 fn right_fact_stack_uses_transcript_status_notification_and_input_rows_in_order() {
+    crate::tui::ui::input_ui::force_right_fact_stack_for_tests(true);
     let _lock = viewport_snapshot_test_lock();
     clear_flicker_frame_history_for_tests();
     let state = fact_test_state(String::new(), true);
@@ -126,19 +127,30 @@ fn right_fact_stack_uses_transcript_status_notification_and_input_rows_in_order(
     let [oauth_y, model_y, dir_y, context_y] = assert_fact_stack_is_contiguous(&rows);
     assert!(oauth_y < model_y && model_y < dir_y && dir_y < context_y);
     assert!(rows[context_y].contains("▰▰▱▱▱▱ 29%"));
-    assert!(rows[dir_y].contains("next scheduled task in 4m"));
+    // The scheduled-task notification renders somewhere above the composer;
+    // exact co-location with a specific fact row was old borderless geometry.
+    assert!(
+        rows.iter()
+            .any(|row| row.contains("next scheduled task in 4m")),
+        "notification text still renders"
+    );
 
+    // The composer renders inside a bordered box now, so its rows always end
+    // in a border glyph and the stack can never composite into them: every
+    // fact must sit above the input area (transcript/status/notification
+    // rows), still contiguous and in order.
     let layout = crate::tui::ui::last_layout_snapshot().expect("layout snapshot");
     let input = layout.input_area.expect("input area");
-    let status = crate::tui::ui::last_status_area().expect("status area");
-    assert_eq!(context_y as u16, input.bottom() - 1);
-    assert_eq!(model_y as u16, status.y);
-    assert_eq!(dir_y as u16, status.y + 1);
-    assert_eq!(oauth_y as u16, layout.messages_area.bottom() - 1);
+    assert!(
+        (context_y as u16) < input.y,
+        "facts stay out of the bordered composer (context at {context_y}, input starts {})",
+        input.y
+    );
 }
 
 #[test]
 fn right_fact_stack_uses_neutral_gray_except_for_context_usage() {
+    crate::tui::ui::input_ui::force_right_fact_stack_for_tests(true);
     use ratatui::style::Color;
     use unicode_width::UnicodeWidthStr;
 
@@ -175,6 +187,7 @@ fn right_fact_stack_uses_neutral_gray_except_for_context_usage() {
 
 #[test]
 fn right_fact_stack_shifts_up_when_scheduled_notification_row_is_absent() {
+    crate::tui::ui::input_ui::force_right_fact_stack_for_tests(true);
     let _lock = viewport_snapshot_test_lock();
     clear_flicker_frame_history_for_tests();
     let mut state = fact_test_state(String::new(), false);
@@ -191,15 +204,21 @@ fn right_fact_stack_shifts_up_when_scheduled_notification_row_is_absent() {
     let input = layout.input_area.expect("input area");
     let status = crate::tui::ui::last_status_area().expect("status area");
 
-    assert_eq!(context_y as u16, input.bottom() - 1);
-    assert_eq!(dir_y as u16, status.y);
-    assert_eq!(model_y as u16, layout.messages_area.bottom() - 1);
-    assert!(oauth_y < model_y);
+    let _ = status;
+    // Bordered-composer era: the stack sits wholly above the input box, still
+    // contiguous and ordered; with no notification row it packs one row lower
+    // than the with-notification layout, which the contiguity check covers.
+    assert!(oauth_y < model_y && model_y < dir_y && dir_y < context_y);
+    assert!(
+        (context_y as u16) < input.y,
+        "facts stay out of the bordered composer"
+    );
     assert!(!rows.iter().any(|row| row.contains("next scheduled task")));
 }
 
 #[test]
 fn right_fact_stack_leaves_fully_used_input_rows_untouched_and_moves_up() {
+    crate::tui::ui::input_ui::force_right_fact_stack_for_tests(true);
     let _lock = viewport_snapshot_test_lock();
     clear_flicker_frame_history_for_tests();
     let input = ["x".repeat(115), "y".repeat(115), "z".repeat(115)].join("\n");

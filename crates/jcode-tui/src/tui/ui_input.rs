@@ -2313,6 +2313,27 @@ struct RightFactPlacement {
 /// stack may climb into at most the last few transcript rows, but only where
 /// the final rendered buffer has a genuinely blank suffix. It never reflows or
 /// overwrites transcript, status, notification, inline UI, or input content.
+#[cfg(test)]
+static RIGHT_FACT_STACK_FORCED: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
+
+/// Tests that assert the stack's placement logic opt in explicitly — the
+/// shipping default is off (Claude Code look, BLAUDE_RIGHT_PANEL=1 enables).
+#[cfg(test)]
+pub(crate) fn force_right_fact_stack_for_tests(on: bool) {
+    RIGHT_FACT_STACK_FORCED.store(on, std::sync::atomic::Ordering::SeqCst);
+}
+
+fn right_fact_stack_enabled() -> bool {
+    #[cfg(test)]
+    if RIGHT_FACT_STACK_FORCED.load(std::sync::atomic::Ordering::SeqCst) {
+        return true;
+    }
+    std::env::var("BLAUDE_RIGHT_PANEL")
+        .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+        .unwrap_or(false)
+}
+
 pub(super) fn draw_right_fact_stack(
     frame: &mut Frame,
     app: &dyn TuiState,
@@ -2324,10 +2345,7 @@ pub(super) fn draw_right_fact_stack(
     // Claude Code parity: the floating right-side info boxes are opt-in
     // (BLAUDE_RIGHT_PANEL=1). Everything they show remains one command away
     // (/status, /model, /usage) without chrome floating over the transcript.
-    if !std::env::var("BLAUDE_RIGHT_PANEL")
-        .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
-        .unwrap_or(false)
-    {
+    if !right_fact_stack_enabled() {
         return;
     }
     // The legacy overscroll row owns these same facts while it is visible.
@@ -2595,6 +2613,46 @@ pub(super) fn draw_input(
     next_prompt: usize,
     debug_capture: &mut Option<FrameCaptureBuilder>,
 ) -> Option<Position> {
+    // Claude Code-style chrome: the composer lives in a constant bordered box
+    // with a persistent mode line underneath ("⏵⏵ auto mode on (shift+tab to
+    // cycle)"). Carve those out of the chunk, then render the composer into
+    // the box interior. Tiny areas skip the chrome rather than panic.
+    let area = if area.height >= 4 && area.width >= 8 {
+        let mode_area = Rect::new(area.x, area.y + area.height - 1, area.width, 1);
+        let box_area = Rect::new(area.x, area.y, area.width, area.height - 1);
+        frame.render_widget(
+            ratatui::widgets::Block::default()
+                .borders(ratatui::widgets::Borders::ALL)
+                .border_style(Style::default().fg(dim_color())),
+            box_area,
+        );
+        let (mode_text, mode_style) = if app.plan_mode() {
+            (
+                "⏸ plan mode on (shift+tab to cycle)",
+                Style::default().fg(rgb(255, 200, 100)),
+            )
+        } else {
+            (
+                "⏵⏵ auto mode on (shift+tab to cycle)",
+                Style::default().fg(dim_color()),
+            )
+        };
+        frame.render_widget(
+            ratatui::widgets::Paragraph::new(Line::from(Span::styled(
+                format!(" {mode_text}"),
+                mode_style,
+            ))),
+            mode_area,
+        );
+        Rect::new(
+            box_area.x + 1,
+            box_area.y + 1,
+            box_area.width.saturating_sub(2),
+            box_area.height.saturating_sub(2),
+        )
+    } else {
+        area
+    };
     let input_text = app.input();
     let cursor_pos = app.cursor_pos();
 
@@ -2978,6 +3036,23 @@ pub(crate) fn input_cursor_pos_from_screen(
     if !layout_utils::point_in_rect(column, row, area) {
         return None;
     }
+    // The composer renders inside a bordered box with a mode line under it
+    // (see draw_input); map screen coordinates into that interior so clicks
+    // land on the character actually under the pointer.
+    let area = if area.height >= 4 && area.width >= 8 {
+        let inner = Rect::new(
+            area.x + 1,
+            area.y + 1,
+            area.width.saturating_sub(2),
+            area.height.saturating_sub(3),
+        );
+        if !layout_utils::point_in_rect(column, row, inner) {
+            return None;
+        }
+        inner
+    } else {
+        area
+    };
 
     let input_text = app.input();
     let reserved_width = send_mode_reserved_width(app);

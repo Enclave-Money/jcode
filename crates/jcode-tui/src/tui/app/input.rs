@@ -68,8 +68,10 @@ pub(super) fn strip_reasoning_lines(content: &str) -> String {
 
 /// Attached to every turn while plan mode (Shift+Tab) is on.
 pub(super) const PLAN_MODE_REMINDER: &str = "Plan mode is ON for this conversation. Research, read code, \
-and design — but do NOT edit files, run state-changing commands, or commit. Present a concrete plan \
-(steps, files, risks) and wait; the user toggles plan mode off (Shift+Tab) when ready to execute.";
+and design — but do NOT edit files, run state-changing commands, or commit. Present the final plan inside \
+a ```plan fenced block (markdown: a short title heading, then sections like Context, Design, Steps, Risks, \
+Verification with concrete file paths) — the UI renders that block as a plan card. Then wait; the user \
+toggles plan mode off (Shift+Tab) when ready to execute.";
 
 fn mission_turn_reminder(session_id: &str) -> Option<String> {
     crate::mission::active_system_reminder(session_id)
@@ -2937,20 +2939,9 @@ impl App {
         if code == KeyCode::BackTab {
             // Claude Code parity: Shift+Tab cycles the working mode. blaude
             // has two today — auto (tools run) and plan (propose only).
+            // Silent flip, Claude Code-style: the persistent mode line under
+            // the input box is the feedback — no transcript lines.
             self.plan_mode = !self.plan_mode;
-            if self.plan_mode {
-                self.push_display_message(DisplayMessage::system(
-                    "⏸ plan mode on — the model researches and proposes, no edits. Shift+Tab to go back to auto."
-                        .to_string(),
-                ));
-                self.set_status_notice("plan mode on");
-            } else {
-                self.push_display_message(DisplayMessage::system(
-                    "▶ auto mode on — the model executes with tools. Shift+Tab for plan mode."
-                        .to_string(),
-                ));
-                self.set_status_notice("auto mode on");
-            }
             return Ok(());
         }
 

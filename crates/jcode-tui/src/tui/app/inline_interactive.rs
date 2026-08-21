@@ -300,6 +300,23 @@ fn next_model_favorite_after_current(picker: &InlineInteractiveState) -> Option<
         .map(|(_, filtered_pos, _)| *filtered_pos)
 }
 
+/// Where a freshly opened `/model` picker puts its cursor: the active row
+/// (the current model — or the active council when council mode is on).
+/// Council/create rows head the list now, so "first entry" is no longer
+/// "current model"; without this, Enter right after opening would act on
+/// whatever happens to sit at the top.
+fn initial_model_picker_selection(entries: &[PickerEntry]) -> usize {
+    entries
+        .iter()
+        .position(|entry| entry.is_current)
+        .or_else(|| {
+            entries
+                .iter()
+                .position(|entry| matches!(entry.action, PickerAction::Model))
+        })
+        .unwrap_or(0)
+}
+
 fn picker_is_runtime_model_picker(picker: &InlineInteractiveState) -> bool {
     picker.kind == PickerKind::Model
         && picker
@@ -613,6 +630,22 @@ fn list_councils(app: &mut App) {
 /// One picker row per saved council, for the top of the `/model` picker. The
 /// row carries a single benign option (so the picker's option navigation is
 /// happy) and a `Council` action that turns council mode on when selected.
+#[cfg(test)]
+pub(crate) fn non_council_entries<'a>(
+    picker: &'a crate::tui::InlineInteractiveState,
+) -> Vec<&'a crate::tui::PickerEntry> {
+    picker
+        .entries
+        .iter()
+        .filter(|entry| {
+            !matches!(
+                entry.action,
+                crate::tui::PickerAction::Council { .. } | crate::tui::PickerAction::CouncilCreate
+            )
+        })
+        .collect()
+}
+
 /// The check mark a builder-selected model row wears in the `/model` picker.
 const COUNCIL_BUILDER_MARK: &str = "✓ ";
 
@@ -1122,12 +1155,13 @@ impl App {
         let entry_count = entries.len();
         let route_count = cache.route_count;
         let model_count = cache.model_count;
+        let initial_selected = initial_model_picker_selection(&entries);
         self.inline_view_state = None;
         self.inline_interactive_state = Some(InlineInteractiveState {
             kind: PickerKind::Model,
             filtered: (0..entry_count).collect(),
             entries,
-            selected: 0,
+            selected: initial_selected,
             column: 0,
             filter: String::new(),
             preview: false,
@@ -2424,11 +2458,12 @@ impl App {
         // Prepend councils after caching the routes, so they head the list
         // without being written into the route cache.
         let entries = self.with_councils_prepended(entries);
+        let initial_selected = initial_model_picker_selection(&entries);
         self.inline_interactive_state = Some(InlineInteractiveState {
             kind: PickerKind::Model,
             filtered: (0..entries.len()).collect(),
             entries,
-            selected: 0,
+            selected: initial_selected,
             column: 0,
             filter: String::new(),
             preview: false,
@@ -2706,6 +2741,27 @@ impl App {
                 if let Some(picker) = self.inline_interactive_state.as_mut() {
                     picker.selected = picker.selected.saturating_sub(5);
                 }
+                Ok(true)
+            }
+            // `n` starts a new council from the preview too — the preview is
+            // visually identical to the focused picker, so the key must mean
+            // the same thing in both (otherwise `n` silently types into the
+            // filter and the eventual Enter switches models instead).
+            KeyCode::Char(c)
+                if matches!(c, 'n' | 'N')
+                    && !modifiers.contains(KeyModifiers::CONTROL)
+                    && !modifiers.contains(KeyModifiers::ALT)
+                    && self.council_builder.is_none()
+                    && self.inline_interactive_state.as_ref().is_some_and(|p| {
+                        p.kind == PickerKind::Model && p.filter.trim().is_empty()
+                    }) =>
+            {
+                if let Some(picker) = self.inline_interactive_state.as_mut() {
+                    picker.preview = false;
+                }
+                self.input.clear();
+                self.cursor_pos = 0;
+                self.handle_council_create_row();
                 Ok(true)
             }
             KeyCode::Enter => {

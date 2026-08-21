@@ -815,14 +815,15 @@ fn test_mouse_click_in_wrapped_input_moves_cursor_to_second_visual_line() {
     app.handle_mouse_event(MouseEvent {
         kind: MouseEventKind::Down(MouseButton::Left),
         column: input_area.x + 4,
-        row: input_area.y + 1,
+        row: input_area.y + 2,
         modifiers: KeyModifiers::empty(),
     });
 
-    // The idle composer no longer reserves space for the old send-mode glyph,
-    // so this 11-column input wraps after eight characters. Column four on the
-    // second visual line is one character into that segment.
-    assert_eq!(app.cursor_pos, 9);
+    // The composer sits inside a bordered box (interior starts one row/col
+    // in), with a bare "> " prompt: 11 columns leaves a 9-wide interior and a
+    // 7-char text line, so the input wraps after seven characters. Screen row
+    // y+2 is the second visual line; column four is one character into it.
+    assert_eq!(app.cursor_pos, 8);
 }
 
 /// End-to-end: a real left-click on an inline image's label line maps the

@@ -165,11 +165,17 @@ fn test_wrapped_input_line_count_respects_two_digit_prompt_width() {
         });
     }
 
-    // Old layout math effectively used width 11 here (14 total - hardcoded prompt width 3),
-    // which incorrectly fit this input on a single line. The real prompt is "10> ", width 4,
-    // so the wrapped renderer only has 10 columns and must use 2 lines.
+    // The prompt is a bare "> " now (Claude Code parity — no message number),
+    // so the width the composer loses is constant: 2 for the prompt, however
+    // many turns the session has. 14 columns leaves 12 for text, which fits
+    // this 11-char input on one line even at a two-digit prompt number.
     assert_eq!(calculate_input_lines(app.input(), 11), 1);
-    assert_eq!(input_ui::wrapped_input_line_count(&app, 14, 10), 2);
+    assert_eq!(input_ui::wrapped_input_line_count(&app, 14, 10), 1);
+    assert_eq!(
+        input_ui::wrapped_input_line_count(&app, 14, 10),
+        input_ui::wrapped_input_line_count(&app, 14, 9),
+        "the prompt number must not change composer wrapping"
+    );
 }
 
 #[test]
