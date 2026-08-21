@@ -1245,9 +1245,9 @@ impl WorkMode {
     pub fn mode_line(self) -> &'static str {
         match self {
             WorkMode::Auto => "⏵⏵ auto mode on (shift+tab to cycle)",
-            WorkMode::Plan => "⏸ plan mode on (shift+tab to cycle)",
-            WorkMode::Ask => "❓ ask mode on (shift+tab to cycle)",
-            WorkMode::Manual => "✋ manual mode on (shift+tab to cycle)",
+            WorkMode::Plan => "❚❚ plan mode on (shift+tab to cycle)",
+            WorkMode::Ask => "? ask mode on (shift+tab to cycle)",
+            WorkMode::Manual => "❚❚ manual mode on (shift+tab to cycle)",
         }
     }
 
@@ -1310,6 +1310,15 @@ mod work_mode_tests {
             let reminder = mode.turn_reminder().expect("non-auto reminder");
             assert!(reminder.len() > 80, "reminder is a real instruction");
             assert!(mode.mode_line().contains("shift+tab to cycle"));
+            // Text presentation only: macOS renders these code points as
+            // emoji, which is exactly the look we're avoiding.
+            for emoji in ["⏸", "❓", "✋"] {
+                assert!(
+                    !mode.mode_line().contains(emoji),
+                    "mode line must not use emoji glyphs: {}",
+                    mode.mode_line()
+                );
+            }
         }
         assert!(
             WorkMode::Ask
