@@ -1073,7 +1073,9 @@ fn test_pinned_top_diagram_layout_allocates_top_pane() {
         "diagram pane too short: {}",
         diagram.height
     );
-    assert_eq!(messages.y, diagram.y + diagram.height);
+    // The pinned header (identity/accounts/limits + rule) takes the first
+    // three transcript rows below the diagram pane.
+    assert_eq!(messages.y, diagram.y + diagram.height + 3);
     assert!(
         frame
             .render_order

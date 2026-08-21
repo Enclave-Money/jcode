@@ -3191,45 +3191,25 @@ fn draw_inner(frame: &mut Frame, app: &dyn TuiState) {
         content_height
     };
 
-    // Use packed layout when content fits, scrolling layout otherwise
-    let use_packed = terminal_clear_collapsed
-        || (!swarm_page_active && content_height + fixed_height <= available_height);
-
-    // Layout: messages (includes header), queued, status, notification, inline UI, gap, input, donut
-    // All vertical chunks are within the chat_area (left column).
+    // The composer is ALWAYS pinned to the bottom of the frame (Claude Code
+    // behavior): the messages chunk absorbs all remaining space in every
+    // state. The old "packed" layout stacked the chrome directly under short
+    // content, leaving the input floating mid-window.
+    let _ = available_height;
     let chunks = Layout::default()
         .direction(Direction::Vertical)
-        .constraints(if use_packed {
-            vec![
-                Constraint::Length(if terminal_clear_collapsed {
-                    0
-                } else {
-                    content_height.max(1)
-                }), // 0 Messages (exact height; 0 when terminal-cleared)
-                Constraint::Length(queued_height), // 1 Queued messages (above status)
-                Constraint::Length(swarm_strip_height), // 2 Swarm strip (above status)
-                Constraint::Length(1),             // 3 Status line
-                Constraint::Length(notification_height), // 4 Notification line
-                Constraint::Length(inline_block_height), // 5 Inline UI
-                Constraint::Length(inline_ui_gap_height), // 6 Inline UI/input spacing
-                Constraint::Length(input_height),  // 7 Input
-                Constraint::Length(overscroll_height), // 8 Overscroll status line
-                Constraint::Length(donut_height),  // 9 Donut animation
-            ]
-        } else {
-            vec![
-                Constraint::Min(3),                       // 0 Messages (scrollable)
-                Constraint::Length(queued_height),        // 1 Queued messages (above status)
-                Constraint::Length(swarm_strip_height),   // 2 Swarm strip (above status)
-                Constraint::Length(1),                    // 3 Status line
-                Constraint::Length(notification_height),  // 4 Notification line
-                Constraint::Length(inline_block_height),  // 5 Inline UI
-                Constraint::Length(inline_ui_gap_height), // 6 Inline UI/input spacing
-                Constraint::Length(input_height),         // 7 Input
-                Constraint::Length(overscroll_height),    // 8 Overscroll status line
-                Constraint::Length(donut_height),         // 9 Donut animation
-            ]
-        })
+        .constraints(vec![
+            Constraint::Min(3),                       // 0 Messages (scrollable)
+            Constraint::Length(queued_height),        // 1 Queued messages (above status)
+            Constraint::Length(swarm_strip_height),   // 2 Swarm strip (above status)
+            Constraint::Length(1),                    // 3 Status line
+            Constraint::Length(notification_height),  // 4 Notification line
+            Constraint::Length(inline_block_height),  // 5 Inline UI
+            Constraint::Length(inline_ui_gap_height), // 6 Inline UI/input spacing
+            Constraint::Length(input_height),         // 7 Input
+            Constraint::Length(overscroll_height),    // 8 Overscroll status line
+            Constraint::Length(donut_height),         // 9 Donut animation
+        ])
         .split(chat_area);
     record_status_area(chunks[3]);
 
@@ -3241,7 +3221,7 @@ fn draw_inner(frame: &mut Frame, app: &dyn TuiState) {
 
     // Capture layout info for visual debug
     if let Some(ref mut capture) = debug_capture {
-        capture.layout.use_packed = use_packed;
+        capture.layout.use_packed = false;
         capture.layout.estimated_content_height = content_height as usize;
         capture.layout.messages_area = Some(chunks[0].into());
         if queued_height > 0 {
@@ -3331,7 +3311,7 @@ fn draw_inner(frame: &mut Frame, app: &dyn TuiState) {
         initial_content_height: initial_content_height as usize,
         content_height: content_height as usize,
         chat_scrollbar_visible,
-        use_packed_layout: use_packed,
+        use_packed_layout: false,
         has_side_panel_content,
         has_pinned_content,
         has_file_diff_edits,
@@ -3371,11 +3351,12 @@ fn draw_inner(frame: &mut Frame, app: &dyn TuiState) {
             ..Default::default()
         }
     } else if terminal_clear_collapsed {
-        // Collapsed terminal-style clear: the messages chunk is zero-height, so
-        // there is nothing to draw. Deliberately skip `draw_messages` so it does
-        // not publish a zero-height viewport/max-scroll geometry that the scroll
-        // handlers would then resolve against; the last real geometry stays
-        // authoritative until the first scroll-up restores the full layout.
+        // Terminal-style clear: the transcript is all blanks, so skip
+        // `draw_messages` (its geometry would fight the scroll handlers) but
+        // clear the area explicitly — with the composer pinned to the bottom
+        // the chunk is tall now, and unwritten cells would otherwise keep
+        // showing the previous frame.
+        clear_area(frame, messages_area);
         info_widget::Margins {
             right_widths: Vec::new(),
             left_widths: Vec::new(),

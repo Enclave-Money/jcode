@@ -1416,12 +1416,15 @@ fn macos_launch_hotkeys_notice(state: &SetupHintsState) -> Option<StartupHints> 
         .collect();
 
     let lines = launch_hotkey_notice_lines(&rows, &state.launch_hotkey_usage, state.launch_count)?;
-
-    Some(StartupHints::with_status_and_display(
-        "Launch hotkeys available".to_string(),
-        "Launch hotkeys",
-        format!("Configured blaude launch hotkeys:\n{}", lines.join("\n")),
-    ))
+    // The chord list stays out of the transcript (Claude Code keeps its
+    // welcome quiet); a transient status notice is plenty, and /help keeps
+    // the full mapping.
+    let _ = lines;
+    Some(StartupHints {
+        auto_send_message: None,
+        status_notice: Some("Launch hotkeys available — see /help".to_string()),
+        display_message: None,
+    })
 }
 
 // ===========================================================================
