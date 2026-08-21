@@ -1176,6 +1176,7 @@ fn test_workspace_info_widget_appears_in_visual_debug_frame_when_enabled() {
     let _render_lock = scroll_render_test_lock();
 
     let mut app = create_test_app();
+    crate::tui::info_widget::set_enabled_for_tests(true);
     app.workspace_client.reset_for_tests();
     app.centered = true;
     app.display_messages = vec![

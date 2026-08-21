@@ -893,7 +893,12 @@ struct WidgetsState {
 impl Default for WidgetsState {
     fn default() -> Self {
         Self {
-            enabled: true,
+            // Claude Code look: the floating info dock is opt-in — via the
+            // toggle hotkey at runtime, or BLAUDE_RIGHT_PANEL=1 at launch
+            // (the same switch that governs the composer right-fact stack).
+            enabled: std::env::var("BLAUDE_RIGHT_PANEL")
+                .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+                .unwrap_or(false),
             widget_states: HashMap::new(),
             placements: Vec::new(),
             anchors: Vec::new(),
@@ -1062,6 +1067,16 @@ pub(crate) fn note_widget_pass_skipped() {
 /// assert on placement-dependent behavior (e.g. the swarm strip standing down
 /// while the dock is visible) call this so state from earlier tests in the
 /// same process cannot leak into their frame.
+/// Force the dock on for tests that assert its enabled-state behavior —
+/// the shipping default is off (Claude Code look).
+#[cfg(test)]
+pub(crate) fn set_enabled_for_tests(enabled: bool) {
+    let mut guard = get_or_init_state();
+    if let Some(state) = guard.as_mut() {
+        state.enabled = enabled;
+    }
+}
+
 #[cfg(test)]
 pub(crate) fn clear_widget_placements_for_tests() {
     let mut guard = get_or_init_state();

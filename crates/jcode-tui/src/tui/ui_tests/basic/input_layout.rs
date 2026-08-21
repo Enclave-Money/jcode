@@ -221,6 +221,7 @@ fn test_compute_visible_margins_centered_respects_line_alignment() {
 
 #[test]
 fn test_copy_badge_reserves_right_margin_for_info_widgets() {
+    crate::tui::info_widget::set_enabled_for_tests(true);
     let mut margins = info_widget::Margins {
         right_widths: vec![30, 30, 30],
         left_widths: vec![0, 0, 0],
