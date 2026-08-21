@@ -205,27 +205,15 @@ impl App {
             self.cursor_pos = 0;
             return true;
         }
-        // `/model` + immediate Enter must not silently activate (or start
-        // building) a council just because councils head the list. With no
-        // filter typed and the selection still on a council row, focus the
-        // picker so the user chooses deliberately — same rule as `/login`.
+        // `/model` + immediate Enter focuses the picker, full stop: with no
+        // filter typed there is no deliberate choice yet, and acting on
+        // whatever row happens to be selected (the current model, or a
+        // council heading the list) either no-ops or surprises. Same rule
+        // as `/login`.
         if self
             .inline_interactive_state
             .as_ref()
-            .map(|picker| {
-                picker.kind == PickerKind::Model
-                    && picker.filter.trim().is_empty()
-                    && picker
-                        .filtered
-                        .get(picker.selected)
-                        .and_then(|&i| picker.entries.get(i))
-                        .is_some_and(|entry| {
-                            matches!(
-                                entry.action,
-                                PickerAction::Council { .. } | PickerAction::CouncilCreate
-                            )
-                        })
-            })
+            .map(|picker| picker.kind == PickerKind::Model && picker.filter.trim().is_empty())
             .unwrap_or(false)
         {
             if let Some(ref mut picker) = self.inline_interactive_state {

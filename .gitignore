@@ -22,3 +22,5 @@ captures/
 /*.avif
 /*.mp4
 /*.png
+.gitnexus/
+.claude/skills/gitnexus/

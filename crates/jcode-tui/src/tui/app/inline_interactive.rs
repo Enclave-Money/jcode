@@ -2786,23 +2786,10 @@ impl App {
                         self.cursor_pos = 0;
                         return Ok(true);
                     }
-                    // Same rule for `/model` + immediate Enter: councils head
-                    // the list now, and landing on one must not silently
-                    // switch the session into council mode. Focus the picker
-                    // and let the user choose deliberately.
-                    if picker.kind == PickerKind::Model
-                        && picker.filter.trim().is_empty()
-                        && picker
-                            .filtered
-                            .get(picker.selected)
-                            .and_then(|&i| picker.entries.get(i))
-                            .is_some_and(|entry| {
-                                matches!(
-                                    entry.action,
-                                    PickerAction::Council { .. } | PickerAction::CouncilCreate
-                                )
-                            })
-                    {
+                    // Same rule for `/model` + immediate Enter: with no filter
+                    // typed there is no deliberate choice yet — focus the
+                    // picker instead of acting on whatever row is selected.
+                    if picker.kind == PickerKind::Model && picker.filter.trim().is_empty() {
                         picker.preview = false;
                         picker.column = 0;
                         self.input.clear();
