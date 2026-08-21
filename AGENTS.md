@@ -46,7 +46,7 @@ Two things that waste time otherwise:
 <!-- gitnexus:start -->
 # Repo graph — GitNexus (CLI mode)
 
-`blaude-agent` is indexed as a knowledge graph of 54209 symbols and 137035 relationships across 300 execution flows. Query it with the commands
+`blaude-agent` is indexed as a knowledge graph of ~54k symbols and ~140k relationships across ~300 execution flows. Query it with the commands
 below **instead of grepping** when you need structure: callers, callees, blast
 radius, execution flows.
 
@@ -65,6 +65,7 @@ Run from the repo root. All output is JSON.
 | How does A reach B? | `node .gitnexus/run.cjs trace <from> <to> --repo .` |
 | What did my diff actually touch? | `node .gitnexus/run.cjs detect-changes --repo .` |
 | Is the index current? | `node .gitnexus/run.cjs status` |
+| Find dead / unused code | `blaude prune` |
 
 `--repo .` is not optional: GitNexus keeps one global registry of indexed
 checkouts, and two checkouts of the same repository — a `council` run creates a
@@ -79,8 +80,13 @@ repositories indexed"*, as an unhandled stack trace rather than as JSON.
   execution flows — it catches edits that reach further than intended.
 - **When exploring unfamiliar code**, `query` returns flows ranked by relevance.
   It finds things a grep for the wrong noun would miss.
+- **When asked to remove dead/unused code**, run `blaude prune`: it lists
+  functions the call graph shows no callers for (candidates — confirm with
+  `cargo check` before deleting).
 
 ## Refresh
 
-The index is per-commit. If `status` reports stale, run `blaude brief` again.
+blaude re-indexes in the background whenever an agent writes code, so this graph
+stays current on its own. `blaude brief` re-briefs or repairs by hand if
+`status` ever reports stale.
 <!-- gitnexus:end -->
