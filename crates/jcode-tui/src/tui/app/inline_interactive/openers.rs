@@ -46,6 +46,7 @@ impl App {
                 usage_score: 0,
                 old: false,
                 created_date: None,
+                created_ts: None,
                 effort: None,
             }
         })
@@ -127,6 +128,7 @@ impl App {
                     usage_score: 0,
                     old: false,
                     created_date: None,
+                    created_ts: None,
                     effort: None,
                 }
             })
@@ -155,6 +157,7 @@ impl App {
                     usage_score: 0,
                     old: false,
                     created_date: None,
+                    created_ts: None,
                     effort: None,
                 },
             );
@@ -240,6 +243,7 @@ impl App {
                             usage_score: 0,
                             old: false,
                             created_date: None,
+                            created_ts: None,
                             effort: None,
                         },
                     );
@@ -270,6 +274,7 @@ impl App {
                     usage_score: 0,
                     old: false,
                     created_date: None,
+                    created_ts: None,
                     effort: None,
                 },
             );

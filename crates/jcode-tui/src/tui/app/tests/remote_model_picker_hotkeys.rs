@@ -27,6 +27,7 @@ fn remote_model_picker_preview_state() -> crate::tui::InlineInteractiveState {
             usage_score: 0,
             old: false,
             created_date: None,
+            created_ts: None,
             effort: None,
         }],
         selected: 0,

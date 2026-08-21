@@ -1961,6 +1961,7 @@ fn test_model_picker_filter_text_includes_provider_and_method() {
         usage_score: 0,
         old: false,
         created_date: None,
+        created_ts: None,
         effort: None,
     };
 

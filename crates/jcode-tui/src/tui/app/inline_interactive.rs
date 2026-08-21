@@ -697,6 +697,7 @@ fn council_create_row(builder: Option<&[String]>) -> PickerEntry {
         usage_score: 0,
         old: false,
         created_date: None,
+        created_ts: None,
         effort: None,
     }
 }
@@ -730,6 +731,7 @@ fn council_picker_entries(active: Option<&str>) -> Vec<PickerEntry> {
             usage_score: 0,
             old: false,
             created_date: None,
+            created_ts: None,
             effort: None,
         })
         .collect()
@@ -1836,6 +1838,7 @@ impl App {
                 usage_score: 0,
                 old: false,
                 created_date: None,
+                created_ts: None,
                 effort: None,
             }],
             selected: 0,
@@ -2238,6 +2241,7 @@ impl App {
                             old: old_threshold_secs > 0
                                 && or_created.map(|t| t < old_threshold_secs).unwrap_or(false),
                             created_date: or_created.map(format_created),
+                            created_ts: or_created,
                             effort: Some(effort.to_string()),
                             is_default: is_config_default(name, route, Some(effort)),
                             is_favorite: model_picker_is_favorite(
@@ -2274,6 +2278,7 @@ impl App {
                         usage_score: model_picker_usage_score(&usage_store, name, &route, None),
                         old: is_old,
                         created_date: or_created.map(format_created),
+                        created_ts: or_created,
                         effort: None,
                         is_default,
                         is_favorite: model_picker_is_favorite(&favorites_store, name, &route, None),
@@ -2331,10 +2336,15 @@ impl App {
             };
             let a_old = if a.old { 1u8 } else { 0 };
             let b_old = if b.old { 1u8 } else { 0 };
+            // After the current/favorite/recently-added pins, browse order
+            // is release date, newest first (undated models sink).
+            let a_created = a.created_ts.unwrap_or(0);
+            let b_created = b.created_ts.unwrap_or(0);
             a_current
                 .cmp(&b_current)
                 .then(a_favorite.cmp(&b_favorite))
                 .then(a_recent.cmp(&b_recent))
+                .then(b_created.cmp(&a_created))
                 .then(a_usage.cmp(&b_usage))
                 .then(a_rec.cmp(&b_rec))
                 .then(a_rec_rank.cmp(&b_rec_rank))
@@ -4386,6 +4396,7 @@ mod tests {
             usage_score,
             old: false,
             created_date: None,
+            created_ts: None,
             effort: None,
         }
     }

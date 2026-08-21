@@ -15,6 +15,11 @@ fn unseen_changelog_entries_override() -> &'static std::sync::Mutex<Option<Vec<S
     OVERRIDE.get_or_init(|| std::sync::Mutex::new(None))
 }
 
+/// How many unseen release-note entries there are (sizes the welcome pad).
+pub(super) fn unseen_changelog_len() -> usize {
+    unseen_changelog_entries().len()
+}
+
 fn unseen_changelog_entries() -> Vec<String> {
     #[cfg(test)]
     {

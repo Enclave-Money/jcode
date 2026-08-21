@@ -916,6 +916,7 @@ mod tests {
                 usage_score: 0,
                 old: false,
                 created_date: None,
+                created_ts: None,
                 effort: None,
             }],
         }
@@ -944,6 +945,7 @@ mod tests {
             usage_score: 0,
             old: false,
             created_date: None,
+            created_ts: None,
             effort: None,
         }];
 
@@ -972,6 +974,7 @@ mod tests {
                 usage_score: 0,
                 old: false,
                 created_date: None,
+                created_ts: None,
                 effort: None,
             });
         }
@@ -1014,6 +1017,7 @@ mod tests {
                 usage_score: 0,
                 old: false,
                 created_date: None,
+                created_ts: None,
                 effort: None,
             }],
         }

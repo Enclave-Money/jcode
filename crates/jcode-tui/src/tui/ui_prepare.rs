@@ -739,9 +739,24 @@ pub(super) fn prepare_messages(
 /// so the same value can be re-applied above the header once messages exist,
 /// keeping the header from jumping when the first prompt is sent.
 fn initial_header_pad_top(height: u16, header_lines: usize) -> usize {
+    // Claude Code top-anchors its welcome; blaude does too. The pad exists
+    // only to host the Updates box (unseen release notes) plus one blank
+    // breathing line — no vertical centering. Kept height-derived-free so the
+    // welcome sits at the same spot before and after the first prompt.
+    let updates = header::unseen_changelog_len();
+    let wanted = if updates == 0 {
+        1
+    } else {
+        // Box borders (2) + entries (possibly collapsed by the budget in
+        // build_top_pad_lines) + the blank line between box and header.
+        (updates.min(6) + 3).min(10)
+    };
+    // Never let the pad push the header (plus a content row) out of a small
+    // frame: an oversized pad flips the scrollbar/overflow hysteresis between
+    // consecutive renders, which reads as flicker.
     let input_reserve = 4;
     let available = (height as usize).saturating_sub(input_reserve);
-    available.saturating_sub(header_lines) / 2
+    wanted.min(available.saturating_sub(header_lines).saturating_sub(1))
 }
 
 /// Build the lines that fill the top padding above the header. Unseen release

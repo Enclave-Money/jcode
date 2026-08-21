@@ -1503,6 +1503,9 @@ pub struct PickerEntry {
     pub old: bool,
     /// Human-readable created date (e.g. "Jan 2026") for OpenRouter models
     pub created_date: Option<String>,
+    /// Release timestamp (epoch seconds) when known — newest-first is the
+    /// picker's browse order after the current/favorite/recent pins.
+    pub created_ts: Option<u64>,
     pub effort: Option<String>,
 }
 
