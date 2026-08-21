@@ -123,6 +123,10 @@ fn test_alignment_status_shows_current_and_saved_defaults() {
         );
         assert!(last.content.contains("Saved default: left-aligned."));
         assert!(last.content.contains("/alignment centered"));
+        // Mac keyboards render the Alt modifier as ⌥.
+        #[cfg(target_os = "macos")]
+        assert!(last.content.contains("⌥+C"));
+        #[cfg(not(target_os = "macos"))]
         assert!(last.content.contains("Alt+C"));
     });
 }

@@ -17,6 +17,10 @@ fn unknown_ctrl_chord_sets_hotkey_feedback_with_suggestion() {
         .expect("unknown chord should set feedback");
     assert!(message.contains("Ctrl+M"), "{message}");
     assert!(message.contains("isn't bound"), "{message}");
+    // Mac keyboards render the Alt modifier as ⌥.
+    #[cfg(target_os = "macos")]
+    assert!(message.contains("⌥+M"), "{message}");
+    #[cfg(not(target_os = "macos"))]
     assert!(message.contains("Alt+M"), "{message}");
     assert!(message.contains("side panel"), "{message}");
 

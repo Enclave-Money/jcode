@@ -531,6 +531,8 @@ fn test_restore_session_adds_reload_message() {
 fn test_restore_session_with_selfdev_reload_tool_result_queues_continuation() {
     use crate::session::Session;
 
+    // Serialize against tests that swap global config/catalog state.
+    let _env_lock = crate::storage::lock_test_env();
     let mut app = create_test_app();
 
     let mut session = Session::create(None, None);

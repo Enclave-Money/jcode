@@ -108,10 +108,12 @@ fn test_alt_shift_i_toggles_inline_images_and_persists() {
         KeyModifiers::ALT | KeyModifiers::SHIFT,
     ));
     assert!(!app.inline_images_visible, "Alt+Shift+I should hide images");
-    assert_eq!(
-        app.status_notice(),
-        Some("Inline images: hidden (Alt+Shift+I to show)".to_string())
-    );
+    // Mac keyboards render the Alt modifier as ⌥ in the status notice.
+    #[cfg(target_os = "macos")]
+    let expected_notice = "Inline images: hidden (⌥+Shift+I to show)";
+    #[cfg(not(target_os = "macos"))]
+    let expected_notice = "Inline images: hidden (Alt+Shift+I to show)";
+    assert_eq!(app.status_notice(), Some(expected_notice.to_string()));
 
     // The flag persists for the next app (e.g. resume after restart).
     assert!(!crate::tui::app::ui_prefs::inline_images_visible());
@@ -690,8 +692,10 @@ fn test_mouse_click_in_input_moves_cursor_to_clicked_position() {
 
     let handled = app.handle_mouse_event(MouseEvent {
         kind: MouseEventKind::Down(MouseButton::Left),
-        column: input_area.x + prompt_len + 2,
-        row: input_area.y,
+        // The composer is a bordered box with a mode line; click into its
+        // interior (past the left border + prompt) so the hit maps to the text.
+        column: input_area.x + 1 + prompt_len + 2,
+        row: input_area.y + 1,
         modifiers: KeyModifiers::empty(),
     });
 
@@ -778,8 +782,10 @@ fn test_mouse_click_in_input_switches_focus_from_side_panel() {
 
     let handled = app.handle_mouse_event(MouseEvent {
         kind: MouseEventKind::Down(MouseButton::Left),
-        column: input_area.x + prompt_len + 2,
-        row: input_area.y,
+        // The composer is a bordered box with a mode line; click into its
+        // interior (past the left border + prompt) so the hit maps to the text.
+        column: input_area.x + 1 + prompt_len + 2,
+        row: input_area.y + 1,
         modifiers: KeyModifiers::empty(),
     });
 

@@ -109,7 +109,7 @@ mod tests {
             .expect("chmod hook");
 
         let command = TerminalCommand::new(
-            "/usr/local/bin/jcode",
+            "/usr/local/bin/blaude",
             vec!["--resume".to_string(), "ses_hooked".to_string()],
         )
         .kind("swarm-agent")

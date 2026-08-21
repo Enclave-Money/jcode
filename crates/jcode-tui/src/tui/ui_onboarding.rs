@@ -467,7 +467,7 @@ fn welcome_body_lines(app: &dyn TuiState) -> Vec<Line<'static>> {
                     );
                     lines.push(
                         Line::from(Span::styled(
-                            "Press Enter to sign in to your Claude and Codex accounts (add more than one to pool limits).",
+                            "Press Enter to log in to your Claude and Codex accounts (add more than one to pool limits).",
                             Style::default().fg(dim_color()),
                         ))
                         .alignment(align),
@@ -497,7 +497,7 @@ fn welcome_body_lines(app: &dyn TuiState) -> Vec<Line<'static>> {
                     );
                     lines.push(
                         Line::from(Span::styled(
-                            "Press Enter to sign in to Claude and Codex (add more than one of each to pool limits).",
+                            "Press Enter to log in to Claude and Codex (add more than one of each to pool limits).",
                             Style::default().fg(dim_color()),
                         ))
                         .alignment(align),

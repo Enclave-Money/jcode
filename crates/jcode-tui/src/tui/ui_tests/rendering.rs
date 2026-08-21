@@ -635,6 +635,9 @@ fn test_light_theme_adapted_frame_has_readable_contrast() {
 /// guards the hook's presence and its ordering relative to the light/dark pass.
 #[test]
 fn test_configured_palette_recolors_a_real_rendered_frame() {
+    // Mutating the process-global color palette must serialize against other
+    // render tests that read it.
+    let _lock = crate::tui::ui::render_state_test_lock();
     fn render() -> ratatui::buffer::Buffer {
         let messages = vec![
             DisplayMessage {

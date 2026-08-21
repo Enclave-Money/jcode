@@ -235,7 +235,7 @@ fn onboarding_golden_walks_every_phase() {
         dump("LoginOpenAi (no imports)", &text);
         // Lean prompt: just the question + the Yes/No lozenge pills. The Esc hint
         // already covers the "skip / log in later" path, so no extra prose.
-        assert!(text.contains("Log in to OpenAI?"), "{text}");
+        assert!(text.contains("Log in to OpenAI"), "{text}");
         assert!(text.contains("Yes") && text.contains("No"), "{text}");
         assert!(
             text.contains("\u{25D6} Yes \u{25D7}") && text.contains("\u{25D6} No \u{25D7}"),
@@ -255,10 +255,7 @@ fn onboarding_golden_walks_every_phase() {
         let text = render_onboarding_text(&app, width, height);
         dump("Login (no imports, recovery)", &text);
         assert!(text.contains("First, log in to get started."), "{text}");
-        assert!(
-            text.contains("Press Enter to pick who to log in with"),
-            "{text}"
-        );
+        assert!(text.contains("Press Enter to log in"), "{text}");
     }
 
     // 2. Login with detected imports: the default SUMMARY screen. It lists
@@ -474,7 +471,7 @@ fn onboarding_golden_walks_failure_and_async_states() {
             "failure must offer a concrete recovery: {text}"
         );
         assert!(
-            text.contains("Press Enter to choose a provider"),
+            text.contains("Press Enter to log in"),
             "failure must state the exact next key: {text}"
         );
         assert_guided_polish("Login (import failed, recovery)", &text);

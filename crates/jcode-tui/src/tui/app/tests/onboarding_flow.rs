@@ -181,7 +181,9 @@ fn onboarding_can_begin_at_login_phase() {
     app.begin_onboarding_flow_at_login();
     assert!(matches!(
         app.onboarding_phase(),
-        Some(OnboardingPhase::Login { .. }) | Some(OnboardingPhase::LoginOpenAi { .. })
+        Some(OnboardingPhase::Login { .. })
+            | Some(OnboardingPhase::LoginOpenAi { .. })
+            | Some(OnboardingPhase::LoginClaude { .. })
     ));
     // begin_at_login is idempotent: a second call does not reset the phase.
     if let Some(flow) = app.onboarding_flow.as_mut() {
@@ -331,23 +333,23 @@ fn login_phase_advances_to_model_select_without_telemetry_prompt() {
 }
 
 #[test]
-fn login_openai_phase_is_default_when_no_imports() {
+fn login_claude_phase_is_default_when_no_imports() {
     use crate::tui::OnboardingWelcomeKind;
     with_temp_jcode_home(|| {
         let mut app = create_test_app();
         app.onboarding_flow = None;
         // Fresh temp home has no importable logins, so begin_at_login lands on
-        // the "Log in to OpenAI?" Yes/No prompt (not the bare provider picker).
+        // the Claude-first "Log in?" Yes/No prompt (not the bare provider picker).
         app.begin_onboarding_flow_at_login();
         assert!(matches!(
             app.onboarding_phase(),
-            Some(OnboardingPhase::LoginOpenAi {
+            Some(OnboardingPhase::LoginClaude {
                 yes_highlighted: true
             })
         ));
         assert!(matches!(
             app.onboarding_welcome_kind(),
-            OnboardingWelcomeKind::LoginOpenAi {
+            OnboardingWelcomeKind::LoginClaude {
                 yes_highlighted: true
             }
         ));

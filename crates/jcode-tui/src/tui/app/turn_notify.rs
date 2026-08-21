@@ -173,7 +173,7 @@ fn kitty_notification_id(session_id: &str) -> String {
         .take(128)
         .collect();
     format!(
-        "jcode-turn-{}",
+        "blaude-turn-{}",
         if safe.is_empty() { "unknown" } else { &safe }
     )
 }
@@ -225,7 +225,7 @@ pub(super) fn build_turn_notification(
     todos: &[TodoItem],
     last_assistant_text: Option<&str>,
 ) -> TurnNotification {
-    let mut title = String::from("jcode");
+    let mut title = String::from("blaude");
     if let Some(name) = session_name {
         title.push_str(" · ");
         title.push_str(name);
@@ -542,7 +542,7 @@ mod tests {
         };
         assert_eq!(
             kitty_notification_sequence(&n, "session:fox/123"),
-            "\x1b]99;i=jcode-turn-sessionfox123:d=0:e=1:p=title;amNvZGUgwrcgZm94\x1b\\\x1b]99;i=jcode-turn-sessionfox123:d=1:e=1:p=body:a=focus;Mi8zIHRvZG9zCkZpbmlzaGVkIHBhcnNlcg==\x1b\\"
+            "\x1b]99;i=blaude-turn-sessionfox123:d=0:e=1:p=title;YmxhdWRlIMK3IGZveA==\x1b\\\x1b]99;i=blaude-turn-sessionfox123:d=1:e=1:p=body:a=focus;Mi8zIHRvZG9zCkZpbmlzaGVkIHBhcnNlcg==\x1b\\"
         );
     }
 

@@ -1455,18 +1455,53 @@ fn push_todo_plan_details(
             crate::todo::IntentUnderstanding::Clear
             | crate::todo::IntentUnderstanding::Complete => todo_score_color(),
         };
-        let mut spans = vec![
+        let prefix_spans = vec![
             Span::styled("Intent ", Style::default().fg(todo_label_color())),
             Span::styled(state.as_str().to_string(), Style::default().fg(state_color)),
             Span::styled(": ", Style::default().fg(todo_label_color())),
         ];
         if let Some(intention) = intention {
-            spans.push(Span::styled(
-                intention.to_string(),
-                Style::default().fg(todo_meta_color()),
-            ));
+            // Show the complete intent only once the model reports a clear
+            // understanding; while it is still uncertain/partial (or in a
+            // compact card) keep it to a single ellipsized line.
+            let show_full = !compact_details
+                && matches!(
+                    state,
+                    crate::todo::IntentUnderstanding::Clear
+                        | crate::todo::IntentUnderstanding::Complete
+                );
+            if !show_full {
+                // Single ellipsized line: state badge + truncated intent.
+                let mut spans = prefix_spans;
+                spans.push(Span::styled(
+                    intention.to_string(),
+                    Style::default().fg(todo_meta_color()),
+                ));
+                lines.push(todo_card_line(spans, base_indent, inner_width));
+            } else {
+                // Full cards wrap the user intention across lines rather than
+                // truncating it, so the complete intent stays visible.
+                let prefix_width = Line::from(prefix_spans.clone()).width();
+                let available = inner_width.saturating_sub(prefix_width).max(1);
+                for (index, chunk) in wrap_todo_detail(intention, available)
+                    .into_iter()
+                    .enumerate()
+                {
+                    let mut spans = if index == 0 {
+                        prefix_spans.clone()
+                    } else {
+                        vec![Span::styled(
+                            " ".repeat(prefix_width),
+                            Style::default().fg(todo_label_color()),
+                        )]
+                    };
+                    spans.push(Span::styled(chunk, Style::default().fg(todo_meta_color())));
+                    lines.push(todo_card_line(spans, base_indent, inner_width));
+                }
+            }
+        } else {
+            lines.push(todo_card_line(prefix_spans, base_indent, inner_width));
         }
-        lines.push(todo_card_line(spans, base_indent, inner_width));
     } else if let Some(intention) = intention {
         push_todo_detail(
             lines,

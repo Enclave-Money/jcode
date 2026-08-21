@@ -23,6 +23,28 @@ fn write_mock_cursor_agent(dir: &std::path::Path, script_body: &str) -> std::pat
     path
 }
 
+/// Create a minimal Cursor `state.vscdb` SQLite file at `db_path` holding the
+/// given ItemTable entries. Mirrors the real IDE store closely enough for the
+/// direct vscdb reader (`read_vscdb_key`) to find credentials.
+fn create_sqlite_vscdb(db_path: &std::path::Path, entries: &[(&str, &str)]) {
+    let status = std::process::Command::new("sqlite3")
+        .arg(db_path)
+        .arg("CREATE TABLE ItemTable (key TEXT UNIQUE ON CONFLICT REPLACE, value BLOB);")
+        .status()
+        .expect("sqlite3 must be installed for these tests");
+    assert!(status.success(), "failed to create mock vscdb");
+    for (key, value) in entries {
+        let status = std::process::Command::new("sqlite3")
+            .arg(db_path)
+            .arg(format!(
+                "INSERT INTO ItemTable (key, value) VALUES ('{key}', '{value}');"
+            ))
+            .status()
+            .expect("run sqlite3 insert");
+        assert!(status.success(), "failed to insert into mock vscdb");
+    }
+}
+
 #[test]
 fn command_candidates_adds_extension_on_windows() {
     crate::env::set_var("PATHEXT", ".EXE;.BAT");
@@ -188,13 +210,15 @@ fn full_and_fast_auth_status_match_for_shared_probe_fields() {
 
 #[cfg(unix)]
 #[test]
-fn full_and_fast_auth_status_document_cursor_cli_exception() {
+fn full_and_fast_auth_status_document_cursor_vscdb_exception() {
     let _lock = crate::storage::lock_test_env();
     let temp = tempfile::TempDir::new().expect("create temp dir");
     let home = temp.path().join("home");
     let xdg = temp.path().join("xdg");
+    let jcode_home = temp.path().join("jcode-home");
     std::fs::create_dir_all(&home).expect("create temp home");
     std::fs::create_dir_all(&xdg).expect("create temp xdg config");
+    std::fs::create_dir_all(&jcode_home).expect("create temp jcode home");
     let saved = [
         "JCODE_HOME",
         "XDG_CONFIG_HOME",
@@ -202,34 +226,51 @@ fn full_and_fast_auth_status_document_cursor_cli_exception() {
         "CURSOR_API_KEY",
         "CURSOR_ACCESS_TOKEN",
         "CURSOR_REFRESH_TOKEN",
-        "JCODE_CURSOR_CLI_PATH",
     ]
     .into_iter()
     .map(|key| (key, std::env::var_os(key)))
     .collect::<Vec<_>>();
-    let mock_cli = write_mock_cursor_agent(
-        temp.path(),
-        "#!/bin/sh\nif [ \"$1\" = \"status\" ]; then\n  echo \"Authenticated\\nAccount: test@example.com\"\n  exit 0\nfi\nexit 1\n",
-    );
 
-    crate::env::set_var("JCODE_HOME", temp.path().join("jcode-home"));
+    crate::env::set_var("JCODE_HOME", &jcode_home);
     crate::env::set_var("XDG_CONFIG_HOME", &xdg);
     crate::env::set_var("HOME", &home);
     crate::env::remove_var("CURSOR_API_KEY");
     crate::env::remove_var("CURSOR_ACCESS_TOKEN");
     crate::env::remove_var("CURSOR_REFRESH_TOKEN");
-    crate::env::set_var("JCODE_CURSOR_CLI_PATH", &mock_cli);
+
+    // Cursor's only credential here is its IDE SQLite store (state.vscdb).
+    // With JCODE_HOME set, the store resolves under $JCODE_HOME/external/, so
+    // the real machine's Cursor install is never consulted. Full auth reads
+    // this store; fast auth intentionally skips the vscdb probe.
+    let vscdb_path = crate::storage::user_home_path(
+        "Library/Application Support/Cursor/User/globalStorage/state.vscdb",
+    )
+    .expect("resolve sandboxed cursor vscdb path");
+    std::fs::create_dir_all(vscdb_path.parent().expect("vscdb parent"))
+        .expect("create cursor globalStorage dir");
+    create_sqlite_vscdb(
+        &vscdb_path,
+        &[("cursorAuth/accessToken", "tok_cursor_vscdb")],
+    );
+    crate::config::Config::allow_external_auth_source_for_path(
+        crate::auth::cursor::CURSOR_VSCDB_SOURCE_ID,
+        &vscdb_path,
+    )
+    .expect("trust mock cursor vscdb");
     AuthStatus::invalidate_cache();
 
     let (full, _) = build_auth_status_uncached(AuthProbeMode::Full);
     let (fast, _) = build_auth_status_uncached(AuthProbeMode::Fast);
 
-    assert_eq!(full.cursor, AuthState::Available);
-    assert_eq!(fast.cursor, AuthState::NotConfigured);
     assert_eq!(
         full.cursor,
         AuthState::Available,
-        "Full auth probes cursor-agent status; fast auth intentionally skips CLI/vscdb probes"
+        "Full auth probes the Cursor vscdb store and finds the token"
+    );
+    assert_eq!(
+        fast.cursor,
+        AuthState::NotConfigured,
+        "Fast auth intentionally skips the vscdb probe, so vscdb-only cursor auth is invisible"
     );
 
     for (key, value) in saved {

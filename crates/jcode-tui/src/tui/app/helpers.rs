@@ -218,10 +218,11 @@ pub(super) fn ctrl_bracket_fallback_to_esc(code: &mut KeyCode, modifiers: &mut K
         KeyCode::Esc => {
             *code = KeyCode::Char('[');
         }
-        KeyCode::Char('5') => {
-            // Legacy tty mapping for Ctrl+]
-            *code = KeyCode::Char(']');
-        }
+        // NOTE: Ctrl+5 is deliberately NOT remapped to Ctrl+] here. Ctrl+5..=9
+        // is the "jump to the Nth most-recent prompt" gesture (see
+        // `ctrl_prompt_rank`); modern macOS terminals send Ctrl+5 and Ctrl+]
+        // as distinct codes, so clobbering Ctrl+5 would silently break that
+        // feature (it did: the jump scrolled to the bottom instead).
         _ => {}
     }
 }

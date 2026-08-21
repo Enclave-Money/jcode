@@ -125,7 +125,21 @@ impl SystemProfile {
 
 static PROFILE: OnceLock<SystemProfile> = OnceLock::new();
 
+/// Runtime flag set by `pin_full_profile_for_tests`. Production never calls that
+/// function, so this stays false outside tests. It exists because `PROFILE` is a
+/// first-write-wins `OnceLock`: if any test (or non-app render path) touches
+/// `profile()` before the harness pins Full, the host's live load average could
+/// cache a Reduced/Minimal tier for the rest of the process, which then flakes
+/// paced streaming and animation-policy assertions. The flag lets the harness
+/// force a deterministic Full tier regardless of ordering.
+static FORCE_TEST_FULL_PROFILE: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
+
 pub fn profile() -> &'static SystemProfile {
+    if FORCE_TEST_FULL_PROFILE.load(std::sync::atomic::Ordering::Relaxed) {
+        static FULL: OnceLock<SystemProfile> = OnceLock::new();
+        return FULL.get_or_init(|| synthetic_profile(SyntheticSystemProfile::Native));
+    }
     PROFILE.get_or_init(detect)
 }
 
@@ -137,6 +151,7 @@ pub fn profile() -> &'static SystemProfile {
 /// initialization wins: calling this after `profile()` has already run is a
 /// no-op, and production code paths never call it.
 pub fn pin_full_profile_for_tests() {
+    FORCE_TEST_FULL_PROFILE.store(true, std::sync::atomic::Ordering::Relaxed);
     let _ = PROFILE.set(synthetic_profile(SyntheticSystemProfile::Native));
 }
 

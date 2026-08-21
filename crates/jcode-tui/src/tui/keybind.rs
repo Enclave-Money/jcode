@@ -653,6 +653,10 @@ mod tests {
         assert!(binding.matches(KeyCode::Enter, KeyModifiers::ALT));
         assert!(!binding.matches(KeyCode::Enter, KeyModifiers::empty()));
         assert!(!binding.matches(KeyCode::Enter, KeyModifiers::SHIFT));
+        // Mac keyboards label the Alt modifier ⌥; other platforms use "Alt".
+        #[cfg(target_os = "macos")]
+        assert_eq!(format_binding(&binding), "⌥+Enter");
+        #[cfg(not(target_os = "macos"))]
         assert_eq!(format_binding(&binding), "Alt+Enter");
     }
 

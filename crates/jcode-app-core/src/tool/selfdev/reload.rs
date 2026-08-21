@@ -260,7 +260,7 @@ impl SelfDevTool {
             return Ok(ToolOutput::new(
                 format!(
                     "No binary found at {}.\n\
-                     Run 'blaude self-dev --build' first, or build with 'scripts/dev_cargo.sh build --profile selfdev -p jcode --bin jcode' and then try reload again.",
+                     Run 'blaude self-dev --build' first, or build with 'scripts/dev_cargo.sh build --profile selfdev -p blaude --bin blaude' and then try reload again.",
                     target_binary.display()
                 )
                 .to_string(),

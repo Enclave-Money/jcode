@@ -541,7 +541,7 @@ pub const JCODE_LOGIN_PROVIDER: LoginProviderDescriptor = LoginProviderDescripto
     auth_kind: LoginProviderAuthKind::ApiKey,
     auth_state_key: LoginProviderAuthStateKey::Jcode,
     auth_status_method: "API key",
-    aliases: &["subscription", "jcode-subscription"],
+    aliases: &["subscription", "jcode-subscription", "blaude"],
     menu_detail: "curated blaude subscription models",
     recommended: false,
     target: LoginProviderTarget::Jcode,

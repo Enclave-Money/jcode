@@ -541,12 +541,12 @@ fn test_account_switch_shorthand_switches_openai_account_by_label() {
         let mut app = create_test_app();
         let rt = tokio::runtime::Runtime::new().unwrap();
         rt.block_on(async {
-            app.input = "/account switch openai2".to_string();
+            app.input = "/account switch openai-otter".to_string();
             app.submit_input();
 
             assert_eq!(
                 crate::auth::codex::active_account_label().as_deref(),
-                Some("openai-1")
+                Some("openai-otter")
             );
         });
     });

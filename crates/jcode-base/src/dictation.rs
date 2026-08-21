@@ -214,8 +214,11 @@ fn resolve_session_from_window_title(title: &str) -> Option<String> {
 }
 
 fn extract_session_short_name_from_window_title(title: &str) -> Option<String> {
+    // Blaude windows title as "blaude …"; legacy jcode titles stay supported.
     let (_, rest) = title
-        .split_once("jcode/")
+        .split_once("blaude/")
+        .or_else(|| title.split_once("blaude "))
+        .or_else(|| title.split_once("jcode/"))
         .or_else(|| title.split_once("jcode "))?;
     let candidate = rest.split('[').next().unwrap_or(rest).trim();
     let token = candidate.split_whitespace().next_back()?;

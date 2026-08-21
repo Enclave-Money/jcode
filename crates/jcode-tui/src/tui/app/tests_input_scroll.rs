@@ -143,6 +143,9 @@ fn test_disconnected_key_handler_runs_effort_locally() {
 
 #[test]
 fn test_disconnected_key_handler_runs_model_picker_locally() {
+    // Serialize against tests swapping global config so the picker's "current"
+    // detection reads a stable model catalog.
+    let _env_lock = crate::storage::lock_test_env();
     let mut app = create_test_app();
     configure_test_remote_models(&mut app);
     // OpenAI models are effort-expanded into one entry per reasoning effort,

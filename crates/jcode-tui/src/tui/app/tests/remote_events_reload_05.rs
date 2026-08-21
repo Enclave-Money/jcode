@@ -160,6 +160,10 @@ fn test_reload_preserves_completed_confidence_spike_challenge() {
         // re-arming; this test is about the spike-challenge flag, not the
         // default-on re-arm behavior.
         reloaded_app.auto_poke_default_on = false;
+        // The one-time "give the user a final response" continuation has already
+        // been delivered for this cycle; this test is about the disarm + spike
+        // flag, so skip re-triggering it.
+        reloaded_app.todo_final_response_requested = true;
         assert!(!reloaded_app.schedule_auto_poke_followup_if_needed());
         assert!(!reloaded_app.auto_poke_incomplete_todos);
         assert!(!reloaded_app.todo_confidence_spike_challenged);
@@ -304,6 +308,10 @@ fn remote_ownership_gate_reads_the_remote_goal_assessment() {
         )
         .expect("save remote goal assessment");
 
+        // The completed cycle's one-time final-response continuation is not what
+        // this test checks; it verifies the ownership gate reads the passing
+        // remote goal and stays quiet.
+        app.todo_final_response_requested = true;
         assert!(!app.schedule_auto_poke_followup_if_needed());
         assert!(app.queued_messages.is_empty());
     });
@@ -534,6 +542,9 @@ fn test_gate_digest_is_delivered_at_turn_end_and_rearms_next_cycle() {
         // Simulate the turn running, then the cycle completing.
         app.queued_messages.clear();
         app.pending_queued_dispatch = false;
+        // The digest was this cycle's interruption; the one-time final-response
+        // continuation is separate and not what this assertion checks.
+        app.todo_final_response_requested = true;
         assert!(
             !app.schedule_auto_poke_followup_if_needed(),
             "with nothing left outstanding the cycle should finish"
@@ -668,6 +679,9 @@ fn completed_cycle_rearms_auto_poke_only_when_default_on() {
             }],
         )
         .expect("save passing goal");
+        // The one-time final-response continuation for this completed cycle is
+        // not under test here; this asserts the default-on re-arm behavior.
+        app.todo_final_response_requested = true;
         assert!(!app.schedule_auto_poke_followup_if_needed());
         assert!(
             app.auto_poke_incomplete_todos,
@@ -694,6 +708,7 @@ fn completed_cycle_rearms_auto_poke_only_when_default_on() {
         )
         .expect("save passing goal");
         app.auto_poke_incomplete_todos = true; // pretend a stale arm survived
+        app.todo_final_response_requested = true;
         assert!(!app.schedule_auto_poke_followup_if_needed());
         assert!(
             !app.auto_poke_incomplete_todos,

@@ -737,6 +737,15 @@ fn read_claude_code_keychain_blob() -> Option<String> {
     use std::process::{Command, Stdio};
     use std::time::Duration;
 
+    // A sandboxed home (`JCODE_HOME` set — self-dev and the test suite) must not
+    // reach into the host login Keychain: every other external-auth source is
+    // resolved under `$JCODE_HOME/external/`, but the Keychain has no such path,
+    // so without this guard a machine with Claude Code installed would leak its
+    // real credentials into hermetic tests (onboarding import detection, etc.).
+    if std::env::var_os("JCODE_HOME").is_some() {
+        return None;
+    }
+
     let mut child = Command::new("/usr/bin/security")
         .args([
             "find-generic-password",
@@ -791,6 +800,11 @@ fn read_claude_code_keychain_blob() -> Option<String> {
 /// reading the secret value. The secret is only read during an approved
 /// import or at runtime load.
 pub fn native_credentials_present() -> bool {
+    // Sandboxed homes (`JCODE_HOME` set) never import host-native credentials:
+    // the macOS Keychain and `CLAUDE_CODE_OAUTH_TOKEN` are outside the sandbox.
+    if std::env::var_os("JCODE_HOME").is_some() {
+        return false;
+    }
     if std::env::var(CLAUDE_CODE_OAUTH_TOKEN_ENV)
         .map(|value| !value.trim().is_empty())
         .unwrap_or(false)
@@ -805,6 +819,12 @@ pub fn native_credentials_present() -> bool {
 #[cfg(target_os = "macos")]
 fn claude_code_keychain_item_exists() -> bool {
     use std::process::{Command, Stdio};
+    // A sandboxed home must not probe the host login Keychain (see
+    // `read_claude_code_keychain_blob`); otherwise hermetic tests on a machine
+    // with Claude Code installed detect the real credential.
+    if std::env::var_os("JCODE_HOME").is_some() {
+        return false;
+    }
     Command::new("/usr/bin/security")
         .args(["find-generic-password", "-s", CLAUDE_CODE_KEYCHAIN_SERVICE])
         .stdin(Stdio::null())

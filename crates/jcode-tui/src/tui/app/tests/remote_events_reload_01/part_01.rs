@@ -1246,10 +1246,23 @@ fn test_remote_done_waits_for_paced_backlog_and_one_live_frame() {
         message.role != "assistant" || !message.content.contains(response)
     }));
 
-    // The first tick drains the short backlog, but deliberately leaves the live
-    // streaming representation visible for one frame before committing it.
-    std::thread::sleep(Duration::from_millis(60));
-    rt.block_on(crate::tui::app::remote::handle_tick(&mut app, &mut remote));
+    // Ticks drain the short backlog at the smooth paced rate, but each draining
+    // tick deliberately leaves the live streaming representation visible (Done
+    // stays deferred) — the commit only happens on a later tick that starts with
+    // an already-empty backlog. Poll rather than sleeping a fixed 60ms so the
+    // pacing has enough wall-clock time to reveal the text even under load.
+    let drain_start = std::time::Instant::now();
+    loop {
+        std::thread::sleep(Duration::from_millis(20));
+        rt.block_on(crate::tui::app::remote::handle_tick(&mut app, &mut remote));
+        if app.stream_buffer.is_empty() {
+            break;
+        }
+        assert!(
+            drain_start.elapsed() < Duration::from_secs(2),
+            "paced backlog never drained"
+        );
+    }
     assert!(app.stream_buffer.is_empty());
     assert!(app.is_processing);
     assert_eq!(app.deferred_stream_done_id, Some(42));

@@ -768,6 +768,8 @@ impl App {
             workspace_client: crate::tui::workspace_client::WorkspaceClientState::default(),
             prompt_history_search: None,
             persisted_prompt_history: None,
+            #[cfg(any(test, feature = "test-support"))]
+            _test_env_lock: None,
         };
 
         for notice in app.provider.drain_startup_notices() {
@@ -1218,6 +1220,8 @@ impl App {
             workspace_client: crate::tui::workspace_client::WorkspaceClientState::default(),
             prompt_history_search: None,
             persisted_prompt_history: None,
+            #[cfg(any(test, feature = "test-support"))]
+            _test_env_lock: None,
         };
 
         for notice in app.provider.drain_startup_notices() {
@@ -1237,6 +1241,13 @@ impl App {
         app.runtime_mode = AppRuntimeMode::TestHarness;
         app.is_remote = false;
         app.is_replay = false;
+        // Hold the reentrant test lock for the App's whole lifetime so this test
+        // serializes against every other harness test and `with_temp_jcode_home`
+        // on the shared config/catalog/ambient globals it will read.
+        #[cfg(any(test, feature = "test-support"))]
+        {
+            app._test_env_lock = Some(crate::storage::lock_test_env());
+        }
         app
     }
 

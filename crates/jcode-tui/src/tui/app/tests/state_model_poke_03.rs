@@ -440,6 +440,10 @@ impl Provider for CountingModelRoutesProvider {
 
 #[test]
 fn test_model_picker_reuses_cached_entries_until_invalidated() {
+    // The picker cache signature reads process-global config defaults and the
+    // perf policy; serialize against tests that swap them so the cache stays
+    // valid across the two opens.
+    let _env_lock = crate::storage::lock_test_env();
     ensure_test_jcode_home_if_unset();
     clear_persisted_test_ui_state();
     crate::tui::ui::clear_test_render_state_for_tests();
@@ -1101,6 +1105,8 @@ fn test_tui_openai_compatible_local_refresh_failure_is_pending_not_final_failure
 
 #[test]
 fn test_model_picker_opens_simplified_state_before_async_routes_complete() {
+    // Serialize against tests that swap global config / provider catalog state.
+    let _env_lock = crate::storage::lock_test_env();
     ensure_test_jcode_home_if_unset();
     clear_persisted_test_ui_state();
     crate::tui::ui::clear_test_render_state_for_tests();
@@ -1318,6 +1324,10 @@ fn test_login_completed_spawns_auth_refresh_when_runtime_is_available() {
 
 #[test]
 fn test_model_picker_waits_for_async_post_login_catalog_activation() {
+    // Serialize against tests that swap global JCODE_HOME / config / provider
+    // catalog (e.g. with_temp_jcode_home): this test reads that shared state
+    // while building the picker, so a concurrent swap flakes it.
+    let _env_lock = crate::storage::lock_test_env();
     ensure_test_jcode_home_if_unset();
     clear_persisted_test_ui_state();
     crate::tui::ui::clear_test_render_state_for_tests();
@@ -1708,6 +1718,8 @@ fn test_local_model_picker_openrouter_bare_openai_route_uses_openai_catalog_pref
 
 #[test]
 fn test_agent_model_picker_openrouter_bare_openai_route_saves_openai_catalog_prefix() {
+    // Serialize against tests swapping global config / provider catalog state.
+    let _env_lock = crate::storage::lock_test_env();
     let (mut app, _set_model_calls) = create_openrouter_spec_capture_test_app();
 
     app.open_agent_model_picker(crate::tui::AgentModelTarget::Swarm);
@@ -2691,6 +2703,10 @@ fn test_finish_turn_challenges_confidence_spike_once() {
         // Pin the default so the clean second cycle disarms; this test is
         // about challenging the spike exactly once.
         app.auto_poke_default_on = false;
+        // The one-time final-response continuation already fired for this cycle;
+        // this test checks the spike is challenged exactly once, not the closing
+        // response, so skip re-triggering it.
+        app.todo_final_response_requested = true;
         super::local::finish_turn(&mut app);
 
         assert!(!app.auto_poke_incomplete_todos);

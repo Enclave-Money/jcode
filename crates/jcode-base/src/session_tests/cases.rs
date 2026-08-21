@@ -290,6 +290,9 @@ fn initial_session_context_preserves_explicitly_bound_cwd_when_inserted() -> Res
         .prefix("jcode-session-context-first-")
         .tempdir()
         .map_err(|e| anyhow!(e))?;
+    // current_dir() returns the resolved path (macOS /var -> /private/var), so
+    // compare against the canonicalized tempdir path.
+    let first_dir_shown = first_dir.path().canonicalize().map_err(|e| anyhow!(e))?;
     let second_dir = tempfile::Builder::new()
         .prefix("jcode-session-context-second-")
         .tempdir()
@@ -303,7 +306,7 @@ fn initial_session_context_preserves_explicitly_bound_cwd_when_inserted() -> Res
     );
     assert_eq!(
         session.working_dir.as_deref(),
-        Some(first_dir.path().to_str().unwrap())
+        Some(first_dir_shown.to_str().unwrap())
     );
 
     std::env::set_current_dir(second_dir.path()).map_err(|e| anyhow!(e))?;
@@ -311,15 +314,12 @@ fn initial_session_context_preserves_explicitly_bound_cwd_when_inserted() -> Res
         assert!(session.ensure_initial_session_context_message());
         let first = session.messages[0].content_preview();
         assert!(
-            first.contains(&format!(
-                "Working directory: {}",
-                first_dir.path().display()
-            )),
+            first.contains(&format!("Working directory: {}", first_dir_shown.display())),
             "session context should preserve the bound cwd, got: {first}"
         );
         assert_eq!(
             session.working_dir.as_deref(),
-            Some(first_dir.path().to_str().unwrap())
+            Some(first_dir_shown.to_str().unwrap())
         );
         Ok(())
     })();
@@ -338,6 +338,9 @@ fn initial_session_context_can_refresh_before_real_conversation() -> Result<()> 
         .prefix("jcode-session-context-stale-")
         .tempdir()
         .map_err(|e| anyhow!(e))?;
+    // current_dir() returns the resolved path (macOS /var -> /private/var), so
+    // compare against the canonicalized tempdir path.
+    let first_dir_shown = first_dir.path().canonicalize().map_err(|e| anyhow!(e))?;
     let second_dir = tempfile::Builder::new()
         .prefix("jcode-session-context-real-")
         .tempdir()
@@ -351,10 +354,11 @@ fn initial_session_context_can_refresh_before_real_conversation() -> Result<()> 
             Some("Remote cwd refresh".to_string()),
         );
         assert!(session.ensure_initial_session_context_message());
-        assert!(session.messages[0].content_preview().contains(&format!(
-            "Working directory: {}",
-            first_dir.path().display()
-        )));
+        assert!(
+            session.messages[0]
+                .content_preview()
+                .contains(&format!("Working directory: {}", first_dir_shown.display()))
+        );
 
         session.working_dir = Some(second_dir.path().display().to_string());
         assert!(session.refresh_initial_session_context_message());
@@ -366,10 +370,7 @@ fn initial_session_context_can_refresh_before_real_conversation() -> Result<()> 
             )),
             "session context should refresh to subscribed cwd, got: {refreshed}"
         );
-        assert!(!refreshed.contains(&format!(
-            "Working directory: {}",
-            first_dir.path().display()
-        )));
+        assert!(!refreshed.contains(&format!("Working directory: {}", first_dir_shown.display())));
         Ok(())
     })();
     std::env::set_current_dir(original_cwd).map_err(|e| anyhow!(e))?;
@@ -387,6 +388,9 @@ fn initial_session_context_does_not_refresh_after_real_conversation() -> Result<
         .prefix("jcode-session-context-original-")
         .tempdir()
         .map_err(|e| anyhow!(e))?;
+    // current_dir() returns the resolved path (macOS /var -> /private/var), so
+    // compare against the canonicalized tempdir path.
+    let first_dir_shown = first_dir.path().canonicalize().map_err(|e| anyhow!(e))?;
     let second_dir = tempfile::Builder::new()
         .prefix("jcode-session-context-late-")
         .tempdir()
@@ -411,10 +415,7 @@ fn initial_session_context_does_not_refresh_after_real_conversation() -> Result<
         session.working_dir = Some(second_dir.path().display().to_string());
         assert!(!session.refresh_initial_session_context_message());
         let original = session.messages[0].content_preview();
-        assert!(original.contains(&format!(
-            "Working directory: {}",
-            first_dir.path().display()
-        )));
+        assert!(original.contains(&format!("Working directory: {}", first_dir_shown.display())));
         assert!(!original.contains(&format!(
             "Working directory: {}",
             second_dir.path().display()

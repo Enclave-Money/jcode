@@ -386,6 +386,12 @@ fn ensure_test_jcode_home_if_unset() {
 }
 
 fn clear_persisted_test_ui_state() {
+    // Clearing the process-global ambient + auth caches must be serialized with
+    // the shared test lock: create_test_app calls this on ~570 tests, and a
+    // concurrent clear here would otherwise wipe those caches out from under a
+    // lock-holding test that is mid-read (ambient info, auth status). The lock
+    // is reentrant, so nesting inside with_temp_jcode_home is a no-op.
+    let _lock = crate::storage::lock_test_env();
     if let Ok(home) = crate::storage::jcode_dir() {
         let ambient_dir = home.join("ambient");
         let _ = std::fs::remove_file(ambient_dir.join("queue.json"));

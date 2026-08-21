@@ -10,38 +10,43 @@ fn desired_nofile_soft_limit_only_raises_when_possible() {
 #[cfg(unix)]
 #[test]
 fn spawn_detached_creates_new_session() {
-    use tempfile::NamedTempFile;
-
-    let output = NamedTempFile::new().expect("temp file");
-    let output_path = output.path().to_string_lossy().to_string();
     let parent_sid = unsafe { libc::getsid(0) };
 
+    // The child only needs to stay alive long enough for the parent to read its
+    // session id via getsid(). Reading the sid directly avoids `ps` keyword
+    // differences across platforms (macOS `ps` has no `sid` keyword; it's `sess`
+    // and reports a kernel pointer rather than a numeric session id).
     let mut cmd = std::process::Command::new("sh");
     cmd.arg("-c")
-        .arg("ps -o sid= -p $$ > \"$JCODE_TEST_OUTPUT\"")
-        .env("JCODE_TEST_OUTPUT", &output_path)
+        .arg("sleep 1")
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null());
 
     let mut child = super::spawn_detached(&mut cmd).expect("spawn detached child");
-    let status = child.wait().expect("wait for child");
-    assert!(status.success(), "child should exit successfully");
+    let child_pid = child.id() as i32;
 
-    let child_sid = std::fs::read_to_string(&output_path)
-        .expect("read child sid")
-        .trim()
-        .parse::<u32>()
-        .expect("parse child sid");
+    // setsid() runs in the child's pre_exec, so it leads its own session:
+    // getsid(child) == child pid. Poll briefly to avoid racing the fork.
+    let mut child_sid = -1;
+    for _ in 0..200 {
+        child_sid = unsafe { libc::getsid(child_pid) };
+        if child_sid == child_pid {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(5));
+    }
 
     assert_eq!(
-        child_sid,
-        child.id(),
+        child_sid, child_pid,
         "detached child should lead its own session"
     );
     assert_ne!(
-        child_sid as i32, parent_sid,
+        child_sid, parent_sid,
         "detached child should not share parent session"
     );
+
+    let status = child.wait().expect("wait for child");
+    assert!(status.success(), "child should exit successfully");
 }
 
 #[cfg(windows)]

@@ -397,9 +397,14 @@ fn pinned_todo_band_renders_below_sticky_prompt_without_separator() {
         "pinned todo band should render below the sticky prompt, got:\n{}",
         text
     );
+    // Only the rows *between* the sticky prompt and the band matter here: the
+    // pinned header above the prompt legitimately draws its own "────" rule.
     assert!(
-        !first_rows.iter().any(|row| row.contains("────")),
-        "pinned todo band should not render a horizontal separator, got:\n{}",
+        !first_rows[prompt_row + 1..todo_row]
+            .iter()
+            .any(|row| row.contains("────")),
+        "pinned todo band should not render a horizontal separator between the \
+         sticky prompt and the band, got:\n{}",
         text
     );
 

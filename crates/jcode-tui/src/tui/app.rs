@@ -1662,6 +1662,14 @@ pub struct App {
     /// Lazily-loaded persisted cross-session prompt history (oldest first,
     /// deduped). None until first use; see `prompt_history.rs`.
     persisted_prompt_history: Option<Vec<String>>,
+    /// Test-only: holds the shared reentrant test lock for the App's whole
+    /// lifetime, so every `new_for_test_harness` test serializes against every
+    /// other one (and against `with_temp_jcode_home`) on the process-global
+    /// config/catalog/ambient caches the app reads. Without this, parallel
+    /// tests race those globals and flake intermittently. Reentrant, so nesting
+    /// inside `with_temp_jcode_home` is a no-op. Set only by the test harness.
+    #[cfg(any(test, feature = "test-support"))]
+    _test_env_lock: Option<crate::storage::TestEnvGuard>,
 }
 
 /// Inert provider used by runtime modes whose output is supplied by another source.

@@ -250,7 +250,7 @@ fn read_vscdb_key(db_path: &PathBuf, key: &str) -> Result<String> {
         .query_row("SELECT value FROM ItemTable WHERE key = ?1", [key], |row| {
             row.get(0)
         })
-        .with_context(|| format!("Key '{key}' not found in {}", db_path.display()))?;
+        .with_context(|| format!("Key '{key}' not found or empty in {}", db_path.display()))?;
     let value = value.trim().to_string();
     if value.is_empty() {
         anyhow::bail!("Key '{}' not found or empty in {}", key, db_path.display());

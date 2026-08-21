@@ -160,8 +160,8 @@ use viewport::draw_messages;
 #[cfg(test)]
 #[allow(unused_imports)]
 pub(crate) use viewport::{
-    copy_badge_reserved_width, expand_badge_reserved_width, pick_copy_badge_line,
-    reserve_copy_badge_margins, truncate_line_for_copy_badge,
+    copy_badge_alt_badge, copy_badge_reserved_width, expand_badge_reserved_width,
+    pick_copy_badge_line, reserve_copy_badge_margins, truncate_line_for_copy_badge,
     truncate_line_in_place_to_width as truncate_copy_badge_line_to_width,
 };
 /// Last known max scroll value from the renderer. Updated each frame.
@@ -1503,11 +1503,11 @@ pub fn last_layout_snapshot() -> Option<LayoutSnapshot> {
 /// delegate here.
 #[cfg(test)]
 pub(crate) fn render_state_test_lock() -> RenderStateTestGuard {
-    static LOCK: std::sync::OnceLock<std::sync::Mutex<()>> = std::sync::OnceLock::new();
-    let guard = LOCK
-        .get_or_init(|| std::sync::Mutex::new(()))
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    // Delegate to the single process-wide reentrant test lock. Render-state
+    // tests and env-state tests (create_test_app, with_temp_jcode_home) both
+    // serialize on the same lock, so there is no second global mutex to invert
+    // ordering against — which is what deadlocked the parallel TUI suite.
+    let guard = crate::storage::lock_test_env();
     RENDER_STATE_LOCK_HELD.with(|held| held.set(true));
     RenderStateTestGuard { _guard: guard }
 }
@@ -1517,7 +1517,7 @@ pub(crate) fn render_state_test_lock() -> RenderStateTestGuard {
 /// already inside the lock instead of deadlocking on it.
 #[cfg(test)]
 pub(crate) struct RenderStateTestGuard {
-    _guard: std::sync::MutexGuard<'static, ()>,
+    _guard: crate::storage::TestEnvGuard,
 }
 
 #[cfg(test)]

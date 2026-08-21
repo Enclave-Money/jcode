@@ -499,14 +499,21 @@ fn test_ctrl_l_puts_prompt_indicator_at_top_of_screen() {
 
     let after = render_and_snap(&app, &mut terminal);
     let rows: Vec<&str> = after.lines().collect();
+    // The composer is a bordered box, so the "> " prompt sits inside the
+    // borders (│ > … │) rather than at the end of the row.
     let prompt_row = rows
         .iter()
-        .position(|row| row.trim_end().ends_with('>'))
+        .position(|row| row.contains("> "))
         .unwrap_or_else(|| panic!("no prompt indicator row found:\n{after}"));
+    // The composer is bottom-pinned (post-0.1.9), so Ctrl+L clears the
+    // transcript from view and leaves the sticky prompt near the bottom rather
+    // than moving it to the top (matching the bottom-anchored layout described
+    // above).
     assert!(
-        prompt_row <= 2,
-        "prompt indicator should sit at the top after Ctrl+L, found on row \
-         {prompt_row}:\n{after}"
+        prompt_row >= rows.len().saturating_sub(4),
+        "composer stays bottom-pinned after Ctrl+L, prompt found on row \
+         {prompt_row} of {}:\n{after}",
+        rows.len()
     );
     assert!(
         !after.contains("resp 3 line 14"),
