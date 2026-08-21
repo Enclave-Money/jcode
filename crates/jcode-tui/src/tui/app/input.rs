@@ -2672,6 +2672,14 @@ pub(super) fn handle_enter(app: &mut App) -> bool {
     if app.activate_picker_from_preview() {
         return true;
     }
+    // Empty Enter while naming a new council cancels it — the prompt promises
+    // "empty cancels", but the non-empty guard below would otherwise swallow it.
+    if app.input.is_empty() && app.pending_council_name.take().is_some() {
+        app.push_display_message(DisplayMessage::system(
+            "Council creation cancelled.".to_string(),
+        ));
+        return true;
+    }
     if !app.input.is_empty() {
         if route_prompt_to_new_session_local(app) {
             return true;

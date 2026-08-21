@@ -973,6 +973,52 @@ async fn fetch_claude_profile_email_at_url(
     Ok(profile.account.email)
 }
 
+/// Which account label a fresh interactive login should write to.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum LoginLabelChoice {
+    /// Write to this label — either an existing account being refreshed, or a
+    /// free requested slot.
+    Use(String),
+    /// A new, distinct account: allocate the next free label rather than
+    /// overwrite whatever occupies the requested slot.
+    AppendNew,
+}
+
+/// Decide where a login lands, keyed on the account's *identity* (its profile
+/// email), so a second account never overwrites a different one.
+///
+/// - New email matches an existing account (anywhere) -> refresh that account.
+/// - New email is unknown and the requested slot is occupied by a *different*
+///   account (any account without this email, including email-less imported or
+///   legacy ones we can't positively match) -> append a new label. This is the
+///   fix for the "second login clobbers the first" bug on the import/upgrade
+///   path, where the occupying account has `email: None`.
+/// - New email is unknown and the requested slot is free -> use it (first login).
+/// - Email unavailable (profile fetch failed) -> keep the requested slot; we
+///   cannot establish identity, and a login almost always re-auths the active
+///   account.
+pub(crate) fn decide_login_label(
+    new_email: Option<&str>,
+    requested_label: &str,
+    accounts: &[claude_auth::AnthropicAccount],
+) -> LoginLabelChoice {
+    match new_email {
+        Some(email) => {
+            if let Some(existing) = accounts
+                .iter()
+                .find(|account| account.email.as_deref() == Some(email))
+            {
+                LoginLabelChoice::Use(existing.label.clone())
+            } else if accounts.iter().any(|a| a.label == requested_label) {
+                LoginLabelChoice::AppendNew
+            } else {
+                LoginLabelChoice::Use(requested_label.to_string())
+            }
+        }
+        None => LoginLabelChoice::Use(requested_label.to_string()),
+    }
+}
+
 /// Save a fresh *interactive* Claude login. Unlike a token refresh, a login
 /// may belong to a different Anthropic account than the one at `label`: the
 /// profile email is fetched first and, when it names a different account,
@@ -989,29 +1035,9 @@ pub async fn save_claude_login(
         .flatten();
     let accounts = claude_auth::list_accounts().unwrap_or_default();
 
-    let label = match email.as_deref() {
-        Some(new_email) => {
-            if let Some(existing) = accounts
-                .iter()
-                .find(|account| account.email.as_deref() == Some(new_email))
-            {
-                // Re-login of a known account (wherever it lives): refresh it.
-                existing.label.clone()
-            } else {
-                match accounts.iter().find(|a| a.label == requested_label) {
-                    // The requested slot belongs to a *different* email:
-                    // don't clobber it — append a new account instead.
-                    Some(target)
-                        if target.email.is_some() && target.email.as_deref() != Some(new_email) =>
-                    {
-                        claude_auth::next_free_label()?
-                    }
-                    _ => requested_label.to_string(),
-                }
-            }
-        }
-        // Profile unavailable: keep the pre-existing behavior.
-        None => requested_label.to_string(),
+    let label = match decide_login_label(email.as_deref(), requested_label, &accounts) {
+        LoginLabelChoice::Use(label) => label,
+        LoginLabelChoice::AppendNew => claude_auth::next_free_label()?,
     };
 
     save_claude_tokens_for_account(tokens, &label)?;

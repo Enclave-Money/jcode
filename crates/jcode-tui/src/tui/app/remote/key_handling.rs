@@ -888,6 +888,14 @@ async fn handle_remote_key_internal(
             if app.activate_picker_from_preview() {
                 return Ok(());
             }
+            // Empty Enter while naming a new council cancels it ("empty
+            // cancels"); the non-empty guard below would otherwise eat it.
+            if app.input.is_empty() && app.pending_council_name.take().is_some() {
+                app.push_display_message(DisplayMessage::system(
+                    "Council creation cancelled.".to_string(),
+                ));
+                return Ok(());
+            }
             if !app.input.is_empty() {
                 let prepared = input::take_prepared_input(app);
                 let trimmed = prepared.expanded.trim();
@@ -1944,9 +1952,15 @@ async fn handle_remote_key_internal(
 
                     // The bridge cannot append a transcript message directly;
                     // ride the reminder in with the next prompt instead.
-                    app.pending_remote_reminder = Some(format!(
+                    // Accumulate across multiple /add-dir calls before the
+                    // next prompt, so an earlier dir's reminder is not lost.
+                    let reminder = format!(
                         "Added additional working directory: {display}\nTreat it as part of the workspace alongside the primary working directory, which is unchanged."
-                    ));
+                    );
+                    app.pending_remote_reminder = Some(match app.pending_remote_reminder.take() {
+                        Some(prev) => format!("{prev}\n\n{reminder}"),
+                        None => reminder,
+                    });
                     app.push_display_message(DisplayMessage::system(format!(
                         "Added {display} as a working directory."
                     )));

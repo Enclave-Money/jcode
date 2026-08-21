@@ -140,7 +140,11 @@ fn test_prompt_preview_reserves_rows_without_overwriting_visible_history() {
     app.status = ProcessingStatus::Idle;
     app.session.short_name = Some("test".to_string());
 
-    let backend = ratatui::backend::TestBackend::new(40, 8);
+    // Tall enough for the two-row preview, the wrapped latest line, the status
+    // line, and the bordered composer + persistent mode line (Claude Code
+    // chrome). The behavior under test is unchanged; the old 8-row frame just
+    // no longer leaves room for the full latest line.
+    let backend = ratatui::backend::TestBackend::new(40, 11);
     let mut terminal = ratatui::Terminal::new(backend).expect("failed to create test terminal");
 
     let text = render_and_snap(&app, &mut terminal);

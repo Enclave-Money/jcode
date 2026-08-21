@@ -400,3 +400,58 @@ async fn wait_for_callback_async_surfaces_provider_error() -> Result<()> {
     );
     Ok(())
 }
+
+// --- decide_login_label: a second login must never overwrite a different account ---
+
+fn acct(label: &str, email: Option<&str>) -> crate::auth::claude::AnthropicAccount {
+    crate::auth::claude::AnthropicAccount {
+        label: label.to_string(),
+        access: "a".into(),
+        refresh: "r".into(),
+        expires: 0,
+        email: email.map(str::to_string),
+        subscription_type: None,
+        scopes: vec![],
+    }
+}
+
+#[test]
+fn first_login_uses_the_requested_free_slot() {
+    let choice = decide_login_label(Some("a@x.com"), "claude", &[]);
+    assert_eq!(choice, LoginLabelChoice::Use("claude".to_string()));
+}
+
+#[test]
+fn re_login_of_a_known_account_refreshes_it_anywhere() {
+    let accounts = [
+        acct("claude", Some("a@x.com")),
+        acct("claude-2", Some("b@x.com")),
+    ];
+    // Same email as claude-2, but the active/requested slot is "claude".
+    let choice = decide_login_label(Some("b@x.com"), "claude", &accounts);
+    assert_eq!(choice, LoginLabelChoice::Use("claude-2".to_string()));
+}
+
+#[test]
+fn a_new_email_never_overwrites_the_requested_slot() {
+    let accounts = [acct("claude", Some("a@x.com"))];
+    // Logging a brand-new account while "claude" is occupied -> append.
+    let choice = decide_login_label(Some("new@x.com"), "claude", &accounts);
+    assert_eq!(choice, LoginLabelChoice::AppendNew);
+}
+
+#[test]
+fn a_new_email_never_overwrites_an_email_less_imported_account() {
+    // The exact regression: an imported/legacy account has email None, and a
+    // DIFFERENT account is logged in. It must be appended, not clobbered.
+    let accounts = [acct("claude", None)];
+    let choice = decide_login_label(Some("someone@x.com"), "claude", &accounts);
+    assert_eq!(choice, LoginLabelChoice::AppendNew);
+}
+
+#[test]
+fn missing_profile_email_keeps_the_requested_slot() {
+    let accounts = [acct("claude", Some("a@x.com"))];
+    let choice = decide_login_label(None, "claude", &accounts);
+    assert_eq!(choice, LoginLabelChoice::Use("claude".to_string()));
+}
