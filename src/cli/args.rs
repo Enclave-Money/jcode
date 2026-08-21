@@ -558,6 +558,24 @@ pub(crate) enum Command {
         #[arg(long = "api-socket")]
         api_socket: Option<String>,
     },
+
+    /// Refresh the repo's GitNexus code graph and AGENTS.md/CLAUDE.md briefing.
+    ///
+    /// Delegates to the bundled `blaude-tools`. Kept on `blaude` because users'
+    /// shells (and old habits) reach for `blaude brief`; without it the command
+    /// died with a clap "unrecognized subcommand" error.
+    Brief {
+        /// Only report index freshness; do not re-index or rewrite files
+        #[arg(long)]
+        check: bool,
+    },
+
+    /// List dead-code candidates from the call graph (delegates to `blaude-tools`).
+    Prune {
+        /// Emit JSON for agents instead of a human table
+        #[arg(long)]
+        json: bool,
+    },
 }
 
 #[derive(Subcommand, Debug)]

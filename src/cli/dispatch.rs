@@ -306,6 +306,12 @@ pub(crate) async fn run_main(mut args: Args) -> Result<()> {
         Some(Command::Usage { json }) => {
             commands::run_usage_command(json).await?;
         }
+        Some(Command::Brief { check }) => {
+            delegate_to_tools("brief", if check { &["--check"] } else { &[] })?;
+        }
+        Some(Command::Prune { json }) => {
+            delegate_to_tools("prune", if json { &["--json"] } else { &[] })?;
+        }
         Some(Command::Telemetry(action)) => super::telemetry::run(action)?,
         Some(Command::SelfDev { build }) => {
             selfdev::run_self_dev(build, args.resume).await?;
@@ -1440,3 +1446,24 @@ async fn run_server_keepalive(
 #[cfg(test)]
 #[path = "dispatch_tests.rs"]
 mod dispatch_tests;
+
+/// Run the bundled `blaude-tools` with a subcommand, forwarding its exit code.
+/// `blaude-tools` sits next to this binary (both live in the app bundle's
+/// MacOS dir, and in a dev `target/` dir); fall back to PATH otherwise. This is
+/// what makes `blaude brief` / `blaude prune` work instead of erroring.
+fn delegate_to_tools(sub: &str, extra: &[&str]) -> Result<()> {
+    let tools = std::env::current_exe()
+        .ok()
+        .and_then(|exe| exe.parent().map(|d| d.join("blaude-tools")))
+        .filter(|p| p.is_file())
+        .unwrap_or_else(|| std::path::PathBuf::from("blaude-tools"));
+    let status = ProcessCommand::new(&tools)
+        .arg(sub)
+        .args(extra)
+        .status()
+        .map_err(|e| anyhow::anyhow!("could not run blaude-tools ({}): {e}", tools.display()))?;
+    if !status.success() {
+        anyhow::bail!("blaude-tools {sub} exited with {status}");
+    }
+    Ok(())
+}

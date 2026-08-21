@@ -22,6 +22,8 @@ pub(crate) fn initial_title(args: &Args) -> String {
         Some(Command::Repl) => "blaude repl".to_string(),
         Some(Command::Update) => "blaude update".to_string(),
         Some(Command::Version { .. }) => "blaude version".to_string(),
+        Some(Command::Brief { .. }) => "blaude brief".to_string(),
+        Some(Command::Prune { .. }) => "blaude prune".to_string(),
         Some(Command::Usage { .. }) => "blaude usage".to_string(),
         Some(Command::Telemetry(_)) => "blaude telemetry".to_string(),
         Some(Command::SelfDev { .. }) => "blaude:selfdev".to_string(),
