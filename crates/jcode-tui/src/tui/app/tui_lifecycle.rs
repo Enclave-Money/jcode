@@ -127,11 +127,10 @@ impl App {
         is_system: bool,
     ) -> Result<u64> {
         let mut reminder = self.pending_remote_reminder.take();
-        if self.plan_mode && !is_system {
-            let plan = super::input::PLAN_MODE_REMINDER;
+        if let Some(extra) = self.session_mode.turn_reminder().filter(|_| !is_system) {
             reminder = Some(match reminder {
-                Some(r) => format!("{r}\n\n{plan}"),
-                None => plan.to_string(),
+                Some(r) => format!("{r}\n\n{extra}"),
+                None => extra.to_string(),
             });
         }
         remote::begin_remote_send(self, remote, content, images, is_system, reminder, false, 0)
@@ -417,7 +416,7 @@ impl App {
             council_builder: None,
             pending_council_name: None,
             pending_remote_reminder: None,
-            plan_mode: false,
+            session_mode: crate::tui::WorkMode::default(),
             display_messages: Vec::new(),
             display_messages_version: 0,
             display_user_message_count: 0,
@@ -867,7 +866,7 @@ impl App {
             council_builder: None,
             pending_council_name: None,
             pending_remote_reminder: None,
-            plan_mode: false,
+            session_mode: crate::tui::WorkMode::default(),
             display_messages: Vec::new(),
             display_messages_version: 0,
             display_user_message_count: 0,

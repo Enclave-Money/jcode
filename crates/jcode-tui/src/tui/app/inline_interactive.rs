@@ -702,6 +702,86 @@ fn council_create_row(builder: Option<&[String]>) -> PickerEntry {
     }
 }
 
+/// The `/model` browse order: current row, then favorites, then models a
+/// recent login just added, then release date newest-first, then the
+/// legacy usage/recommendation tie-breakers. Extracted so tests can pin
+/// the contract directly.
+fn model_picker_entry_order(a: &PickerEntry, b: &PickerEntry) -> std::cmp::Ordering {
+    let a_current = if a.is_current { 0u8 } else { 1 };
+    let b_current = if b.is_current { 0u8 } else { 1 };
+    let a_recent = if a
+        .options
+        .iter()
+        .any(|option| option.detail.contains("recently added"))
+    {
+        0u8
+    } else {
+        1
+    };
+    let b_recent = if b
+        .options
+        .iter()
+        .any(|option| option.detail.contains("recently added"))
+    {
+        0u8
+    } else {
+        1
+    };
+    let a_rec = if a.recommended { 0u8 } else { 1 };
+    let b_rec = if b.recommended { 0u8 } else { 1 };
+    let a_favorite = if a.is_favorite { 0u8 } else { 1 };
+    let b_favorite = if b.is_favorite { 0u8 } else { 1 };
+    let a_usage = std::cmp::Reverse(a.usage_score);
+    let b_usage = std::cmp::Reverse(b.usage_score);
+    let a_rec_rank = if a.recommended {
+        a.recommendation_rank
+    } else {
+        usize::MAX
+    };
+    let b_rec_rank = if b.recommended {
+        b.recommendation_rank
+    } else {
+        usize::MAX
+    };
+    let a_avail = if a.options.first().map(|r| r.available).unwrap_or(false) {
+        0u8
+    } else {
+        1
+    };
+    let b_avail = if b.options.first().map(|r| r.available).unwrap_or(false) {
+        0u8
+    } else {
+        1
+    };
+    let a_old = if a.old { 1u8 } else { 0 };
+    let b_old = if b.old { 1u8 } else { 0 };
+    // After the current/favorite/recently-added pins, browse order
+    // is release date, newest first (undated models sink).
+    let a_created = a.created_ts.unwrap_or(0);
+    let b_created = b.created_ts.unwrap_or(0);
+    a_current
+        .cmp(&b_current)
+        .then(a_favorite.cmp(&b_favorite))
+        .then(a_recent.cmp(&b_recent))
+        .then(b_created.cmp(&a_created))
+        .then(a_usage.cmp(&b_usage))
+        .then(a_rec.cmp(&b_rec))
+        .then(a_rec_rank.cmp(&b_rec_rank))
+        .then(a_avail.cmp(&b_avail))
+        .then(a_old.cmp(&b_old))
+        .then(a.name.cmp(&b.name))
+        .then_with(|| {
+            a.active_option()
+                .map(|route| route.provider.as_str())
+                .cmp(&b.active_option().map(|route| route.provider.as_str()))
+        })
+        .then_with(|| {
+            a.active_option()
+                .map(|route| route.api_method.as_str())
+                .cmp(&b.active_option().map(|route| route.api_method.as_str()))
+        })
+}
+
 fn council_picker_entries(active: Option<&str>) -> Vec<PickerEntry> {
     let councils = match jcode_storage::councils::Councils::load() {
         Ok(c) => c,
@@ -2287,81 +2367,7 @@ impl App {
             }
         }
 
-        entries.sort_by(|a, b| {
-            let a_current = if a.is_current { 0u8 } else { 1 };
-            let b_current = if b.is_current { 0u8 } else { 1 };
-            let a_recent = if a
-                .options
-                .iter()
-                .any(|option| option.detail.contains("recently added"))
-            {
-                0u8
-            } else {
-                1
-            };
-            let b_recent = if b
-                .options
-                .iter()
-                .any(|option| option.detail.contains("recently added"))
-            {
-                0u8
-            } else {
-                1
-            };
-            let a_rec = if a.recommended { 0u8 } else { 1 };
-            let b_rec = if b.recommended { 0u8 } else { 1 };
-            let a_favorite = if a.is_favorite { 0u8 } else { 1 };
-            let b_favorite = if b.is_favorite { 0u8 } else { 1 };
-            let a_usage = std::cmp::Reverse(a.usage_score);
-            let b_usage = std::cmp::Reverse(b.usage_score);
-            let a_rec_rank = if a.recommended {
-                a.recommendation_rank
-            } else {
-                usize::MAX
-            };
-            let b_rec_rank = if b.recommended {
-                b.recommendation_rank
-            } else {
-                usize::MAX
-            };
-            let a_avail = if a.options.first().map(|r| r.available).unwrap_or(false) {
-                0u8
-            } else {
-                1
-            };
-            let b_avail = if b.options.first().map(|r| r.available).unwrap_or(false) {
-                0u8
-            } else {
-                1
-            };
-            let a_old = if a.old { 1u8 } else { 0 };
-            let b_old = if b.old { 1u8 } else { 0 };
-            // After the current/favorite/recently-added pins, browse order
-            // is release date, newest first (undated models sink).
-            let a_created = a.created_ts.unwrap_or(0);
-            let b_created = b.created_ts.unwrap_or(0);
-            a_current
-                .cmp(&b_current)
-                .then(a_favorite.cmp(&b_favorite))
-                .then(a_recent.cmp(&b_recent))
-                .then(b_created.cmp(&a_created))
-                .then(a_usage.cmp(&b_usage))
-                .then(a_rec.cmp(&b_rec))
-                .then(a_rec_rank.cmp(&b_rec_rank))
-                .then(a_avail.cmp(&b_avail))
-                .then(a_old.cmp(&b_old))
-                .then(a.name.cmp(&b.name))
-                .then_with(|| {
-                    a.active_option()
-                        .map(|route| route.provider.as_str())
-                        .cmp(&b.active_option().map(|route| route.provider.as_str()))
-                })
-                .then_with(|| {
-                    a.active_option()
-                        .map(|route| route.api_method.as_str())
-                        .cmp(&b.active_option().map(|route| route.api_method.as_str()))
-                })
-        });
+        entries.sort_by(model_picker_entry_order);
         let entries_ms = entries_started.elapsed().as_millis();
         let total_ms = picker_started.elapsed().as_millis();
 
@@ -5094,6 +5100,61 @@ mod tests {
             [
                 ("gpt-5.5", "OpenAI", "openai-oauth"),
                 ("qwen3-coder", "llama.cpp", "openai-compatible:llamacpp"),
+            ]
+        );
+    }
+}
+
+#[cfg(test)]
+mod picker_order_tests {
+    use super::*;
+
+    fn entry(name: &str, current: bool, favorite: bool, ts: Option<u64>) -> PickerEntry {
+        PickerEntry {
+            name: name.to_string(),
+            options: vec![PickerOption {
+                provider: "Anthropic".to_string(),
+                api_method: "claude-oauth".to_string(),
+                available: true,
+                detail: String::new(),
+                estimated_reference_cost_micros: None,
+            }],
+            action: PickerAction::Model,
+            selected_option: 0,
+            is_current: current,
+            is_default: false,
+            is_favorite: favorite,
+            recommended: false,
+            recommendation_rank: 0,
+            usage_score: 0,
+            old: false,
+            created_date: None,
+            created_ts: ts,
+            effort: None,
+        }
+    }
+
+    #[test]
+    fn models_browse_newest_first_after_current_and_favorite_pins() {
+        let mut entries = vec![
+            entry("old-plain", false, false, Some(1_600_000_000)),
+            entry("undated", false, false, None),
+            entry("new-plain", false, false, Some(1_780_000_000)),
+            entry("fav-old", false, true, Some(1_500_000_000)),
+            entry("current", true, false, Some(1_000_000_000)),
+            entry("fav-new", false, true, Some(1_790_000_000)),
+        ];
+        entries.sort_by(model_picker_entry_order);
+        let order: Vec<&str> = entries.iter().map(|e| e.name.as_str()).collect();
+        assert_eq!(
+            order,
+            [
+                "current", // pinned first regardless of age
+                "fav-new", // favorites next, newest favorite first
+                "fav-old",
+                "new-plain", // then everyone else by release date desc
+                "old-plain",
+                "undated", // unknown release dates sink
             ]
         );
     }

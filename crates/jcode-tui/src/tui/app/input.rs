@@ -66,13 +66,6 @@ pub(super) fn strip_reasoning_lines(content: &str) -> String {
     result.trim_end().to_string()
 }
 
-/// Attached to every turn while plan mode (Shift+Tab) is on.
-pub(super) const PLAN_MODE_REMINDER: &str = "Plan mode is ON for this conversation. Research, read code, \
-and design — but do NOT edit files, run state-changing commands, or commit. Present the final plan inside \
-a ```plan fenced block (markdown: a short title heading, then sections like Context, Design, Steps, Risks, \
-Verification with concrete file paths) — the UI renders that block as a plan card. Then wait; the user \
-toggles plan mode off (Shift+Tab) when ready to execute.";
-
 fn mission_turn_reminder(session_id: &str) -> Option<String> {
     crate::mission::active_system_reminder(session_id)
         .map_err(|err| crate::logging::warn(&format!("failed to load active mission: {err}")))
@@ -80,12 +73,12 @@ fn mission_turn_reminder(session_id: &str) -> Option<String> {
         .flatten()
 }
 
-/// The mission reminder plus, in plan mode, the plan-only instruction.
-fn combine_turn_reminders(mission: Option<String>, plan_mode: bool) -> Option<String> {
-    match (mission, plan_mode) {
-        (Some(m), true) => Some(format!("{m}\n\n{PLAN_MODE_REMINDER}")),
-        (None, true) => Some(PLAN_MODE_REMINDER.to_string()),
-        (mission, false) => mission,
+/// The mission reminder plus the active mode's instruction, if any.
+fn combine_turn_reminders(mission: Option<String>, mode: crate::tui::WorkMode) -> Option<String> {
+    match (mission, mode.turn_reminder()) {
+        (Some(m), Some(extra)) => Some(format!("{m}\n\n{extra}")),
+        (None, Some(extra)) => Some(extra.to_string()),
+        (mission, None) => mission,
     }
 }
 
@@ -2939,9 +2932,9 @@ impl App {
         if code == KeyCode::BackTab {
             // Claude Code parity: Shift+Tab cycles the working mode. blaude
             // has two today — auto (tools run) and plan (propose only).
-            // Silent flip, Claude Code-style: the persistent mode line under
-            // the input box is the feedback — no transcript lines.
-            self.plan_mode = !self.plan_mode;
+            // Silent cycle, Claude Code-style: the persistent mode line
+            // under the input box is the feedback — no transcript lines.
+            self.session_mode = self.session_mode.next();
             return Ok(());
         }
 
@@ -3857,7 +3850,7 @@ impl App {
         }
         if images.is_empty() {
             self.current_turn_system_reminder =
-                combine_turn_reminders(mission_turn_reminder(&self.session.id), self.plan_mode);
+                combine_turn_reminders(mission_turn_reminder(&self.session.id), self.session_mode);
             self.add_provider_message(Message::user(&input));
             self.session.add_message(
                 Role::User,
@@ -3868,7 +3861,7 @@ impl App {
             );
         } else {
             self.current_turn_system_reminder =
-                combine_turn_reminders(mission_turn_reminder(&self.session.id), self.plan_mode);
+                combine_turn_reminders(mission_turn_reminder(&self.session.id), self.session_mode);
             self.add_provider_message(Message::user_with_images(&input, images.clone()));
             let mut blocks: Vec<ContentBlock> = images
                 .into_iter()

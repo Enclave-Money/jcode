@@ -374,9 +374,9 @@ pub trait TuiState {
     // ---- Session / server ----
     /// Whether running in remote (client-server) mode
     fn is_remote_mode(&self) -> bool;
-    /// Whether plan mode (Shift+Tab) is on: turns carry a plan-only reminder.
-    fn plan_mode(&self) -> bool {
-        false
+    /// The Shift+Tab working mode (auto/plan/ask/manual).
+    fn session_mode(&self) -> WorkMode {
+        WorkMode::Auto
     }
     /// Whether running in canary/self-dev mode
     fn is_canary(&self) -> bool;
@@ -1215,6 +1215,117 @@ pub enum AgentModelTarget {
     Judge,
     Memory,
     Ambient,
+}
+
+/// The working mode Shift+Tab cycles through, Claude Code-style.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum WorkMode {
+    /// Tools run freely (the default).
+    #[default]
+    Auto,
+    /// Research and design only — no edits, no state-changing commands.
+    Plan,
+    /// Reads are free; the model must ask before any state-changing action.
+    Ask,
+    /// The model proposes every single action and waits for approval.
+    Manual,
+}
+
+impl WorkMode {
+    pub fn next(self) -> Self {
+        match self {
+            WorkMode::Auto => WorkMode::Plan,
+            WorkMode::Plan => WorkMode::Ask,
+            WorkMode::Ask => WorkMode::Manual,
+            WorkMode::Manual => WorkMode::Auto,
+        }
+    }
+
+    /// The persistent mode-line label under the composer.
+    pub fn mode_line(self) -> &'static str {
+        match self {
+            WorkMode::Auto => "⏵⏵ auto mode on (shift+tab to cycle)",
+            WorkMode::Plan => "⏸ plan mode on (shift+tab to cycle)",
+            WorkMode::Ask => "❓ ask mode on (shift+tab to cycle)",
+            WorkMode::Manual => "✋ manual mode on (shift+tab to cycle)",
+        }
+    }
+
+    /// The per-turn system reminder for this mode (`None` in auto).
+    pub fn turn_reminder(self) -> Option<&'static str> {
+        match self {
+            WorkMode::Auto => None,
+            WorkMode::Plan => Some(
+                "Plan mode is ON for this conversation. Research, read code, and design — but do NOT \
+edit files, run state-changing commands, or commit. Present the final plan inside a ```plan fenced \
+block (markdown: a short title heading, then sections like Context, Design, Steps, Risks, \
+Verification with concrete file paths) — the UI renders that block as a plan card. Then wait; the \
+user toggles plan mode off (Shift+Tab) when ready to execute.",
+            ),
+            WorkMode::Ask => Some(
+                "Ask mode is ON for this conversation. Reading and exploring (viewing files, \
+searching, read-only commands) is fine without asking. Before ANY state-changing action — editing \
+or creating files, git commands that mutate state, installs, network mutations, or long-running \
+processes — STOP and ask the user for permission in plain text, naming exactly what you intend to \
+run, and wait for their reply before proceeding.",
+            ),
+            WorkMode::Manual => Some(
+                "Manual mode is ON for this conversation. Do not run ANY tool without approval: \
+before every single tool call (including reads), state in plain text what you want to do and why, \
+then wait for the user's confirmation. One action per approval.",
+            ),
+        }
+    }
+}
+
+#[cfg(test)]
+mod work_mode_tests {
+    use super::WorkMode;
+
+    #[test]
+    fn shift_tab_cycles_all_four_modes_and_returns_home() {
+        let mut mode = WorkMode::default();
+        assert_eq!(mode, WorkMode::Auto);
+        let mut seen = vec![mode];
+        for _ in 0..3 {
+            mode = mode.next();
+            seen.push(mode);
+        }
+        assert_eq!(
+            seen,
+            [
+                WorkMode::Auto,
+                WorkMode::Plan,
+                WorkMode::Ask,
+                WorkMode::Manual
+            ]
+        );
+        assert_eq!(mode.next(), WorkMode::Auto, "cycle wraps");
+    }
+
+    #[test]
+    fn every_non_auto_mode_carries_a_reminder_and_a_mode_line() {
+        assert!(WorkMode::Auto.turn_reminder().is_none());
+        for mode in [WorkMode::Plan, WorkMode::Ask, WorkMode::Manual] {
+            let reminder = mode.turn_reminder().expect("non-auto reminder");
+            assert!(reminder.len() > 80, "reminder is a real instruction");
+            assert!(mode.mode_line().contains("shift+tab to cycle"));
+        }
+        assert!(
+            WorkMode::Ask
+                .turn_reminder()
+                .unwrap()
+                .contains("state-changing"),
+            "ask mode gates mutations"
+        );
+        assert!(
+            WorkMode::Manual
+                .turn_reminder()
+                .unwrap()
+                .contains("every single tool call"),
+            "manual mode gates everything"
+        );
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

@@ -46,7 +46,7 @@ Two things that waste time otherwise:
 <!-- gitnexus:start -->
 # Repo graph — GitNexus (CLI mode)
 
-`blaude-agent` is indexed as a knowledge graph of 54204 symbols and 137029 relationships across 300 execution flows. Query it with the commands
+`blaude-agent` is indexed as a knowledge graph of 54209 symbols and 137035 relationships across 300 execution flows. Query it with the commands
 below **instead of grepping** when you need structure: callers, callees, blast
 radius, execution flows.
 

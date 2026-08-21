@@ -2626,17 +2626,14 @@ pub(super) fn draw_input(
                 .border_style(Style::default().fg(dim_color())),
             box_area,
         );
-        let (mode_text, mode_style) = if app.plan_mode() {
-            (
-                "⏸ plan mode on (shift+tab to cycle)",
-                Style::default().fg(rgb(255, 200, 100)),
-            )
-        } else {
-            (
-                "⏵⏵ auto mode on (shift+tab to cycle)",
-                Style::default().fg(dim_color()),
-            )
+        let mode = app.session_mode();
+        let mode_style = match mode {
+            crate::tui::WorkMode::Auto => Style::default().fg(dim_color()),
+            crate::tui::WorkMode::Plan => Style::default().fg(rgb(255, 200, 100)),
+            crate::tui::WorkMode::Ask => Style::default().fg(rgb(120, 180, 255)),
+            crate::tui::WorkMode::Manual => Style::default().fg(rgb(255, 140, 140)),
         };
+        let mode_text = mode.mode_line();
         frame.render_widget(
             ratatui::widgets::Paragraph::new(Line::from(Span::styled(
                 format!(" {mode_text}"),

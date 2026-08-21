@@ -846,8 +846,8 @@ impl crate::tui::TuiState for App {
             .unwrap_or(0)
     }
 
-    fn plan_mode(&self) -> bool {
-        self.plan_mode
+    fn session_mode(&self) -> crate::tui::WorkMode {
+        self.session_mode
     }
 
     fn is_remote_mode(&self) -> bool {

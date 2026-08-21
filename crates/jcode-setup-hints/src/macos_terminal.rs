@@ -6,6 +6,8 @@ use std::path::PathBuf;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum MacTerminalKind {
+    /// The blaude terminal app itself — the preferred home for new windows.
+    Blaude,
     Ghostty,
     Iterm2,
     AppleTerminal,
@@ -19,6 +21,7 @@ pub(super) enum MacTerminalKind {
 impl MacTerminalKind {
     pub(super) fn label(self) -> &'static str {
         match self {
+            Self::Blaude => "blaude",
             Self::Ghostty => "Ghostty",
             Self::Iterm2 => "iTerm2",
             Self::AppleTerminal => "Terminal.app",
@@ -32,6 +35,7 @@ impl MacTerminalKind {
 
     pub(super) fn cli_value(self) -> &'static str {
         match self {
+            Self::Blaude => "blaude",
             Self::Ghostty => "ghostty",
             Self::Iterm2 => "iterm2",
             Self::AppleTerminal => "terminal",
@@ -45,6 +49,7 @@ impl MacTerminalKind {
 
     fn from_cli_value(value: &str) -> Option<Self> {
         match value.trim().to_ascii_lowercase().as_str() {
+            "blaude" => Some(Self::Blaude),
             "ghostty" => Some(Self::Ghostty),
             "iterm2" | "iterm" => Some(Self::Iterm2),
             "terminal" | "terminal.app" | "apple_terminal" => Some(Self::AppleTerminal),
@@ -58,6 +63,7 @@ impl MacTerminalKind {
 
     fn open_command_app_and_args(self) -> Option<(&'static str, &'static str)> {
         match self {
+            Self::Blaude => None, // handled explicitly: --command, not -e
             Self::Ghostty => Some(("Ghostty", "-e /bin/bash -lc")),
             Self::Alacritty => Some(("Alacritty", "-e /bin/bash -lc")),
             Self::WezTerm => Some(("WezTerm", "start --always-new-process -- /bin/bash -lc")),
@@ -123,6 +129,9 @@ fn detect_macos_terminal() -> MacTerminalKind {
     let term_program = std::env::var("TERM_PROGRAM")
         .unwrap_or_default()
         .to_lowercase();
+    if term_program == "blaude" {
+        return MacTerminalKind::Blaude;
+    }
     let term = std::env::var("TERM").unwrap_or_default().to_lowercase();
 
     if std::env::var("GHOSTTY_RESOURCES_DIR").is_ok()
@@ -225,6 +234,7 @@ pub(super) fn launch_command_for_macos_terminal(
     }
 
     match terminal {
+        MacTerminalKind::Blaude => blaude_open_command(shell_command),
         MacTerminalKind::Iterm2 => applescript_command_for_iterm(shell_command),
         MacTerminalKind::AppleTerminal
         | MacTerminalKind::Warp
@@ -272,9 +282,20 @@ pub(super) fn no_automation_launch(
         ));
     }
     match terminal {
+        MacTerminalKind::Blaude => NoAutomationLaunch::Shell(blaude_open_command(shell_command)),
         MacTerminalKind::Iterm2 => NoAutomationLaunch::CommandFile { app: Some("iTerm") },
         _ => NoAutomationLaunch::CommandFile { app: None },
     }
+}
+
+/// Open a new blaude terminal window already running `shell_command` in its
+/// first shell. No automation permissions needed: plain `open -na` plus the
+/// app's own `--command` flag.
+pub(super) fn blaude_open_command(shell_command: &str) -> String {
+    format!(
+        "/usr/bin/open -na blaude --args --command '{}'",
+        escape_shell_single_quotes(shell_command)
+    )
 }
 
 #[cfg(test)]

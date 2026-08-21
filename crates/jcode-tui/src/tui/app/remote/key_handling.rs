@@ -628,9 +628,9 @@ async fn handle_remote_key_internal(
     if code == KeyCode::BackTab {
         // Claude Code parity (and identical to the local path): Shift+Tab
         // cycles the working mode — auto (tools run) or plan (propose only).
-        // Silent flip, Claude Code-style: the persistent mode line under the
-        // input box is the feedback — no transcript lines.
-        app.plan_mode = !app.plan_mode;
+        // Silent cycle, Claude Code-style: the persistent mode line under
+        // the input box is the feedback — no transcript lines.
+        app.session_mode = app.session_mode.next();
         return Ok(());
     }
 
