@@ -15,6 +15,7 @@
 //! the main socket.
 
 pub mod background_progress;
+pub mod permissions;
 pub mod translate;
 pub mod ws;
 
@@ -246,6 +247,7 @@ where
                 "session_archive",
                 "session_retention",
                 "session_files",
+                "permissions",
             ]
             .into_iter()
             .map(str::to_string)
@@ -264,11 +266,48 @@ where
     let mut state = translate::BridgeState::default();
 
     // 3. Pump both directions in one select loop so translation state stays
-    //    single-threaded.
+    //    single-threaded. A third branch watches the safety queue so
+    //    permission prompts reach API clients (they are file-mediated by
+    //    design — see src/permissions.rs).
     let mut api_line = String::new();
     let mut legacy_line = String::new();
+    let mut permission_poll = tokio::time::interval(std::time::Duration::from_millis(900));
+    permission_poll.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+    let mut announced_permissions: std::collections::HashSet<String> = Default::default();
     loop {
         tokio::select! {
+            _ = permission_poll.tick() => {
+                let Some(session_id) = state.session_id.clone() else { continue };
+                let pending = tokio::task::block_in_place(permissions::pending);
+                let current: std::collections::HashSet<String> =
+                    pending.iter().map(|p| p.id.clone()).collect();
+                for request in &pending {
+                    if announced_permissions.insert(request.id.clone()) {
+                        let frame = ServerFrame::event(ApiEvent::PermissionRequest {
+                            session_id: session_id.clone(),
+                            request_id: request.id.clone(),
+                            tool_name: request.action.clone(),
+                            description: request.description.clone(),
+                        });
+                        write_json_line(&mut write_half, &frame).await?;
+                    }
+                }
+                let resolved: Vec<String> = announced_permissions
+                    .iter()
+                    .filter(|id| !current.contains(*id))
+                    .cloned()
+                    .collect();
+                for id in resolved {
+                    announced_permissions.remove(&id);
+                    let approved = tokio::task::block_in_place(|| permissions::decision_for(&id));
+                    let frame = ServerFrame::event(ApiEvent::PermissionResolved {
+                        session_id: session_id.clone(),
+                        request_id: id,
+                        approved,
+                    });
+                    write_json_line(&mut write_half, &frame).await?;
+                }
+            }
             n = read_frame(&mut reader, &mut api_line) => {
                 let n = match n {
                     Ok(n) => n,

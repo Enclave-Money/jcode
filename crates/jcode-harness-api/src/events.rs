@@ -240,6 +240,26 @@ pub enum ApiEvent {
         display_title: String,
     },
 
+    /// Another attached client sent a user message to this session
+    /// (multiplayer co-steering). Never echoed to the sender. `by_user` is
+    /// reserved for when the server carries identities.
+    UserMessage {
+        session_id: String,
+        content: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        by_user: Option<String>,
+    },
+
+    /// A pending permission request was answered (by this client or any
+    /// other) or expired: dismiss its prompt. `approved` is absent when the
+    /// outcome is unknown (e.g. the request vanished from the queue).
+    PermissionResolved {
+        session_id: String,
+        request_id: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        approved: Option<bool>,
+    },
+
     /// Forward-compatibility catch-all: clients must skip this silently.
     #[serde(other)]
     Unknown,

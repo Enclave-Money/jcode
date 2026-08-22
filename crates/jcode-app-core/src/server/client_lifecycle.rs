@@ -1129,6 +1129,18 @@ pub(super) async fn handle_client(
                         info.current_tool_name = None;
                     }
                 }
+                // Multiplayer: co-attached clients see the teammate's prompt
+                // live. The sender is excluded — it already echoed locally.
+                let _ = super::state::fanout_session_event_except(
+                    &swarm_members,
+                    &client_session_id,
+                    &client_connection_id,
+                    ServerEvent::UserMessage {
+                        session_id: client_session_id.clone(),
+                        content: content.clone(),
+                    },
+                )
+                .await;
                 start_processing_message(
                     ProcessingMessage {
                         id,

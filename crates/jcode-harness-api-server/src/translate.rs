@@ -753,21 +753,24 @@ impl BridgeState {
             }
             "detach_session" => vec![Outbound::Reply(ServerFrame::reply(api_id, ApiEvent::Ok))],
             "permission_response" => {
-                // The legacy protocol does not surface permission prompts on
-                // this path, so the bridge never emits `permission_request`
-                // and there is nothing for a response to answer. Say that,
-                // rather than "not supported", which reads like a bug the
-                // caller should work around. Clients discover this up front
-                // via the absence of the `permissions` capability in `hello`.
-                vec![Outbound::Reply(ServerFrame::reply(
-                    api_id,
-                    ApiEvent::Error {
-                        code: ErrorCode::InvalidRequest,
-                        message: "this server does not issue permission prompts \
-                                  (no `permissions` capability), so there is nothing to respond to"
-                            .into(),
-                    },
-                ))]
+                // Decisions ride the same owner-only files the TUI overlay
+                // uses (safety/queue.json + safety/history.json) — the daemon
+                // polls them while the gated tool waits, so no protocol change
+                // is needed on the legacy socket.
+                let request_id = request["request_id"].as_str().unwrap_or("").to_string();
+                let decision = request["decision"].as_str().unwrap_or("");
+                let approved = decision == "allow" || decision == "allow_always";
+                let note = (decision == "allow_always").then(|| "always".to_string());
+                match crate::permissions::record_decision(&request_id, approved, note) {
+                    Ok(()) => vec![Outbound::Reply(ServerFrame::reply(api_id, ApiEvent::Ok))],
+                    Err(error) => vec![Outbound::Reply(ServerFrame::reply(
+                        api_id,
+                        ApiEvent::Error {
+                            code: ErrorCode::Internal,
+                            message: format!("couldn't record the decision: {error}"),
+                        },
+                    ))],
+                }
             }
             other => vec![Outbound::Reply(ServerFrame::reply(
                 api_id,
@@ -909,6 +912,11 @@ impl BridgeState {
                     vec![]
                 }
             }
+            "user_message" => vec![ServerFrame::event(ApiEvent::UserMessage {
+                session_id: session(self),
+                content: event["content"].as_str().unwrap_or("").to_string(),
+                by_user: None,
+            })],
             "context_message_added" => {
                 let id = event["id"].as_u64().unwrap_or(0);
                 if self

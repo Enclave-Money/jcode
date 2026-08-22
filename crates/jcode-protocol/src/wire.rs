@@ -1019,6 +1019,14 @@ pub enum ServerEvent {
     #[serde(rename = "context_message_added")]
     ContextMessageAdded { id: u64 },
 
+    /// Another attached client sent a user message to this session
+    /// (multiplayer co-steering). Fanned to every attachment EXCEPT the
+    /// sender, so recipients can render the teammate's prompt live instead of
+    /// discovering it on the next history reload. Old clients skip unknown
+    /// event tags via their stray-line budget, so this is additive.
+    #[serde(rename = "user_message")]
+    UserMessage { session_id: String, content: String },
+
     /// Error occurred
     #[serde(rename = "error")]
     Error {

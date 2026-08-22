@@ -194,6 +194,20 @@ export type ApiEvent =
       session_id: string;
       title?: string;
       display_title: string;
+    }
+  | {
+      /** Another attached client sent a user message (multiplayer co-steering). */
+      ev: "user_message";
+      session_id: string;
+      content: string;
+      by_user?: string;
+    }
+  | {
+      /** A pending permission request was answered or expired: dismiss it. */
+      ev: "permission_resolved";
+      session_id: string;
+      request_id: string;
+      approved?: boolean;
     };
 
 /**
@@ -259,6 +273,8 @@ export const KNOWN_EVENT_KINDS = [
   "file_status",
   "compacted",
   "session_renamed",
+  "user_message",
+  "permission_resolved",
 ] as const;
 
 /** Every request tag the SDK can send. */
