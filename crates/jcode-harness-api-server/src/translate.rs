@@ -102,6 +102,17 @@ pub struct BridgeState {
     pending_model_probe: Option<u64>,
     /// Legacy id -> API id for simple acked requests (ping, clear, ...).
     pending_simple: Vec<(u64, u64, SimpleKind)>,
+    /// A turn triggered by ANOTHER attachment to this session is streaming.
+    ///
+    /// The daemon fans a turn's stream and terminal `done` to every attached
+    /// connection, but the `done` carries the ORIGINATING connection's request
+    /// id — meaningless in this connection's id space (and collision-prone,
+    /// since every connection counts from 1). Matching by id therefore cannot
+    /// recognize a co-steered turn's boundary; stream shape can: stream events
+    /// with no local in-flight `message` mean a foreign turn is live, and its
+    /// terminal `done`/`error` must still become `turn_done` or multiplayer
+    /// viewers sit on a spinner forever.
+    foreign_stream_active: bool,
     /// Every session the daemon has told us about, newest snapshot wins.
     ///
     /// The legacy protocol has no session-list request, but it volunteers the
@@ -817,14 +828,24 @@ impl BridgeState {
                 }
                 vec![]
             }
-            "text_delta" => vec![ServerFrame::event(ApiEvent::TextDelta {
-                session_id: session(self),
-                text: event["text"].as_str().unwrap_or("").to_string(),
-            })],
-            "reasoning_delta" => vec![ServerFrame::event(ApiEvent::ReasoningDelta {
-                session_id: session(self),
-                text: event["text"].as_str().unwrap_or("").to_string(),
-            })],
+            "text_delta" => {
+                if self.pending_message_id.is_none() {
+                    self.foreign_stream_active = true;
+                }
+                vec![ServerFrame::event(ApiEvent::TextDelta {
+                    session_id: session(self),
+                    text: event["text"].as_str().unwrap_or("").to_string(),
+                })]
+            }
+            "reasoning_delta" => {
+                if self.pending_message_id.is_none() {
+                    self.foreign_stream_active = true;
+                }
+                vec![ServerFrame::event(ApiEvent::ReasoningDelta {
+                    session_id: session(self),
+                    text: event["text"].as_str().unwrap_or("").to_string(),
+                })]
+            }
             "reasoning_done" => vec![ServerFrame::event(ApiEvent::ReasoningDone {
                 session_id: session(self),
                 duration_secs: event["duration_secs"].as_f64(),
@@ -833,11 +854,16 @@ impl BridgeState {
                 session_id: session(self),
                 phase: event["phase"].as_str().unwrap_or("connecting").to_string(),
             })],
-            "tool_start" => vec![ServerFrame::event(ApiEvent::ToolStart {
-                session_id: session(self),
-                call_id: event["id"].as_str().unwrap_or("").to_string(),
-                name: event["name"].as_str().unwrap_or("").to_string(),
-            })],
+            "tool_start" => {
+                if self.pending_message_id.is_none() {
+                    self.foreign_stream_active = true;
+                }
+                vec![ServerFrame::event(ApiEvent::ToolStart {
+                    session_id: session(self),
+                    call_id: event["id"].as_str().unwrap_or("").to_string(),
+                    name: event["name"].as_str().unwrap_or("").to_string(),
+                })]
+            }
             "tool_input" => vec![ServerFrame::event(ApiEvent::ToolInputDelta {
                 session_id: session(self),
                 call_id: String::new(),
@@ -867,6 +893,15 @@ impl BridgeState {
                 // completed `message` is a turn boundary.
                 if self.pending_message_id == Some(id) {
                     self.pending_message_id = None;
+                    self.foreign_stream_active = false;
+                    vec![ServerFrame::event(ApiEvent::TurnDone {
+                        session_id: session(self),
+                    })]
+                } else if self.pending_message_id.is_none() && self.foreign_stream_active {
+                    // Terminal of a turn another attachment started; its id
+                    // lives in that connection's id space (see the
+                    // foreign_stream_active field note).
+                    self.foreign_stream_active = false;
                     vec![ServerFrame::event(ApiEvent::TurnDone {
                         session_id: session(self),
                     })]
@@ -1142,6 +1177,10 @@ impl BridgeState {
                     code: ErrorCode::Internal,
                     message,
                 };
+                // `error` ends a turn (own or foreign) the way `done` would
+                // have; leaving the foreign flag set would misread the NEXT
+                // unrelated `done` as a turn boundary.
+                self.foreign_stream_active = false;
                 vec![match reply_to {
                     Some(api_id) => ServerFrame::reply(api_id, frame_event),
                     None => ServerFrame::event(frame_event),

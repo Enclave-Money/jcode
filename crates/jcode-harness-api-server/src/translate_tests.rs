@@ -1498,3 +1498,30 @@ fn rooted_file_operations_reject_traversal_and_symlink_escapes_and_bound_results
         } if kind == "missing"
     ));
 }
+
+/// Multiplayer co-steering: a turn STARTED BY ANOTHER ATTACHMENT streams
+/// through this connection with an id from the other connection's id space.
+/// Its terminal `done` must still become `turn_done`, or every co-attached
+/// viewer sits on a spinner forever — while `done`s for this connection's own
+/// non-message requests (subscribe etc.) must stay silent.
+#[test]
+fn foreign_turn_terminal_becomes_turn_done() {
+    let mut state = BridgeState::default();
+    state.session_id = Some("s1".into());
+
+    // A done with no local pending message and no foreign stream: silent
+    // (this is the subscribe/other-request completion case).
+    assert!(state.legacy_event_to_api(&json!({"type": "done", "id": 3})).is_empty());
+
+    // A foreign turn streams (no local `message` in flight)...
+    let frames = state.legacy_event_to_api(&json!({"type": "text_delta", "text": "hi"}));
+    assert!(matches!(frames[0].event, ApiEvent::TextDelta { .. }));
+    // ...and its terminal done — foreign id space — is a turn boundary here.
+    let frames = state.legacy_event_to_api(&json!({"type": "done", "id": 479}));
+    assert!(
+        matches!(frames.first().map(|f| &f.event), Some(ApiEvent::TurnDone { .. })),
+        "foreign turn terminal must emit turn_done, got {frames:?}"
+    );
+    // The boundary is consumed: the next stray done is silent again.
+    assert!(state.legacy_event_to_api(&json!({"type": "done", "id": 480})).is_empty());
+}
