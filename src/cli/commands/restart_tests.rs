@@ -7,6 +7,7 @@ use std::ffi::OsString;
 
 struct TestEnvGuard {
     prev_home: Option<OsString>,
+    prev_runtime_dir: Option<OsString>,
     _temp_home: tempfile::TempDir,
     _lock: crate::storage::TestEnvGuard,
 }
@@ -19,8 +20,15 @@ impl TestEnvGuard {
             .tempdir()?;
         let prev_home = std::env::var_os("JCODE_HOME");
         crate::env::set_var("JCODE_HOME", temp_home.path());
+        // The daemon socket lives in the RUNTIME dir, not JCODE_HOME — point
+        // it at the temp dir too, or these tests reach whatever daemon the
+        // machine happens to be running (which may refuse debug control) and
+        // fail on state this suite never created.
+        let prev_runtime_dir = std::env::var_os("JCODE_RUNTIME_DIR");
+        crate::env::set_var("JCODE_RUNTIME_DIR", temp_home.path());
         Ok(Self {
             prev_home,
+            prev_runtime_dir,
             _temp_home: temp_home,
             _lock: lock,
         })
@@ -33,6 +41,11 @@ impl Drop for TestEnvGuard {
             crate::env::set_var("JCODE_HOME", prev_home);
         } else {
             crate::env::remove_var("JCODE_HOME");
+        }
+        if let Some(prev) = &self.prev_runtime_dir {
+            crate::env::set_var("JCODE_RUNTIME_DIR", prev);
+        } else {
+            crate::env::remove_var("JCODE_RUNTIME_DIR");
         }
     }
 }
