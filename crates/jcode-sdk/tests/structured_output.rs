@@ -30,6 +30,7 @@ fn fake_harness(handle: impl Fn(&ClientFrame, &mut dyn Write) + Send + 'static) 
                 reply(
                     &frame,
                     ApiEvent::HelloOk {
+                identity: None,
                         version: API_VERSION_MAJOR,
                         server: "structured-test/1.0".to_string(),
                         capabilities: vec!["sessions".to_string()],

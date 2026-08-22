@@ -14,6 +14,11 @@ pub enum ApiEvent {
         /// Optional capability strings for additive feature discovery.
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         capabilities: Vec<String>,
+        /// The identity this connection was authorized as (email for team
+        /// members, the machine user for the owner) — lets a client answer
+        /// "who am I" for attribution and @-mention matching.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        identity: Option<String>,
     },
 
     /// Generic success acknowledgment for requests without a richer reply.

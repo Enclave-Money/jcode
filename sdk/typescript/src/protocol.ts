@@ -107,7 +107,9 @@ export type ApiRequest =
   | { req: "ping" };
 
 export type ApiEvent =
-  | { ev: "hello_ok"; version: number; server: string; capabilities?: string[] }
+  | { ev: "hello_ok"; version: number; server: string; capabilities?: string[] 
+      identity?: string;
+    }
   | { ev: "ok" }
   | { ev: "error"; code: ErrorCode; message: string }
   | { ev: "sessions"; sessions: SessionInfo[] }

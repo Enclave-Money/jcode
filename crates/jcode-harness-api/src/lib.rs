@@ -37,7 +37,7 @@ mod capability_coverage_tests;
 pub const API_VERSION_MAJOR: u32 = 1;
 /// Protocol minor version. Additive changes.
 /// 1: UserMessage + PermissionResolved events; the `permissions` capability.
-pub const API_VERSION_MINOR: u32 = 4;
+pub const API_VERSION_MINOR: u32 = 5;
 
 /// Envelope wrapping every client-to-server frame.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]

@@ -57,6 +57,7 @@ fn server_frame_wire_shape() {
     let frame = ServerFrame::reply(
         3,
         ApiEvent::HelloOk {
+            identity: None,
             version: 1,
             server: "jcode/0.55.1".into(),
             capabilities: vec![],
@@ -166,6 +167,7 @@ fn client_handshake_over_in_memory_pipe() {
     let reply = serde_json::to_string(&ServerFrame::reply(
         1,
         ApiEvent::HelloOk {
+            identity: None,
             version: 1,
             server: "jcode/test".into(),
             capabilities: vec!["sessions".into()],

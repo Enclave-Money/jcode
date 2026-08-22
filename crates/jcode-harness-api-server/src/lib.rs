@@ -252,6 +252,7 @@ where
     let hello_ok = ServerFrame::reply(
         reply_to,
         ApiEvent::HelloOk {
+            identity: identity.clone(),
             version: API_VERSION_MAJOR,
             server: format!("jcode-harness-api-bridge/{}", env!("CARGO_PKG_VERSION")),
             capabilities: [
