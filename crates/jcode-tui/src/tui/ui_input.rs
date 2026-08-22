@@ -1797,13 +1797,16 @@ pub(super) fn build_notification_spans(app: &dyn TuiState) -> Vec<Span<'static>>
         ));
     }
 
-    // Learned-keybinding nudge: distinct bright color + bold so the user reads
-    // it as "the system noticed I'm not using a shortcut", not a normal status.
+    // Learned-keybinding nudge: the accent color + bold so the user reads it as
+    // "the system noticed I'm not using a shortcut", not a normal status. Uses
+    // the configurable Accent role rather than a raw literal, so `/colors` can
+    // retune it and it stays inside a themeable family (the Claude Code reskin
+    // moved the accent from purple to coral, orphaning the old hard-coded hue).
     if let Some(hint) = app.learn_hint() {
         push_sep(&mut spans);
         spans.push(Span::styled(
             normalize_repaint_sensitive_notice_text(&hint),
-            Style::default().fg(rgb(214, 122, 255)).bold(),
+            Style::default().fg(accent_color()).bold(),
         ));
     }
 

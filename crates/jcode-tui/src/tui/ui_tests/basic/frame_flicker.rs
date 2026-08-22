@@ -12,8 +12,24 @@ fn test_redraw_interval_uses_low_frequency_during_remote_startup_phase() {
         ..Default::default()
     };
 
-    let idle_interval = crate::tui::redraw_interval(&idle);
-    let startup_interval = crate::tui::redraw_interval(&startup);
+    // Drive the injectable form with an explicit policy and animation flag so
+    // the mapping under test (state -> redraw interval) does not depend on two
+    // process globals a parallel test could perturb: the perf tier (host load,
+    // via `perf::profile()`) and the shared idle-animation render area (via
+    // `animation_on_screen_now()`). Under test the perf tier is already pinned
+    // Full; passing `animation_on_screen = false` matches these quiet
+    // idle/startup states (no donut on screen) and removes the render-state
+    // dependency that otherwise flaked the startup assertion under load.
+    let policy = crate::perf::tui_policy_for(
+        &crate::perf::synthetic_profile(crate::perf::SyntheticSystemProfile::Native),
+        &crate::config::config().display,
+    );
+    let idle_interval = crate::tui::redraw_schedule::redraw_interval_with_policy_and_animation(
+        &idle, &policy, false,
+    );
+    let startup_interval = crate::tui::redraw_schedule::redraw_interval_with_policy_and_animation(
+        &startup, &policy, false,
+    );
 
     assert_eq!(idle_interval, crate::tui::REDRAW_DEEP_IDLE);
     assert_eq!(startup_interval, crate::tui::REDRAW_REMOTE_STARTUP);

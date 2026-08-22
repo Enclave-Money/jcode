@@ -661,6 +661,18 @@ mod utf8_truncation_tests {
     #[cfg(unix)]
     #[tokio::test]
     async fn build_shell_command_uses_disk_backed_scratch_directory() {
+        // Pin a private JCODE_HOME so `tool_scratch_dir()` (which falls back to
+        // `storage::jcode_dir()/scratch`) resolves deterministically on this
+        // thread instead of racing a concurrent test's JCODE_HOME mutation. The
+        // lock serializes the env window; clearing JCODE_SCRATCH_DIR ensures the
+        // home-derived path is what both this test and `build_shell_command` see.
+        let _env_lock = crate::storage::lock_test_env();
+        let home = tempfile::tempdir().expect("home tempdir");
+        let prev_home = std::env::var_os("JCODE_HOME");
+        let prev_scratch = std::env::var_os("JCODE_SCRATCH_DIR");
+        crate::env::set_var("JCODE_HOME", home.path());
+        crate::env::remove_var("JCODE_SCRATCH_DIR");
+
         let expected = super::tool_scratch_dir().expect("blaude scratch directory");
         let output = build_shell_command("printf '%s\\n%s\\n' \"$TMPDIR\" \"$JCODE_SCRATCH_DIR\"")
             .output()
@@ -672,6 +684,14 @@ mod utf8_truncation_tests {
         let expected = expected.to_string_lossy().into_owned();
         assert_eq!(paths, vec![expected.as_str(), expected.as_str()]);
         assert!(std::path::Path::new(&expected).is_dir());
+
+        match prev_home {
+            Some(prev) => crate::env::set_var("JCODE_HOME", prev),
+            None => crate::env::remove_var("JCODE_HOME"),
+        }
+        if let Some(prev) = prev_scratch {
+            crate::env::set_var("JCODE_SCRATCH_DIR", prev);
+        }
     }
 }
 

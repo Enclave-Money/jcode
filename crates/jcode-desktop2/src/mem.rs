@@ -193,6 +193,11 @@ mod tests {
         assert_eq!(alone.caption(), "ui 105 MB");
     }
 
+    // The sampler is a thin wrapper over `/proc`, so a successful read (and
+    // therefore the throttle behavior this exercises) only happens on Linux.
+    // On macOS/Windows `sample()` returns `None`, so gate the test to where
+    // `/proc/self` exists instead of aborting the whole binary on a dev box.
+    #[cfg(target_os = "linux")]
     #[test]
     fn the_sampler_throttles_between_refreshes() {
         let mut sampler = Sampler::default();

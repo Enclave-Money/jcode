@@ -252,10 +252,14 @@ fn test_parse_update_without_explicit_at() {
 
 #[tokio::test]
 async fn apply_patch_refuses_to_delete_a_protected_path() {
+    // Serialize the process-global HOME mutation below against every other
+    // env-mutating test: parallel tests would otherwise race the protected-path
+    // check that decides whether the ~/.ssh deletion is refused.
+    let _env_lock = crate::storage::lock_test_env();
     let temp = tempfile::tempdir().expect("temp home");
     let home = temp.path().to_path_buf();
     let previous = std::env::var("HOME").ok();
-    // SAFETY: single-threaded test setup; restored below.
+    // SAFETY: HOME is restored below; the test-env lock above serializes it.
     unsafe { std::env::set_var("HOME", &home) };
 
     // A credential file inside the protected ~/.ssh directory.

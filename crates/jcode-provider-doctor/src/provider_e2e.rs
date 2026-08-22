@@ -2430,7 +2430,7 @@ mod tests {
             ("cursor", NativeProviderKind::Cursor),
             ("copilot", NativeProviderKind::Copilot),
             ("bedrock", NativeProviderKind::Bedrock),
-            ("jcode", NativeProviderKind::Jcode),
+            ("jcode", NativeProviderKind::jcode),
             ("azure-openai", NativeProviderKind::Azure),
         ] {
             assert_eq!(NativeProviderKind::from_normalized(id), Some(expected));
@@ -2451,13 +2451,13 @@ mod tests {
             NativeProviderKind::Cursor,
             NativeProviderKind::Copilot,
             NativeProviderKind::Bedrock,
-            NativeProviderKind::Jcode,
+            NativeProviderKind::jcode,
             NativeProviderKind::Azure,
         ] {
             let spec = kind.spec();
             assert!(!spec.provider_id.is_empty(), "{kind:?} has empty id");
             assert!(!spec.label.is_empty(), "{kind:?} has empty label");
-            if kind == NativeProviderKind::Jcode {
+            if kind == NativeProviderKind::jcode {
                 assert!(
                     spec.contract.switch_prefix.is_empty(),
                     "blaude switches must use bare managed model ids"
@@ -2556,7 +2556,7 @@ mod tests {
             NativeProviderKind::Cursor,
             NativeProviderKind::Copilot,
             NativeProviderKind::Bedrock,
-            NativeProviderKind::Jcode,
+            NativeProviderKind::jcode,
             NativeProviderKind::Azure,
         ] {
             let id = kind.spec().provider_id;
@@ -2585,7 +2585,7 @@ mod tests {
 
     #[test]
     fn native_jcode_contract_uses_managed_subscription_identity() {
-        let contract = NativeProviderKind::Jcode.spec().contract;
+        let contract = NativeProviderKind::jcode.spec().contract;
         assert_eq!(
             contract.api_method,
             jcode_base::subscription_catalog::JCODE_ROUTE_API_METHOD

@@ -7,7 +7,7 @@ use std::collections::HashMap;
 use std::pin::Pin;
 use std::sync::RwLock as StdRwLock;
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::{Mutex as StdMutex, MutexGuard as StdMutexGuard, OnceLock};
+use std::sync::Mutex as StdMutex;
 
 async fn recv_final_catalog_notification(rx: &mut mpsc::UnboundedReceiver<ServerEvent>) -> String {
     tokio::time::timeout(std::time::Duration::from_secs(2), async {
@@ -232,14 +232,14 @@ impl Provider for AuthChangeMockProvider {
 
 /// Shared process-wide lock: env vars are global, so a private mutex here would
 /// race every other env-mutating test (issue #593).
-fn lock_env() -> StdMutexGuard<'static, ()> {
+fn lock_env() -> crate::storage::TestEnvGuard {
     crate::storage::lock_test_env()
 }
 
 struct EnvGuard {
     saved: Vec<(&'static str, Option<String>)>,
     _temp_home: tempfile::TempDir,
-    _lock: StdMutexGuard<'static, ()>,
+    _lock: crate::storage::TestEnvGuard,
 }
 
 impl EnvGuard {

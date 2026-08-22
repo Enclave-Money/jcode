@@ -153,9 +153,28 @@ fn ensure_private_runtime_dir(path: &Path) {
     }
 }
 
+/// Resolve `JCODE_HOME` for the current thread.
+///
+/// Under test builds this prefers jcode-core's per-thread override (set whenever
+/// a test writes `JCODE_HOME` through `jcode_core::env`), so parallel tests
+/// resolve their own sandbox home even when another thread mutates the
+/// process-global env var mid-read. In release builds the override module does
+/// not exist and this reads the env var directly, exactly as before.
+fn jcode_home_env() -> Option<PathBuf> {
+    // Gate on the `test-support` feature only (not `test`): this crate's own
+    // `test` cfg does not turn on jcode-core's `test-support` feature, so the
+    // override accessor would be missing there. The feature is what the whole
+    // stack's downstream test builds enable, and it forwards to jcode-core.
+    #[cfg(feature = "test-support")]
+    if let Some(over) = jcode_core::env::jcode_home_thread_override() {
+        return Some(PathBuf::from(over));
+    }
+    std::env::var_os("JCODE_HOME").map(PathBuf::from)
+}
+
 pub fn jcode_dir() -> Result<PathBuf> {
-    if let Ok(path) = std::env::var("JCODE_HOME") {
-        return Ok(PathBuf::from(path));
+    if let Some(path) = jcode_home_env() {
+        return Ok(path);
     }
 
     let home = dirs::home_dir().ok_or_else(|| anyhow::anyhow!("No home directory"))?;
@@ -193,8 +212,8 @@ pub fn durable_state_dir() -> PathBuf {
 /// `$JCODE_HOME/config/jcode` so self-dev/tests do not leak into the user's
 /// real config directory.
 pub fn app_config_dir() -> Result<PathBuf> {
-    if let Ok(path) = std::env::var("JCODE_HOME") {
-        return Ok(PathBuf::from(path).join("config").join("jcode"));
+    if let Some(path) = jcode_home_env() {
+        return Ok(path.join("config").join("jcode"));
     }
 
     let config_dir =
@@ -216,8 +235,8 @@ pub fn user_home_path(relative: impl AsRef<Path>) -> Result<PathBuf> {
         );
     }
 
-    if let Ok(path) = std::env::var("JCODE_HOME") {
-        return Ok(PathBuf::from(path).join("external").join(relative));
+    if let Some(path) = jcode_home_env() {
+        return Ok(path.join("external").join(relative));
     }
 
     let home = dirs::home_dir().ok_or_else(|| anyhow::anyhow!("No home directory"))?;

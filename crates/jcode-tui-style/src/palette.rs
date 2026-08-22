@@ -562,7 +562,7 @@ mod tests {
     #[test]
     fn default_palette_matches_historical_values() {
         let palette = Palette::default();
-        assert_eq!(palette.rgb(Role::User), (138, 180, 248));
+        assert_eq!(palette.rgb(Role::User), (152, 152, 157));
         assert!(!palette.has_overrides());
     }
 
@@ -757,7 +757,13 @@ mod light_theme_interaction {
         set_palette(palette);
 
         let mut buf = Buffer::empty(Rect::new(0, 0, 1, 1));
-        buf.content[0].fg = Color::Rgb(255, 100, 100); // the error default
+        // The cell carries the error role's *current* built-in default, since
+        // that is the shade the palette pass recognizes and remaps to the
+        // user's configured color. Reference `default_rgb()` rather than a
+        // hard-coded literal so a future default re-tune (e.g. the Claude Code
+        // reskin) can't silently turn this into a color no role claims.
+        let (er, eg, eb) = Role::Error.default_rgb();
+        buf.content[0].fg = Color::Rgb(er, eg, eb);
         // Same order as `ui::draw`: theme adaptation first, palette last.
         adapt_buffer(&mut buf, ThemeMode::Light);
         adapt_buffer_for_palette(&mut buf);
@@ -839,10 +845,25 @@ mod coverage {
         }
         let total: usize = counts.values().sum();
         for role in ALL_ROLES.iter().copied() {
+            // Several roles intentionally share one color in the Claude Code
+            // palette — ai/tool/accent/header_icon are all the coral
+            // (215, 119, 87). `claiming_role` breaks exact-distance ties toward
+            // the first such role in ALL_ROLES, so the aliases legitimately
+            // claim nothing on their own. Treat a role as covered when it — or
+            // any role sharing its exact default — claims a literal; this still
+            // flags a role whose *unique* default matches nothing its call
+            // sites render, which is the dead-weight case this guards.
+            let color = role.default_rgb();
+            let covered = ALL_ROLES
+                .iter()
+                .copied()
+                .filter(|other| other.default_rgb() == color)
+                .any(|other| counts.contains_key(other.key()));
             assert!(
-                counts.contains_key(role.key()),
-                "{} claims no literal the TUI renders; either it is unused or its \
-                 default does not match the shades its call sites use",
+                covered,
+                "{} claims no literal the TUI renders, and no role sharing its default \
+                 does either; either it is unused or its default does not match the \
+                 shades its call sites use",
                 role.key()
             );
         }
@@ -933,28 +954,28 @@ mod default_palette_is_frozen {
     /// Values were chosen by hand and are not derived from any metric. A low
     /// harmony score on this table is not a reason to change it.
     const HAND_TUNED: &[(Role, (u8, u8, u8))] = &[
-        (Role::User, (138, 180, 248)),
-        (Role::Ai, (129, 199, 132)),
-        (Role::Tool, (120, 120, 120)),
+        (Role::User, (152, 152, 157)),
+        (Role::Ai, (215, 119, 87)),
+        (Role::Tool, (215, 119, 87)),
         (Role::FileLink, (180, 200, 255)),
-        (Role::Dim, (80, 80, 80)),
-        (Role::Accent, (186, 139, 255)),
-        (Role::System, (255, 170, 220)),
+        (Role::Dim, (110, 110, 115)),
+        (Role::Accent, (215, 119, 87)),
+        (Role::System, (152, 152, 157)),
         (Role::Queued, (255, 193, 7)),
         (Role::Asap, (110, 210, 255)),
         (Role::Pending, (140, 140, 140)),
-        (Role::UserText, (245, 245, 255)),
-        (Role::UserBg, (35, 40, 50)),
-        (Role::AiText, (220, 220, 215)),
-        (Role::HeaderIcon, (120, 210, 230)),
-        (Role::HeaderName, (190, 210, 235)),
+        (Role::UserText, (235, 235, 238)),
+        (Role::UserBg, (30, 30, 33)),
+        (Role::AiText, (222, 220, 215)),
+        (Role::HeaderIcon, (215, 119, 87)),
+        (Role::HeaderName, (235, 230, 222)),
         (Role::HeaderSession, (255, 255, 255)),
-        (Role::Success, (100, 200, 100)),
-        (Role::Warning, (255, 200, 100)),
-        (Role::Error, (255, 100, 100)),
+        (Role::Success, (108, 200, 122)),
+        (Role::Warning, (235, 190, 110)),
+        (Role::Error, (235, 105, 100)),
         (Role::Info, (140, 180, 255)),
-        (Role::Border, (100, 100, 110)),
-        (Role::SelectionBg, (60, 60, 80)),
+        (Role::Border, (82, 82, 88)),
+        (Role::SelectionBg, (58, 58, 64)),
     ];
 
     #[test]

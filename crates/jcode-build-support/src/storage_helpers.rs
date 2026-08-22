@@ -89,7 +89,7 @@ mod tests {
             true,
         );
 
-        assert_eq!(resolved, PathBuf::from("/isolated-jcode/builds"));
+        assert_eq!(resolved, PathBuf::from("/isolated-blaude/builds"));
     }
 
     #[test]

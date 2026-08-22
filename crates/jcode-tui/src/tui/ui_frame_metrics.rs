@@ -416,6 +416,7 @@ const FLICKER_UI_NOTICE_MAX_AGE_MS: u64 = 30_000;
 
 static FRAME_PERF_STATS: OnceLock<Mutex<FramePerfStats>> = OnceLock::new();
 static SLOW_FRAME_HISTORY: OnceLock<Mutex<SlowFrameHistory>> = OnceLock::new();
+#[cfg(not(any(test, feature = "test-support")))]
 static FLICKER_FRAME_HISTORY: OnceLock<Mutex<FlickerFrameHistory>> = OnceLock::new();
 static FRAME_RESOURCE_START: OnceLock<Mutex<Option<FrameResourceStart>>> = OnceLock::new();
 
@@ -427,8 +428,26 @@ fn slow_frame_history() -> &'static Mutex<SlowFrameHistory> {
     SLOW_FRAME_HISTORY.get_or_init(|| Mutex::new(SlowFrameHistory::default()))
 }
 
+// The flicker history feeds `recent_flicker_ui_notice()`, which the redraw
+// scheduler treats as static status chrome (`has_notification()`), overriding
+// cadences like the remote-startup interval. As a process global it let a
+// concurrent render test's recorded flicker leak into unrelated tests (the
+// documented #1 flake vector in docs/TUI_TEST_FLAKINESS.md). Under test each
+// thread gets its own history (a leaked per-thread Mutex, keeping the
+// `&'static Mutex` signature so callers are unchanged) so flicker state never
+// crosses tests; production keeps the single shared global.
+#[cfg(not(any(test, feature = "test-support")))]
 fn flicker_frame_history() -> &'static Mutex<FlickerFrameHistory> {
     FLICKER_FRAME_HISTORY.get_or_init(|| Mutex::new(FlickerFrameHistory::default()))
+}
+
+#[cfg(any(test, feature = "test-support"))]
+fn flicker_frame_history() -> &'static Mutex<FlickerFrameHistory> {
+    thread_local! {
+        static TL_FLICKER: &'static Mutex<FlickerFrameHistory> =
+            Box::leak(Box::new(Mutex::new(FlickerFrameHistory::default())));
+    }
+    TL_FLICKER.with(|history| *history)
 }
 
 fn frame_resource_start() -> &'static Mutex<Option<FrameResourceStart>> {

@@ -125,15 +125,23 @@ impl SystemProfile {
 
 static PROFILE: OnceLock<SystemProfile> = OnceLock::new();
 
-/// Runtime flag set by `pin_full_profile_for_tests`. Production never calls that
-/// function, so this stays false outside tests. It exists because `PROFILE` is a
-/// first-write-wins `OnceLock`: if any test (or non-app render path) touches
-/// `profile()` before the harness pins Full, the host's live load average could
-/// cache a Reduced/Minimal tier for the rest of the process, which then flakes
-/// paced streaming and animation-policy assertions. The flag lets the harness
-/// force a deterministic Full tier regardless of ordering.
+/// Forces `profile()` to the deterministic Full-tier profile.
+///
+/// **In test builds this starts `true`**, so every test observes a stable Full
+/// tier from the very first `profile()` call. `PROFILE` is a first-write-wins
+/// `OnceLock`, and tests run in parallel under shifting host load: without this
+/// default, whichever test touched `profile()` first could cache a
+/// Reduced/Minimal tier for the whole process (or, before a harness pinned Full,
+/// a `TestState`-only test could read the throttled host tier), flaking paced
+/// streaming, redraw-cadence, and animation-policy assertions. Tier *detection*
+/// logic is still covered directly via `compute_tier`/`synthetic_profile`, which
+/// do not consult this flag, so pinning Full here costs no coverage.
+///
+/// In release builds this starts `false` and `profile()` reflects real host
+/// detection, exactly as before. `pin_full_profile_for_tests` still sets it for
+/// belt-and-suspenders callers, but is no longer required for determinism.
 static FORCE_TEST_FULL_PROFILE: std::sync::atomic::AtomicBool =
-    std::sync::atomic::AtomicBool::new(false);
+    std::sync::atomic::AtomicBool::new(cfg!(any(test, feature = "test-support")));
 
 pub fn profile() -> &'static SystemProfile {
     if FORCE_TEST_FULL_PROFILE.load(std::sync::atomic::Ordering::Relaxed) {

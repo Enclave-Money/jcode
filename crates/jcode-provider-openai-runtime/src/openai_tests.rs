@@ -144,7 +144,7 @@ async fn test_persistent_ws_state_with_ping_notify() -> (
 }
 
 struct LiveOpenAITestEnv {
-    _lock: MutexGuard<'static, ()>,
+    _lock: jcode_base::storage::TestEnvGuard,
     _jcode_home: EnvVarGuard,
     _transport: EnvVarGuard,
     _temp: tempfile::TempDir,

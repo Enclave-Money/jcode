@@ -1479,10 +1479,14 @@ fn render_system_message_uses_scheduled_task_card() {
         .collect::<Vec<_>>()
         .join("\n");
 
-    assert!(plain.contains(width_stable_system_title(
-        "⏰ scheduled task due",
-        "scheduled task due"
-    )));
+    // Assert on the glyph-independent substring shared by both title forms
+    // ("⏰ scheduled task due" and the width-stable "scheduled task due").
+    // `prefer_width_stable_system_glyphs()` reads the process-global TERM/
+    // TERM_PROGRAM env live, so a concurrent test flipping it between the
+    // render above and a title recomputation here would otherwise mismatch the
+    // exact form. The card's intent — the due-task title renders — is captured
+    // by the shared substring regardless of which glyph variant was chosen.
+    assert!(plain.contains("scheduled task due"));
     assert!(plain.contains("This scheduled task is now active in this session."));
     assert!(plain.contains("Follow up on the scheduler test"));
     assert!(plain.contains("Verify the scheduled task card styling"));

@@ -137,26 +137,30 @@ impl StreamBuffer {
     /// non-whitespace, a `CloseReasoning` marker is queued first so the region
     /// closes (in order) before the answer text reveals.
     pub fn push_text(&mut self, text: &str) -> Vec<StreamOp> {
+        let now = Instant::now();
         if text.is_empty() {
-            return self.reveal_now(Instant::now());
+            return self.reveal_now(now);
         }
+        self.begin_burst_if_idle(now);
         if self.reasoning_open && !text.trim().is_empty() {
             self.queue.push_back(QueuedOp::CloseReasoning);
             self.reasoning_open = false;
         }
         self.push_chunk(StreamKind::Text, text);
-        self.reveal_now(Instant::now())
+        self.reveal_now(now)
     }
 
     /// Push reasoning text into the buffer, returning any paced ops ready to
     /// apply now. Marks the reasoning region open until a close marker is queued.
     pub fn push_reasoning(&mut self, text: &str) -> Vec<StreamOp> {
+        let now = Instant::now();
         if text.is_empty() {
-            return self.reveal_now(Instant::now());
+            return self.reveal_now(now);
         }
+        self.begin_burst_if_idle(now);
         self.reasoning_open = true;
         self.push_chunk(StreamKind::Reasoning, text);
-        self.reveal_now(Instant::now())
+        self.reveal_now(now)
     }
 
     /// Queue a reasoning-region close marker (no-op when no reasoning is open in
@@ -229,6 +233,25 @@ impl StreamBuffer {
     /// Reset the jitter recorder (e.g. to measure one turn in isolation).
     pub fn reset_jitter(&mut self) {
         self.jitter = JitterRecorder::default();
+    }
+
+    /// Snap the pacing clock to `now` when a burst starts after an idle gap.
+    ///
+    /// `reveal_now` only resets banked budget while the backlog is *already*
+    /// empty, but the public push methods enqueue the first chunk before
+    /// revealing, so without this the whole idle gap since the last reveal is
+    /// credited to that first chunk — draining up to a full 50ms step (~48
+    /// chars) in one shot instead of pacing it. Snapping `last_reveal` here
+    /// makes the first chunk of a new burst pace from now, matching how
+    /// continuous streaming behaves. (This also removes the load-sensitive
+    /// flake in the paced-backlog tests, whose setup gap otherwise banked
+    /// enough budget to dump a short message immediately under CPU pressure.)
+    fn begin_burst_if_idle(&mut self, now: Instant) {
+        if self.backlog_chars == 0 {
+            self.last_reveal = now;
+            self.carry = 0.0;
+            self.ceiling_carry = 0.0;
+        }
     }
 
     /// Append a chunk, coalescing with the previous queue entry when it has the

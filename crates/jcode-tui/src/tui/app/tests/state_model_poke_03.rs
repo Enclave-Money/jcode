@@ -994,6 +994,13 @@ fn test_tui_openai_compatible_empty_catalog_does_not_switch_to_profile_default()
     app.queue_mode = false;
     app.diff_mode = crate::config::DiffDisplayMode::Inline;
 
+    // Scope every bus assertion to this app's own session/provider. `Bus` is a
+    // process-global singleton and other tests (and leaked background
+    // activation tasks) publish to it concurrently, so matching on the bare
+    // event kind would panic on a foreign session's `LoginCompleted` /
+    // `ProviderModelActivated`. Filter by `my_session` (and the "Cerebras"
+    // provider label this activation uses) so foreign traffic is ignored.
+    let my_session = app.session.id.clone();
     let mut bus_rx = crate::bus::Bus::global().subscribe();
     while bus_rx.try_recv().is_ok() {}
 
@@ -1006,14 +1013,19 @@ fn test_tui_openai_compatible_empty_catalog_does_not_switch_to_profile_default()
     let activity = rt.block_on(async {
         loop {
             match tokio::time::timeout(Duration::from_secs(2), bus_rx.recv()).await {
-                Ok(Ok(crate::bus::BusEvent::ProviderModelActivated { .. })) => {
+                Ok(Ok(crate::bus::BusEvent::ProviderModelActivated { session_id, .. }))
+                    if session_id == my_session =>
+                {
                     panic!("empty catalog must not activate a provider model")
                 }
-                Ok(Ok(crate::bus::BusEvent::LoginCompleted(login))) => {
+                Ok(Ok(crate::bus::BusEvent::LoginCompleted(login)))
+                    if login.provider == "Cerebras" =>
+                {
                     panic!("empty local catalog must not publish final login failure: {login:?}")
                 }
                 Ok(Ok(crate::bus::BusEvent::UiActivity(activity)))
-                    if activity.message.contains("Model Discovery Still Updating") =>
+                    if activity.session_id.as_deref() == Some(my_session.as_str())
+                        && activity.message.contains("Model Discovery Still Updating") =>
                 {
                     break activity;
                 }
@@ -1054,6 +1066,10 @@ fn test_tui_openai_compatible_local_refresh_failure_is_pending_not_final_failure
     app.queue_mode = false;
     app.diff_mode = crate::config::DiffDisplayMode::Inline;
 
+    // See the sibling empty-catalog test: scope every bus assertion to this
+    // app's own session/provider so concurrent tests' (and leaked activation
+    // tasks') global-bus traffic is ignored instead of falsely tripping a panic.
+    let my_session = app.session.id.clone();
     let mut bus_rx = crate::bus::Bus::global().subscribe();
     while bus_rx.try_recv().is_ok() {}
 
@@ -1066,16 +1082,21 @@ fn test_tui_openai_compatible_local_refresh_failure_is_pending_not_final_failure
     let activity = rt.block_on(async {
         loop {
             match tokio::time::timeout(Duration::from_secs(2), bus_rx.recv()).await {
-                Ok(Ok(crate::bus::BusEvent::ProviderModelActivated { .. })) => {
+                Ok(Ok(crate::bus::BusEvent::ProviderModelActivated { session_id, .. }))
+                    if session_id == my_session =>
+                {
                     panic!("failing local refresh must not activate a provider model")
                 }
-                Ok(Ok(crate::bus::BusEvent::LoginCompleted(login))) => {
+                Ok(Ok(crate::bus::BusEvent::LoginCompleted(login)))
+                    if login.provider == "Cerebras" =>
+                {
                     panic!(
                         "local refresh failure must not publish a final login failure while server auth-change recovery can still finish: {login:?}"
                     )
                 }
                 Ok(Ok(crate::bus::BusEvent::UiActivity(activity)))
-                    if activity.message.contains("Model Discovery Still Updating") =>
+                    if activity.session_id.as_deref() == Some(my_session.as_str())
+                        && activity.message.contains("Model Discovery Still Updating") =>
                 {
                     break activity;
                 }

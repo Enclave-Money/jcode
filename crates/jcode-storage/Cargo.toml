@@ -4,6 +4,12 @@ version = "0.1.0"
 edition = "2024"
 publish = false
 
+[features]
+# Makes the home resolvers (jcode_dir/app_config_dir/user_home_path) consult
+# jcode-core's per-thread JCODE_HOME override so parallel tests stay isolated.
+# Forwards to jcode-core's matching feature. Never in normal (non-test) builds.
+test-support = ["jcode-core/test-support"]
+
 [dependencies]
 anyhow = "1"
 dirs = "5"

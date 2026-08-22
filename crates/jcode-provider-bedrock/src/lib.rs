@@ -1560,7 +1560,12 @@ mod tests {
     fn detects_env_credentials_requires_region_and_credential_hint() {
         let _guard = lock_test_env();
         let temp = tempfile::tempdir().unwrap();
-        let _xdg = EnvVarGuard::set("XDG_CONFIG_HOME", temp.path().as_os_str());
+        // `app_config_dir()` resolves via `JCODE_HOME` on every platform and
+        // falls back to `dirs::config_dir()` (~/Library/Application Support on
+        // macOS) — it never consults `XDG_CONFIG_HOME` there. Pin `JCODE_HOME`
+        // so the bedrock env-file reads/writes below stay inside `temp` on all
+        // platforms instead of leaking into the developer's real config dir.
+        let _home = EnvVarGuard::set("JCODE_HOME", temp.path().as_os_str());
         let _removed = [
             "JCODE_BEDROCK_ENABLE",
             API_KEY_ENV,
@@ -1593,7 +1598,12 @@ mod tests {
     fn detects_bedrock_login_env_file_credentials() {
         let _guard = lock_test_env();
         let temp = tempfile::tempdir().unwrap();
-        let _xdg = EnvVarGuard::set("XDG_CONFIG_HOME", temp.path().as_os_str());
+        // `app_config_dir()` resolves via `JCODE_HOME` on every platform and
+        // falls back to `dirs::config_dir()` (~/Library/Application Support on
+        // macOS) — it never consults `XDG_CONFIG_HOME` there. Pin `JCODE_HOME`
+        // so the bedrock env-file reads/writes below stay inside `temp` on all
+        // platforms instead of leaking into the developer's real config dir.
+        let _home = EnvVarGuard::set("JCODE_HOME", temp.path().as_os_str());
         for key in [
             "JCODE_BEDROCK_ENABLE",
             API_KEY_ENV,
@@ -1632,7 +1642,12 @@ mod tests {
     fn configured_profile_from_bedrock_env_overrides_stale_bearer_token() {
         let _guard = lock_test_env();
         let temp = tempfile::tempdir().unwrap();
-        let _xdg = EnvVarGuard::set("XDG_CONFIG_HOME", temp.path().as_os_str());
+        // `app_config_dir()` resolves via `JCODE_HOME` on every platform and
+        // falls back to `dirs::config_dir()` (~/Library/Application Support on
+        // macOS) — it never consults `XDG_CONFIG_HOME` there. Pin `JCODE_HOME`
+        // so the bedrock env-file reads/writes below stay inside `temp` on all
+        // platforms instead of leaking into the developer's real config dir.
+        let _home = EnvVarGuard::set("JCODE_HOME", temp.path().as_os_str());
         let _removed = [
             "JCODE_BEDROCK_ENABLE",
             API_KEY_ENV,
@@ -1687,7 +1702,12 @@ mod tests {
     fn maps_profile_required_foundation_model_to_inference_profile() {
         let _guard = lock_test_env();
         let temp = tempfile::tempdir().unwrap();
-        let _xdg = EnvVarGuard::set("XDG_CONFIG_HOME", temp.path().as_os_str());
+        // `app_config_dir()` resolves via `JCODE_HOME` on every platform and
+        // falls back to `dirs::config_dir()` (~/Library/Application Support on
+        // macOS) — it never consults `XDG_CONFIG_HOME` there. Pin `JCODE_HOME`
+        // so the bedrock env-file reads/writes below stay inside `temp` on all
+        // platforms instead of leaking into the developer's real config dir.
+        let _home = EnvVarGuard::set("JCODE_HOME", temp.path().as_os_str());
         let p = BedrockProvider::new();
         p.profile_required_models
             .write()
@@ -1707,7 +1727,12 @@ mod tests {
     fn maps_foundation_model_from_stale_cached_profile_list() {
         let _guard = lock_test_env();
         let temp = tempfile::tempdir().unwrap();
-        let _xdg = EnvVarGuard::set("XDG_CONFIG_HOME", temp.path().as_os_str());
+        // `app_config_dir()` resolves via `JCODE_HOME` on every platform and
+        // falls back to `dirs::config_dir()` (~/Library/Application Support on
+        // macOS) — it never consults `XDG_CONFIG_HOME` there. Pin `JCODE_HOME`
+        // so the bedrock env-file reads/writes below stay inside `temp` on all
+        // platforms instead of leaking into the developer's real config dir.
+        let _home = EnvVarGuard::set("JCODE_HOME", temp.path().as_os_str());
         let p = BedrockProvider::new();
         *p.fetched_inference_profiles.write().unwrap() = vec![
             "global.amazon.nova-2-lite-v1:0".to_string(),
@@ -1723,7 +1748,12 @@ mod tests {
     fn hides_profile_required_foundation_model_when_profile_route_exists() {
         let _guard = lock_test_env();
         let temp = tempfile::tempdir().unwrap();
-        let _xdg = EnvVarGuard::set("XDG_CONFIG_HOME", temp.path().as_os_str());
+        // `app_config_dir()` resolves via `JCODE_HOME` on every platform and
+        // falls back to `dirs::config_dir()` (~/Library/Application Support on
+        // macOS) — it never consults `XDG_CONFIG_HOME` there. Pin `JCODE_HOME`
+        // so the bedrock env-file reads/writes below stay inside `temp` on all
+        // platforms instead of leaking into the developer's real config dir.
+        let _home = EnvVarGuard::set("JCODE_HOME", temp.path().as_os_str());
         let p = BedrockProvider::new();
         *p.fetched_models.write().unwrap() = vec!["amazon.nova-2-lite-v1:0".to_string()];
         *p.fetched_inference_profiles.write().unwrap() =
@@ -1755,7 +1785,12 @@ mod tests {
     fn hides_foundation_model_when_profile_route_exists() {
         let _guard = lock_test_env();
         let temp = tempfile::tempdir().unwrap();
-        let _xdg = EnvVarGuard::set("XDG_CONFIG_HOME", temp.path().as_os_str());
+        // `app_config_dir()` resolves via `JCODE_HOME` on every platform and
+        // falls back to `dirs::config_dir()` (~/Library/Application Support on
+        // macOS) — it never consults `XDG_CONFIG_HOME` there. Pin `JCODE_HOME`
+        // so the bedrock env-file reads/writes below stay inside `temp` on all
+        // platforms instead of leaking into the developer's real config dir.
+        let _home = EnvVarGuard::set("JCODE_HOME", temp.path().as_os_str());
         let p = BedrockProvider::new();
         *p.fetched_models.write().unwrap() = vec!["amazon.nova-2-lite-v1:0".to_string()];
         *p.fetched_inference_profiles.write().unwrap() =
@@ -1783,7 +1818,12 @@ mod tests {
     fn profile_required_foundation_model_without_profile_route_is_disabled() {
         let _guard = lock_test_env();
         let temp = tempfile::tempdir().unwrap();
-        let _xdg = EnvVarGuard::set("XDG_CONFIG_HOME", temp.path().as_os_str());
+        // `app_config_dir()` resolves via `JCODE_HOME` on every platform and
+        // falls back to `dirs::config_dir()` (~/Library/Application Support on
+        // macOS) — it never consults `XDG_CONFIG_HOME` there. Pin `JCODE_HOME`
+        // so the bedrock env-file reads/writes below stay inside `temp` on all
+        // platforms instead of leaking into the developer's real config dir.
+        let _home = EnvVarGuard::set("JCODE_HOME", temp.path().as_os_str());
         let p = BedrockProvider::new();
         *p.fetched_models.write().unwrap() = vec!["amazon.nova-2-lite-v1:0".to_string()];
         p.profile_required_models
@@ -1827,7 +1867,12 @@ mod tests {
     fn ignores_persisted_bedrock_catalog_from_different_region() {
         let _guard = lock_test_env();
         let temp = tempfile::tempdir().unwrap();
-        let _xdg = EnvVarGuard::set("XDG_CONFIG_HOME", temp.path().as_os_str());
+        // `app_config_dir()` resolves via `JCODE_HOME` on every platform and
+        // falls back to `dirs::config_dir()` (~/Library/Application Support on
+        // macOS) — it never consults `XDG_CONFIG_HOME` there. Pin `JCODE_HOME`
+        // so the bedrock env-file reads/writes below stay inside `temp` on all
+        // platforms instead of leaking into the developer's real config dir.
+        let _home = EnvVarGuard::set("JCODE_HOME", temp.path().as_os_str());
         {
             let _region = EnvVarGuard::set(REGION_ENV, "us-east-1");
             BedrockProvider::persist_catalog(
@@ -1944,7 +1989,12 @@ mod tests {
     fn legacy_model_route_is_unavailable_with_reason() {
         let _guard = lock_test_env();
         let temp = tempfile::tempdir().unwrap();
-        let _xdg = EnvVarGuard::set("XDG_CONFIG_HOME", temp.path().as_os_str());
+        // `app_config_dir()` resolves via `JCODE_HOME` on every platform and
+        // falls back to `dirs::config_dir()` (~/Library/Application Support on
+        // macOS) — it never consults `XDG_CONFIG_HOME` there. Pin `JCODE_HOME`
+        // so the bedrock env-file reads/writes below stay inside `temp` on all
+        // platforms instead of leaking into the developer's real config dir.
+        let _home = EnvVarGuard::set("JCODE_HOME", temp.path().as_os_str());
         let p = BedrockProvider::new();
         *p.fetched_models.write().unwrap() =
             vec!["anthropic.claude-3-haiku-20240307-v1:0".to_string()];

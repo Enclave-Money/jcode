@@ -124,8 +124,10 @@ default = ["embeddings", "bedrock"]
 # auth::test_sandbox, bus::reset_models_updated_publish_state_for_tests, ...) as
 # `pub` so downstream crates' test targets can reach them. Enabled as a
 # dev-dependency feature by jcode-app-core / jcode / etc.; never in normal
-# (non-test) builds.
-test-support = []
+# (non-test) builds. Forwards to jcode-storage/jcode-core so the per-thread
+# JCODE_HOME override (test isolation for parallel home resolution) is active
+# throughout the stack's test builds.
+test-support = ["jcode-storage/test-support", "jcode-core/test-support"]
 jemalloc = [
     "dep:tikv-jemalloc-ctl",
     "dep:tikv-jemalloc-sys",

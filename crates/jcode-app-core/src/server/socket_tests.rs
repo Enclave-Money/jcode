@@ -113,7 +113,10 @@ async fn reap_stale_socket_removes_dead_socket_pair_and_lock() {
     crate::env::set_var("JCODE_RUNTIME_DIR", temp.path());
 
     let socket = temp.path().join("blaude.sock");
-    let debug = temp.path().join("jcode-debug.sock");
+    // The reaper derives the debug companion from the main socket name
+    // (`blaude.sock` -> `blaude-debug.sock`), so the stale file must use that
+    // name for the pair to be reaped together.
+    let debug = temp.path().join("blaude-debug.sock");
     let lock = daemon_lock_path();
 
     // Simulate the post-upgrade/crash state: socket + debug + lock files left

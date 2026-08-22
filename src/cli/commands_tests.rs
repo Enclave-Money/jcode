@@ -307,7 +307,9 @@ fn run_auto_poke_followup_targets_below_threshold_todos() {
         }) => {
             assert_eq!(total_todos, 2);
             assert!(message.starts_with(crate::todo::TODO_COMPLETION_CONTINUATION_MESSAGE));
-            assert!(message.contains("completion confidence"));
+            // The continuation message was reworded from "completion confidence"
+            // to the independent-validation framing (see TODO_COMPLETION_CONTINUATION_MESSAGE).
+            assert!(message.contains("independently validated"));
             assert!(!message.to_ascii_lowercase().contains("threshold"));
         }
         _ => panic!("expected confidence-summary follow-up"),

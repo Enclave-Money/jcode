@@ -115,6 +115,12 @@ mod tests {
 
     #[test]
     fn reload_flag_is_consumed_once() {
+        // `request()` raises SIGUSR2 on unix; without a handler installed the
+        // signal's default disposition is to terminate the process, which would
+        // kill the whole test binary (a `signal: 31` abort) rather than fail an
+        // assertion. Installing the handler first also makes this exercise the
+        // real raise -> handler -> flag path the selfdev host relies on.
+        install();
         request();
         assert!(requested());
         assert!(!requested());

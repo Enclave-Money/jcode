@@ -1410,7 +1410,7 @@ mod tests {
 
     #[test]
     fn shell_command_quotes_arguments() {
-        let shell = shell_command(&["jcode".to_string(), "it's ok".to_string()]);
+        let shell = shell_command(&["blaude".to_string(), "it's ok".to_string()]);
         #[cfg(unix)]
         assert_eq!(shell, "'blaude' 'it'\"'\"'s ok'");
     }
@@ -1438,7 +1438,7 @@ mod tests {
             .map(|arg| arg.to_string_lossy().into_owned())
             .collect();
         assert_eq!(&args[..5], ["/C", "start", "jcode", "cmd.exe", "/K"]);
-        assert!(args[5].contains(r#""C:\Program Files\jcode\jcode.exe""#));
+        assert!(args[5].contains(r#""C:\Program Files\blaude\blaude.exe""#));
         assert!(args[5].contains("self-dev"));
     }
 
@@ -1489,7 +1489,7 @@ mod tests {
     #[test]
     fn macos_ghostty_applescript_creates_tab_and_runs_resume_command() {
         let command = TerminalCommand::new(
-            "/Applications/jcode's build/jcode",
+            "/Applications/blaude's build/blaude",
             vec!["--resume".to_string(), "session ghost".to_string()],
         );
 

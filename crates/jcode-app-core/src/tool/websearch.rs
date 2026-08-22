@@ -666,7 +666,7 @@ mod tests {
         assert_eq!(results[0].title, "Rust & Cargo");
         assert_eq!(results[0].url, "https://example.com/rust");
         assert_eq!(results[0].snippet, "A systems language.");
-        assert_eq!(results[1].title, "Jcode");
+        assert_eq!(results[1].title, "blaude");
     }
 
     #[test]

@@ -4,6 +4,13 @@ version = "0.1.0"
 edition = "2024"
 publish = false
 
+[features]
+# Compiles the thread-local JCODE_HOME override used to isolate parallel tests
+# from each other's process-global env mutations (see env.rs). Enabled as a
+# dev-dependency feature by downstream crates' test targets; never in normal
+# (non-test) builds.
+test-support = []
+
 [dependencies]
 chrono = { version = "0.4", features = ["serde"] }
 rand = "0.9.3"

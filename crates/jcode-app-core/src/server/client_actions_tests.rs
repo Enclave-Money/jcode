@@ -238,6 +238,9 @@ async fn enabling_swarm_does_not_auto_elect_coordinator() {
 
     assert!(swarm_enabled);
     assert!(swarm_coordinators.read().await.is_empty());
+    // Passive swarms are keyed by session now, not by working directory
+    // (`handle_set_feature` deliberately drops `working_dir` and calls
+    // `swarm_id_for_session`, which defaults to `session:{id}`).
     assert_eq!(
         swarm_members
             .read()
@@ -245,7 +248,7 @@ async fn enabling_swarm_does_not_auto_elect_coordinator() {
             .get(session_id)
             .and_then(|member| member.swarm_id.clone())
             .as_deref(),
-        Some("/tmp/jcode-passive-swarm")
+        Some("session:session_test_swarm_toggle")
     );
     assert_eq!(
         swarm_members

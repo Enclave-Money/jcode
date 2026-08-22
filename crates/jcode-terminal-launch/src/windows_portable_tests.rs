@@ -25,7 +25,7 @@ fn windows_command_line_quotes_a_resume_invocation_on_every_platform() {
     // The exe path contains a space, so it must be quoted or cmd.exe would
     // treat "C:\Program" as the program.
     assert!(
-        line.contains(r#""C:\Program Files\jcode\jcode.exe""#),
+        line.contains(r#""C:\Program Files\blaude\blaude.exe""#),
         "unquoted program path would break on a default Windows install: {line}"
     );
     assert!(line.contains("--resume"), "{line}");

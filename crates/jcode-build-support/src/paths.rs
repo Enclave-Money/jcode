@@ -698,8 +698,11 @@ mod tests {
     #[test]
     fn every_build_target_builds_its_own_package() {
         let repo = repo_fixture(false);
+        // The TUI binary is branded "blaude" but its cargo package is still
+        // `jcode` (internal crate names are deliberately unchanged), so the
+        // selfdev build command targets `-p jcode`.
         let cases = [
-            (SelfDevBuildTarget::Tui, vec!["-p blaude "]),
+            (SelfDevBuildTarget::Tui, vec!["-p jcode "]),
             (
                 SelfDevBuildTarget::Desktop2,
                 vec!["-p jcode-desktop2 ", "--bin jcode-harness-api-bridge"],
@@ -707,7 +710,7 @@ mod tests {
             (
                 SelfDevBuildTarget::All,
                 vec![
-                    "-p blaude ",
+                    "-p jcode ",
                     "-p jcode-desktop2 ",
                     "--bin jcode-harness-api-bridge",
                 ],

@@ -89,7 +89,7 @@ mod tests {
         // The formatting comes from display_path; this pins the shape only.
         let title = window_title(Some("/srv/site"));
         assert!(title.starts_with("/srv/site"), "{title}");
-        assert!(title.ends_with("jcode"), "{title}");
+        assert!(title.ends_with("blaude"), "{title}");
         assert_eq!(window_title(None), "blaude desktop2");
     }
 }

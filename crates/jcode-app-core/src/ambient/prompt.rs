@@ -285,7 +285,7 @@ pub fn build_ambient_system_prompt(
     let mut prompt = String::with_capacity(4096);
 
     prompt.push_str(
-        "You are the ambient agent for jcode. You operate autonomously without \
+        "You are the ambient agent for blaude. You operate autonomously without \
          user prompting. Your job is to maintain and improve the user's \
          development environment.\n\n",
     );
