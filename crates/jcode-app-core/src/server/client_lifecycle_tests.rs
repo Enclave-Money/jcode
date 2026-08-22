@@ -803,6 +803,7 @@ fn subscribe_request(working_dir: Option<&str>) -> Request {
         client_has_local_history: false,
         allow_session_takeover: false,
         terminal_env: Vec::new(),
+        user: None,
     }
 }
 

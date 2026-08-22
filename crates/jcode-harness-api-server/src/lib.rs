@@ -184,12 +184,19 @@ pub async fn run_bridge(api_socket: PathBuf, legacy_socket: PathBuf) -> Result<(
 
 async fn handle_api_client(stream: Stream, legacy_socket: PathBuf) -> Result<()> {
     let (read_half, write_half) = stream.into_split();
-    handle_api_io(BufReader::new(read_half), write_half, legacy_socket).await
+    // Local unix-socket clients are the machine owner by definition (0600).
+    let identity = std::env::var("USER").ok();
+    handle_api_io(BufReader::new(read_half), write_half, legacy_socket, identity).await
 }
 
 /// Per-client bridge loop, generic over the client transport: the unix socket
 /// path and the WebSocket relay (src/ws.rs, via an in-memory duplex) share it.
-pub(crate) async fn handle_api_io<R, W>(reader: R, write_half: W, legacy_socket: PathBuf) -> Result<()>
+pub(crate) async fn handle_api_io<R, W>(
+    reader: R,
+    write_half: W,
+    legacy_socket: PathBuf,
+    identity: Option<String>,
+) -> Result<()>
 where
     R: tokio::io::AsyncBufRead + Unpin,
     W: tokio::io::AsyncWrite + Unpin,
@@ -264,6 +271,7 @@ where
     let mut legacy_reader = BufReader::new(legacy_read);
 
     let mut state = translate::BridgeState::default();
+    state.identity = identity;
 
     // 3. Pump both directions in one select loop so translation state stays
     //    single-threaded. A third branch watches the safety queue so

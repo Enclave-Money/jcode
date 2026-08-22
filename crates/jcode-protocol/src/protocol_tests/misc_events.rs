@@ -282,6 +282,7 @@ fn test_subscribe_request_roundtrip_preserves_session_takeover_flags() -> Result
         client_has_local_history: true,
         allow_session_takeover: true,
         terminal_env: vec![("ZELLIJ_SESSION_NAME".to_string(), "sessionB".to_string())],
+        user: Some("jane@example.com".to_string()),
     };
     let json = serde_json::to_string(&req)?;
     assert!(json.contains("\"type\":\"subscribe\""));
@@ -295,11 +296,13 @@ fn test_subscribe_request_roundtrip_preserves_session_takeover_flags() -> Result
         client_has_local_history,
         allow_session_takeover,
         terminal_env,
+        user,
     } = decoded
     else {
         return Err(anyhow!("expected Subscribe"));
     };
     assert_eq!(id, 89);
+    assert_eq!(user.as_deref(), Some("jane@example.com"));
     assert_eq!(working_dir.as_deref(), Some("/tmp/project"));
     assert_eq!(selfdev, Some(true));
     assert_eq!(target_session_id.as_deref(), Some("sess_target"));
@@ -326,11 +329,13 @@ fn test_subscribe_request_defaults_optional_flags() -> Result<()> {
         client_has_local_history,
         allow_session_takeover,
         terminal_env,
+        user,
     } = decoded
     else {
         return Err(anyhow!("expected Subscribe"));
     };
     assert_eq!(id, 91);
+    assert_eq!(user, None);
     assert_eq!(working_dir, None);
     assert_eq!(selfdev, None);
     assert_eq!(target_session_id, None);

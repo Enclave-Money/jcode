@@ -34,9 +34,14 @@ pub async fn spawn_from_env(legacy_socket: PathBuf) -> Result<Option<std::net::S
         return Ok(None);
     }
     let port: u16 = if raw.is_empty() { DEFAULT_WS_PORT } else { raw.parse().context("JCODE_API_WS_PORT")? };
-    let listener = TcpListener::bind(("127.0.0.1", port))
+    // Loopback by default; JCODE_API_WS_BIND=0.0.0.0 opens the door for team
+    // clients on a trusted network (tailnet/LAN) — still token-guarded per
+    // member. Public internet exposure needs TLS in front; refuse is not
+    // possible to detect here, so the operator owns that call.
+    let bind = std::env::var("JCODE_API_WS_BIND").unwrap_or_else(|_| "127.0.0.1".into());
+    let listener = TcpListener::bind((bind.as_str(), port))
         .await
-        .with_context(|| format!("bind websocket 127.0.0.1:{port}"))?;
+        .with_context(|| format!("bind websocket {bind}:{port}"))?;
     let addr = listener.local_addr()?;
     let token = load_or_create_token()?;
     tokio::spawn(async move {
@@ -104,6 +109,17 @@ fn generate_token() -> Result<String> {
     Ok(out)
 }
 
+/// Per-member tokens issued by the host app after a Clerk invite is
+/// accepted: `$JCODE_HOME/team-tokens.json` = {"email": "token", ...},
+/// owner-only. Reloaded per handshake so revocation is immediate.
+pub fn team_tokens() -> std::collections::HashMap<String, String> {
+    let path = token_path().with_file_name("team-tokens.json");
+    std::fs::read_to_string(path)
+        .ok()
+        .and_then(|raw| serde_json::from_str(&raw).ok())
+        .unwrap_or_default()
+}
+
 pub async fn run_ws_listener(
     listener: TcpListener,
     token: String,
@@ -130,7 +146,7 @@ fn reject(status: u16, body: &str) -> ErrorResponse {
 
 /// Bearer header preferred; `?token=` accepted for clients that cannot set
 /// headers (browsers). Path must be `/api`.
-fn authorize(request: &Request, token: &str) -> Result<(), ErrorResponse> {
+fn authorize(request: &Request, token: &str) -> Result<Option<String>, ErrorResponse> {
     if request.uri().path() != "/api" {
         return Err(reject(404, "unknown path; the harness API lives at /api"));
     }
@@ -148,11 +164,18 @@ fn authorize(request: &Request, token: &str) -> Result<(), ErrorResponse> {
                 })
             })
         });
-    match presented {
-        Some(presented) if constant_time_eq(presented.as_bytes(), token.as_bytes()) => Ok(()),
-        Some(_) => Err(reject(401, "bad token")),
-        None => Err(reject(401, "missing Authorization: Bearer <token>")),
+    let Some(presented) = presented else {
+        return Err(reject(401, "missing Authorization: Bearer <token>"));
+    };
+    if constant_time_eq(presented.as_bytes(), token.as_bytes()) {
+        return Ok(std::env::var("USER").ok());
     }
+    for (email, member_token) in team_tokens() {
+        if constant_time_eq(presented.as_bytes(), member_token.as_bytes()) {
+            return Ok(Some(email));
+        }
+    }
+    Err(reject(401, "bad token"))
 }
 
 fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
@@ -163,18 +186,27 @@ fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
 }
 
 async fn handle_ws_client(tcp: TcpStream, token: &str, legacy_socket: PathBuf) -> Result<()> {
+    let identity = std::sync::Arc::new(std::sync::Mutex::new(None::<Option<String>>));
+    let identity_cb = std::sync::Arc::clone(&identity);
     let ws = tokio_tungstenite::accept_hdr_async(tcp, |request: &Request, response: Response| {
-        authorize(request, token).map(|()| response)
+        let who = authorize(request, token)?;
+        *identity_cb.lock().unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(who);
+        Ok(response)
     })
     .await
     .context("websocket handshake")?;
+    let identity = identity
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+        .take()
+        .flatten();
     let (mut ws_write, mut ws_read) = ws.split();
 
     // The relay: WS text frames <-> an in-memory duplex carrying NDJSON, with
     // the standard bridge loop on the other end. One frame = one line.
     let (client_side, bridge_side) = tokio::io::duplex(1024 * 1024);
     let (bridge_read, bridge_write) = tokio::io::split(bridge_side);
-    let core = tokio::spawn(handle_api_io(BufReader::new(bridge_read), bridge_write, legacy_socket));
+    let core = tokio::spawn(handle_api_io(BufReader::new(bridge_read), bridge_write, legacy_socket, identity));
 
     let (relay_read, mut relay_write) = tokio::io::split(client_side);
     let mut lines = BufReader::new(relay_read).lines();

@@ -137,6 +137,11 @@ pub enum Request {
         /// to the client's terminal instead of its own stale startup env (#405).
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         terminal_env: Vec<(String, String)>,
+        /// Who this connection belongs to (multiplayer identity, e.g. an email
+        /// or handle). Attribution only — auth happens at the transport that
+        /// admitted the connection. Absent for legacy clients.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        user: Option<String>,
     },
 
     /// Get full conversation history (for TUI sync on connect)
@@ -1025,7 +1030,13 @@ pub enum ServerEvent {
     /// discovering it on the next history reload. Old clients skip unknown
     /// event tags via their stray-line budget, so this is additive.
     #[serde(rename = "user_message")]
-    UserMessage { session_id: String, content: String },
+    UserMessage {
+        session_id: String,
+        content: String,
+        /// The sending connection's declared identity, when it gave one.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        by_user: Option<String>,
+    },
 
     /// Error occurred
     #[serde(rename = "error")]

@@ -480,6 +480,9 @@ pub(super) async fn handle_client(
 
     // Per-client state
     let mut client_is_processing = false;
+    // Multiplayer identity: whoever the admitting transport says this
+    // connection belongs to (attribution only; auth already happened).
+    let mut connection_user: Option<String> = None;
     let (processing_done_tx, mut processing_done_rx) =
         mpsc::unbounded_channel::<(u64, Result<()>, Option<String>)>();
     let mut processing_task: Option<tokio::task::JoinHandle<()>> = None;
@@ -1109,6 +1112,21 @@ pub(super) async fn handle_client(
                 active_skill,
                 no_reply,
             } => {
+                // Multiplayer: co-attached clients see the teammate's prompt
+                // live — turn-starting and context-only alike, since both
+                // append to the shared transcript. The sender is excluded —
+                // it already echoed locally.
+                let _ = super::state::fanout_session_event_except(
+                    &swarm_members,
+                    &client_session_id,
+                    &client_connection_id,
+                    ServerEvent::UserMessage {
+                        session_id: client_session_id.clone(),
+                        content: content.clone(),
+                        by_user: connection_user.clone(),
+                    },
+                )
+                .await;
                 if no_reply {
                     append_context_message(
                         id,
@@ -1129,18 +1147,6 @@ pub(super) async fn handle_client(
                         info.current_tool_name = None;
                     }
                 }
-                // Multiplayer: co-attached clients see the teammate's prompt
-                // live. The sender is excluded — it already echoed locally.
-                let _ = super::state::fanout_session_event_except(
-                    &swarm_members,
-                    &client_session_id,
-                    &client_connection_id,
-                    ServerEvent::UserMessage {
-                        session_id: client_session_id.clone(),
-                        content: content.clone(),
-                    },
-                )
-                .await;
                 start_processing_message(
                     ProcessingMessage {
                         id,
@@ -1424,7 +1430,11 @@ pub(super) async fn handle_client(
                 client_has_local_history,
                 allow_session_takeover,
                 terminal_env,
+                user,
             } => {
+                if user.is_some() {
+                    connection_user = user.clone();
+                }
                 if let Err(message) =
                     required_subscribe_working_dir(subscribe_working_dir.as_deref())
                 {

@@ -354,6 +354,9 @@ impl RemoteConnection {
             client_has_local_history,
             allow_session_takeover,
             terminal_env: crate::terminal_launch::snapshot_client_terminal_env(),
+            // TUI connections are the machine owner; multiplayer identity for
+            // remote members rides the harness bridge instead.
+            user: std::env::var("USER").ok(),
         })
         .await?;
         let subscribe_ms = subscribe_start.elapsed().as_millis();

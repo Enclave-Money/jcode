@@ -62,6 +62,7 @@ fn test_protocol_request_roundtrip_randomized_samples() -> Result<()> {
         let client_instance_id = rng.random_bool(0.5).then(|| format!("client-{}", id));
         let client_has_local_history = rng.random_bool(0.5);
         let allow_session_takeover = rng.random_bool(0.5);
+        let user = rng.random_bool(0.5).then(|| format!("user-{}@test", id));
         let req = Request::Subscribe {
             id,
             working_dir: working_dir.clone(),
@@ -71,6 +72,7 @@ fn test_protocol_request_roundtrip_randomized_samples() -> Result<()> {
             client_has_local_history,
             allow_session_takeover,
             terminal_env: Vec::new(),
+            user: user.clone(),
         };
         let decoded = parse_request_json(&serde_json::to_string(&req)?)?;
         let Request::Subscribe {
@@ -82,11 +84,13 @@ fn test_protocol_request_roundtrip_randomized_samples() -> Result<()> {
             client_has_local_history: decoded_client_has_local_history,
             allow_session_takeover: decoded_allow_session_takeover,
             terminal_env: _,
+            user: decoded_user,
         } = decoded
         else {
             return Err(anyhow!("expected randomized Subscribe"));
         };
         assert_eq!(decoded_id, id);
+        assert_eq!(decoded_user, user);
         assert_eq!(decoded_working_dir, working_dir);
         assert_eq!(decoded_selfdev, selfdev);
         assert_eq!(decoded_target_session_id, target_session_id);

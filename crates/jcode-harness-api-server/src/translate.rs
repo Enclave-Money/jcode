@@ -102,6 +102,9 @@ pub struct BridgeState {
     pending_model_probe: Option<u64>,
     /// Legacy id -> API id for simple acked requests (ping, clear, ...).
     pending_simple: Vec<(u64, u64, SimpleKind)>,
+    /// Who this connection belongs to (set by the admitting transport,
+    /// e.g. the WS handshake's team token). Attribution only.
+    pub identity: Option<String>,
     /// A turn triggered by ANOTHER attachment to this session is streaming.
     ///
     /// The daemon fans a turn's stream and terminal `done` to every attached
@@ -337,6 +340,9 @@ impl BridgeState {
                     "id": id,
                     "working_dir": working_dir,
                 });
+                if let Some(identity) = &self.identity {
+                    subscribe["user"] = json!(identity);
+                }
                 // Sessions rooted inside a blaude checkout are self-dev
                 // sessions: the daemon only enables the self-dev tools and
                 // prompt when the subscribe says so, and a client that opens
@@ -915,7 +921,7 @@ impl BridgeState {
             "user_message" => vec![ServerFrame::event(ApiEvent::UserMessage {
                 session_id: session(self),
                 content: event["content"].as_str().unwrap_or("").to_string(),
-                by_user: None,
+                by_user: event["by_user"].as_str().map(str::to_string),
             })],
             "context_message_added" => {
                 let id = event["id"].as_u64().unwrap_or(0);
