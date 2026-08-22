@@ -174,17 +174,23 @@ pub async fn run_ws_listener_with_tls(
     tls: Option<tokio_rustls::TlsAcceptor>,
 ) -> Result<()> {
     loop {
-        let (tcp, _peer) = listener.accept().await?;
+        let (tcp, peer) = listener.accept().await?;
+        if auth_throttled(peer.ip()) {
+            // Too many bad tokens from this peer: drop before any handshake
+            // work — cheapest possible refusal.
+            drop(tcp);
+            continue;
+        }
         let token = token.clone();
         let legacy = legacy_socket.clone();
         let tls = tls.clone();
         tokio::spawn(async move {
             let result = match tls {
                 Some(acceptor) => match acceptor.accept(tcp).await {
-                    Ok(stream) => handle_ws_client(stream, &token, legacy).await,
+                    Ok(stream) => handle_ws_client(stream, &token, legacy, peer.ip()).await,
                     Err(error) => Err(anyhow::Error::from(error).context("tls handshake")),
                 },
-                None => handle_ws_client(tcp, &token, legacy).await,
+                None => handle_ws_client(tcp, &token, legacy, peer.ip()).await,
             };
             if let Err(error) = result {
                 eprintln!("harness API bridge: websocket client ended: {error:#}");
@@ -238,6 +244,40 @@ impl<S: AsyncWrite + Unpin> AsyncWrite for PrefixedStream<S> {
     ) -> std::task::Poll<std::io::Result<()>> {
         std::pin::Pin::new(&mut self.inner).poll_shutdown(cx)
     }
+}
+
+/// Brute-force guard: a peer that keeps failing auth gets refused outright
+/// for a cooldown window. In-memory per-process — enough to turn an online
+/// token guess from thousands/second into ten/minute.
+fn auth_failures() -> &'static std::sync::Mutex<std::collections::HashMap<std::net::IpAddr, (u32, std::time::Instant)>> {
+    static FAILURES: std::sync::OnceLock<
+        std::sync::Mutex<std::collections::HashMap<std::net::IpAddr, (u32, std::time::Instant)>>,
+    > = std::sync::OnceLock::new();
+    FAILURES.get_or_init(Default::default)
+}
+
+const AUTH_FAILURE_LIMIT: u32 = 10;
+const AUTH_FAILURE_WINDOW: std::time::Duration = std::time::Duration::from_secs(60);
+
+fn auth_throttled(peer: std::net::IpAddr) -> bool {
+    let mut map = auth_failures().lock().unwrap_or_else(|p| p.into_inner());
+    match map.get(&peer) {
+        Some((count, since)) if since.elapsed() < AUTH_FAILURE_WINDOW => *count >= AUTH_FAILURE_LIMIT,
+        Some(_) => {
+            map.remove(&peer);
+            false
+        }
+        None => false,
+    }
+}
+
+fn note_auth_failure(peer: std::net::IpAddr) {
+    let mut map = auth_failures().lock().unwrap_or_else(|p| p.into_inner());
+    let entry = map.entry(peer).or_insert((0, std::time::Instant::now()));
+    if entry.1.elapsed() >= AUTH_FAILURE_WINDOW {
+        *entry = (0, std::time::Instant::now());
+    }
+    entry.0 += 1;
 }
 
 fn reject(status: u16, body: &str) -> ErrorResponse {
@@ -315,7 +355,12 @@ async fn serve_http<S: AsyncRead + AsyncWrite + Unpin>(mut tcp: S, head: &str) -
     Ok(())
 }
 
-async fn handle_ws_client<S>(mut tcp: S, token: &str, legacy_socket: PathBuf) -> Result<()>
+async fn handle_ws_client<S>(
+    mut tcp: S,
+    token: &str,
+    legacy_socket: PathBuf,
+    peer: std::net::IpAddr,
+) -> Result<()>
 where
     S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
 {
@@ -343,7 +388,7 @@ where
     let identity = std::sync::Arc::new(std::sync::Mutex::new(None::<Option<String>>));
     let identity_cb = std::sync::Arc::clone(&identity);
     let ws = tokio_tungstenite::accept_hdr_async(tcp, |request: &Request, response: Response| {
-        let who = authorize(request, token)?;
+        let who = authorize(request, token).inspect_err(|_| note_auth_failure(peer))?;
         *identity_cb.lock().unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(who);
         Ok(response)
     })
@@ -539,6 +584,21 @@ mod ws_tests {
         };
         assert!(text.contains(r#""ev":"hello_ok""#), "got: {text}");
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// The brute-force limiter trips at the limit and only for that peer.
+    #[test]
+    fn auth_throttle_trips_at_limit_per_peer() {
+        let probe: std::net::IpAddr = "192.0.2.77".parse().unwrap(); // TEST-NET-1
+        let bystander: std::net::IpAddr = "192.0.2.78".parse().unwrap();
+        assert!(!auth_throttled(probe));
+        for _ in 0..AUTH_FAILURE_LIMIT - 1 {
+            note_auth_failure(probe);
+        }
+        assert!(!auth_throttled(probe), "one under the limit still admitted");
+        note_auth_failure(probe);
+        assert!(auth_throttled(probe), "at the limit, refused");
+        assert!(!auth_throttled(bystander), "other peers unaffected");
     }
 
     /// The query-string fallback works for header-less clients.
