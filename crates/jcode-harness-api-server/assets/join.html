@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Join blaude</title>
+<style>
+  :root { --bg:#0f0f10; --panel:#1a1a1c; --line:#2a2a2e; --fg:#e8e8ea; --dim:#9a9aa2; --accent:#d97757; }
+  * { box-sizing:border-box; margin:0; }
+  body { background:var(--bg); color:var(--fg); font:15px/1.5 -apple-system,system-ui,sans-serif;
+         min-height:100vh; display:flex; align-items:center; justify-content:center; padding:20px; }
+  .card { background:var(--panel); border:1px solid var(--line); border-radius:16px;
+          padding:28px 24px; max-width:460px; width:100%; }
+  h1 { font-size:20px; margin-bottom:6px; }
+  .who { color:var(--dim); font-size:13.5px; margin-bottom:18px; }
+  .step { margin-bottom:18px; }
+  .step b { display:block; margin-bottom:6px; font-size:14px; }
+  .blob { background:var(--bg); border:1px solid var(--line); border-radius:10px;
+          padding:10px 12px; font:12.5px/1.6 ui-monospace,monospace; word-break:break-all;
+          user-select:all; }
+  button, .go { display:inline-block; margin-top:8px; padding:10px 16px; border-radius:10px;
+                border:none; background:var(--accent); color:#fff; font-size:14.5px;
+                text-decoration:none; cursor:pointer; }
+  .hint { color:var(--dim); font-size:12.5px; margin-top:6px; }
+</style>
+</head>
+<body>
+<div class="card">
+  <h1>You're in.</h1>
+  <div class="who" id="who">Access granted.</div>
+  <div class="step">
+    <b>On this phone or laptop — use blaude in the browser:</b>
+    <a class="go" href="/" id="open">Open blaude</a>
+    <div class="hint">Your access token is already saved for this browser.</div>
+  </div>
+  <div class="step">
+    <b>In the blaude desktop app — File ▸ Join Team…:</b>
+    <div class="blob" id="blob">…</div>
+    <button id="copy">Copy</button>
+    <div class="hint">Paste the URL and token into the Join Team sheet.</div>
+  </div>
+</div>
+<script>
+"use strict";
+const grant = /*GRANT*/null;
+if (grant) {
+  document.getElementById("who").textContent = "Access granted for " + grant.email + ".";
+  try { localStorage.setItem("blaudeToken", grant.token); } catch (_) {}
+  const scheme = location.protocol === "https:" ? "wss" : "ws";
+  const blob = scheme + "://" + location.host + "/api\nToken: " + grant.token;
+  document.getElementById("blob").textContent = blob;
+  document.getElementById("copy").onclick = () => {
+    navigator.clipboard.writeText(blob).then(() => {
+      document.getElementById("copy").textContent = "Copied";
+    });
+  };
+}
+</script>
+</body>
+</html>

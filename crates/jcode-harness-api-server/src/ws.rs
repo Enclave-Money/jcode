@@ -159,6 +159,44 @@ pub fn load_tls_acceptor(cert_path: &str, key_path: &str) -> Result<tokio_rustls
     Ok(tokio_rustls::TlsAcceptor::from(std::sync::Arc::new(config)))
 }
 
+/// One-time join tickets: `$JCODE_HOME/join-tickets.json` =
+/// {"code": {"email": ..., "created_ms": ...}}. Minted by the host app at
+/// invite time; the code rides the Clerk invitation's redirect link, so only
+/// the email's recipient has it. Claimed once, then deleted. 7-day expiry.
+fn join_tickets_path() -> PathBuf {
+    token_path().with_file_name("join-tickets.json")
+}
+
+fn claim_join_ticket(code: &str) -> Option<String> {
+    if code.len() < 16 {
+        return None;
+    }
+    let path = join_tickets_path();
+    let raw = std::fs::read_to_string(&path).ok()?;
+    let mut tickets: serde_json::Map<String, serde_json::Value> =
+        serde_json::from_str(&raw).ok()?;
+    let entry = tickets.remove(code)?;
+    // Persist the removal FIRST: a ticket that cannot be burned must not be
+    // honored, or it stops being one-time.
+    std::fs::write(&path, serde_json::to_string(&tickets).ok()?).ok()?;
+    let created_ms = entry.get("created_ms").and_then(|v| v.as_u64()).unwrap_or(0);
+    let now_ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .ok()?
+        .as_millis() as u64;
+    const SEVEN_DAYS_MS: u64 = 7 * 24 * 60 * 60 * 1000;
+    if created_ms == 0 || now_ms.saturating_sub(created_ms) > SEVEN_DAYS_MS {
+        return None;
+    }
+    let email = entry.get("email")?.as_str()?.to_string();
+    let member_token = team_tokens().get(&email)?.clone();
+    Some(format!(
+        r#"{{"email":{},"token":{}}}"#,
+        serde_json::to_string(&email).ok()?,
+        serde_json::to_string(&member_token).ok()?
+    ))
+}
+
 pub async fn run_ws_listener(
     listener: TcpListener,
     token: String,
@@ -332,13 +370,40 @@ fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
 /// same network gets a full session UI from the very port the API lives on.
 const PHONE_PAGE: &str = include_str!("../assets/phone.html");
 
+/// Served at /join?ticket=… — the landing page of an invitation email. The
+/// grant (member email + bearer token) is injected server-side after the
+/// one-time ticket is burned; the page stores the token for the phone client
+/// and shows the desktop join blob.
+const JOIN_PAGE: &str = include_str!("../assets/join.html");
+
 /// Serve the phone page (or health/404) to a non-upgrade HTTP request.
 async fn serve_http<S: AsyncRead + AsyncWrite + Unpin>(mut tcp: S, head: &str) -> Result<()> {
-    let path = head.split_whitespace().nth(1).unwrap_or("/");
-    let path = path.split('?').next().unwrap_or("/");
+    let target = head.split_whitespace().nth(1).unwrap_or("/");
+    let path = target.split('?').next().unwrap_or("/");
+    let join_page;
     let (status, body, content_type) = match path {
         "/" | "/index.html" => ("200 OK", PHONE_PAGE, "text/html; charset=utf-8"),
         "/health" => ("200 OK", "ok", "text/plain"),
+        "/join" => {
+            let ticket = target
+                .split_once('?')
+                .map(|(_, query)| query)
+                .unwrap_or("")
+                .split('&')
+                .find_map(|pair| pair.strip_prefix("ticket="))
+                .unwrap_or("");
+            match claim_join_ticket(ticket) {
+                Some(grant) => {
+                    join_page = JOIN_PAGE.replace("/*GRANT*/null", &grant);
+                    ("200 OK", join_page.as_str(), "text/html; charset=utf-8")
+                }
+                None => (
+                    "410 Gone",
+                    "This join link was already used or has expired. Ask your teammate for a fresh invite.",
+                    "text/plain",
+                ),
+            }
+        }
         _ => (
             "404 Not Found",
             "not found — the phone client lives at /, the API at /api",
@@ -584,6 +649,54 @@ mod ws_tests {
         };
         assert!(text.contains(r#""ev":"hello_ok""#), "got: {text}");
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A join ticket claims exactly once: the first GET gets the member's
+    /// grant, the second gets 410.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn join_ticket_claims_once() {
+        let _guard = crate::jcode_home_test_lock();
+        let home = std::env::temp_dir().join(format!("jcode-join-test-{}", std::process::id()));
+        std::fs::create_dir_all(&home).unwrap();
+        let previous = std::env::var_os("JCODE_HOME");
+        unsafe { std::env::set_var("JCODE_HOME", &home) };
+        let now_ms = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_millis() as u64;
+        std::fs::write(
+            home.join("team-tokens.json"),
+            r#"{"jo@example.com":"member-jo-token"}"#,
+        )
+        .unwrap();
+        std::fs::write(
+            home.join("join-tickets.json"),
+            format!(r#"{{"ticket-abcdef1234567890":{{"email":"jo@example.com","created_ms":{now_ms}}}}}"#),
+        )
+        .unwrap();
+
+        let addr = start("sekrit").await;
+        let fetch = |path: String| async move {
+            let mut tcp = tokio::net::TcpStream::connect(addr).await.unwrap();
+            tcp.write_all(format!("GET {path} HTTP/1.1\r\nHost: x\r\n\r\n").as_bytes())
+                .await
+                .unwrap();
+            let mut body = Vec::new();
+            tcp.read_to_end(&mut body).await.unwrap();
+            String::from_utf8_lossy(&body).to_string()
+        };
+        let first = fetch("/join?ticket=ticket-abcdef1234567890".to_string()).await;
+        assert!(first.starts_with("HTTP/1.1 200"), "{}", &first[..60]);
+        assert!(first.contains("member-jo-token"), "grant embedded");
+        assert!(first.contains("jo@example.com"));
+        let second = fetch("/join?ticket=ticket-abcdef1234567890".to_string()).await;
+        assert!(second.starts_with("HTTP/1.1 410"), "{}", &second[..60]);
+
+        match previous {
+            Some(value) => unsafe { std::env::set_var("JCODE_HOME", value) },
+            None => unsafe { std::env::remove_var("JCODE_HOME") },
+        }
+        let _ = std::fs::remove_dir_all(&home);
     }
 
     /// The brute-force limiter trips at the limit and only for that peer.
