@@ -8,6 +8,15 @@
 #       [--tls-cert /path/cert.pem --tls-key /path/key.pem] \
 #       [--binary /path/to/blaude] [--dry-run]
 #
+# Self-signed cert? Apple clients (the desktop app, iPhones) require the
+# serverAuth extended key usage or they reject the cert outright:
+#   openssl req -x509 -newkey rsa:2048 -keyout key.pem -out cert.pem -days 365 \
+#     -nodes -subj "/CN=blaude-team" \
+#     -addext "subjectAltName=IP:<server-ip>,DNS:<server-name>" \
+#     -addext "extendedKeyUsage=serverAuth" \
+#     -addext "keyUsage=digitalSignature,keyEncipherment"
+# Teammates then put cert.pem's path in Join Team's "CA certificate" field.
+#
 # After install:
 #   - the owner token is at ~/.jcode/api-ws-token
 #   - member tokens go in ~/.jcode/team-tokens.json {"email": "token"}
