@@ -18,7 +18,7 @@ use crate::handle_api_io;
 use anyhow::{Context, Result};
 use futures::{SinkExt, StreamExt};
 use std::path::PathBuf;
-use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
+use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, BufReader};
 use tokio::net::{TcpListener, TcpStream};
 use tokio_tungstenite::tungstenite::Message;
 use tokio_tungstenite::tungstenite::handshake::server::{ErrorResponse, Request, Response};
@@ -44,8 +44,12 @@ pub async fn spawn_from_env(legacy_socket: PathBuf) -> Result<Option<std::net::S
         .with_context(|| format!("bind websocket {bind}:{port}"))?;
     let addr = listener.local_addr()?;
     let token = load_or_create_token()?;
+    let tls = tls_acceptor_from_env()?;
+    if tls.is_some() {
+        eprintln!("harness API bridge: TLS enabled — clients connect with wss://");
+    }
     tokio::spawn(async move {
-        if let Err(error) = run_ws_listener(listener, token, legacy_socket).await {
+        if let Err(error) = run_ws_listener_with_tls(listener, token, legacy_socket, tls).await {
             eprintln!("harness API bridge: websocket listener ended: {error:#}");
         }
     });
@@ -120,20 +124,119 @@ pub fn team_tokens() -> std::collections::HashMap<String, String> {
         .unwrap_or_default()
 }
 
+/// Native TLS: set `JCODE_API_WS_TLS_CERT` and `JCODE_API_WS_TLS_KEY` to PEM
+/// paths and the door speaks wss:// directly — no reverse proxy needed for a
+/// remote team. Absent, plain ws:// (loopback/tailnet use).
+pub fn tls_acceptor_from_env() -> Result<Option<tokio_rustls::TlsAcceptor>> {
+    let (Ok(cert_path), Ok(key_path)) = (
+        std::env::var("JCODE_API_WS_TLS_CERT"),
+        std::env::var("JCODE_API_WS_TLS_KEY"),
+    ) else {
+        return Ok(None);
+    };
+    Ok(Some(load_tls_acceptor(&cert_path, &key_path)?))
+}
+
+pub fn load_tls_acceptor(cert_path: &str, key_path: &str) -> Result<tokio_rustls::TlsAcceptor> {
+    // Both ring (via tungstenite) and aws-lc-rs (workspace rustls) are in the
+    // tree, so rustls cannot pick a provider implicitly. First caller wins;
+    // an Err means one is already installed — fine either way.
+    let _ = tokio_rustls::rustls::crypto::aws_lc_rs::default_provider().install_default();
+    let certs: Vec<_> = rustls_pemfile::certs(&mut std::io::BufReader::new(
+        std::fs::File::open(cert_path).with_context(|| format!("open {cert_path}"))?,
+    ))
+    .collect::<std::io::Result<_>>()
+    .with_context(|| format!("parse certs in {cert_path}"))?;
+    let key = rustls_pemfile::private_key(&mut std::io::BufReader::new(
+        std::fs::File::open(key_path).with_context(|| format!("open {key_path}"))?,
+    ))
+    .with_context(|| format!("parse key in {key_path}"))?
+    .ok_or_else(|| anyhow::anyhow!("no private key in {key_path}"))?;
+    let config = tokio_rustls::rustls::ServerConfig::builder()
+        .with_no_client_auth()
+        .with_single_cert(certs, key)
+        .context("build TLS config")?;
+    Ok(tokio_rustls::TlsAcceptor::from(std::sync::Arc::new(config)))
+}
+
 pub async fn run_ws_listener(
     listener: TcpListener,
     token: String,
     legacy_socket: PathBuf,
 ) -> Result<()> {
+    run_ws_listener_with_tls(listener, token, legacy_socket, None).await
+}
+
+pub async fn run_ws_listener_with_tls(
+    listener: TcpListener,
+    token: String,
+    legacy_socket: PathBuf,
+    tls: Option<tokio_rustls::TlsAcceptor>,
+) -> Result<()> {
     loop {
         let (tcp, _peer) = listener.accept().await?;
         let token = token.clone();
         let legacy = legacy_socket.clone();
+        let tls = tls.clone();
         tokio::spawn(async move {
-            if let Err(error) = handle_ws_client(tcp, &token, legacy).await {
+            let result = match tls {
+                Some(acceptor) => match acceptor.accept(tcp).await {
+                    Ok(stream) => handle_ws_client(stream, &token, legacy).await,
+                    Err(error) => Err(anyhow::Error::from(error).context("tls handshake")),
+                },
+                None => handle_ws_client(tcp, &token, legacy).await,
+            };
+            if let Err(error) = result {
                 eprintln!("harness API bridge: websocket client ended: {error:#}");
             }
         });
+    }
+}
+
+/// A stream that replays already-read head bytes before the live stream —
+/// how the HTTP-vs-websocket sniff works on TLS streams, which cannot peek.
+struct PrefixedStream<S> {
+    prefix: Vec<u8>,
+    offset: usize,
+    inner: S,
+}
+
+impl<S: AsyncRead + Unpin> AsyncRead for PrefixedStream<S> {
+    fn poll_read(
+        mut self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+        buf: &mut tokio::io::ReadBuf<'_>,
+    ) -> std::task::Poll<std::io::Result<()>> {
+        if self.offset < self.prefix.len() {
+            let remaining = &self.prefix[self.offset..];
+            let n = remaining.len().min(buf.remaining());
+            buf.put_slice(&remaining[..n]);
+            self.offset += n;
+            return std::task::Poll::Ready(Ok(()));
+        }
+        std::pin::Pin::new(&mut self.inner).poll_read(cx, buf)
+    }
+}
+
+impl<S: AsyncWrite + Unpin> AsyncWrite for PrefixedStream<S> {
+    fn poll_write(
+        mut self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+        buf: &[u8],
+    ) -> std::task::Poll<std::io::Result<usize>> {
+        std::pin::Pin::new(&mut self.inner).poll_write(cx, buf)
+    }
+    fn poll_flush(
+        mut self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<std::io::Result<()>> {
+        std::pin::Pin::new(&mut self.inner).poll_flush(cx)
+    }
+    fn poll_shutdown(
+        mut self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<std::io::Result<()>> {
+        std::pin::Pin::new(&mut self.inner).poll_shutdown(cx)
     }
 }
 
@@ -190,10 +293,7 @@ fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
 const PHONE_PAGE: &str = include_str!("../assets/phone.html");
 
 /// Serve the phone page (or health/404) to a non-upgrade HTTP request.
-async fn serve_http(mut tcp: TcpStream, head: &str) -> Result<()> {
-    // Consume the request bytes we peeked (single read is plenty for a GET).
-    let mut sink = [0u8; 8192];
-    let _ = tcp.read(&mut sink).await;
+async fn serve_http<S: AsyncRead + AsyncWrite + Unpin>(mut tcp: S, head: &str) -> Result<()> {
     let path = head.split_whitespace().nth(1).unwrap_or("/");
     let path = path.split('?').next().unwrap_or("/");
     let (status, body, content_type) = match path {
@@ -215,15 +315,29 @@ async fn serve_http(mut tcp: TcpStream, head: &str) -> Result<()> {
     Ok(())
 }
 
-async fn handle_ws_client(tcp: TcpStream, token: &str, legacy_socket: PathBuf) -> Result<()> {
-    // Sniff without consuming: a websocket handshake proceeds untouched, a
-    // plain browser GET gets the embedded phone client instead of a refusal.
-    let mut head = [0u8; 1024];
-    let peeked = tcp.peek(&mut head).await.context("peek request head")?;
-    let head_text = String::from_utf8_lossy(&head[..peeked]).to_string();
+async fn handle_ws_client<S>(mut tcp: S, token: &str, legacy_socket: PathBuf) -> Result<()>
+where
+    S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
+{
+    // Read the request head, then REPLAY it: a websocket handshake gets the
+    // bytes back through PrefixedStream, a plain browser GET gets the
+    // embedded phone client instead of a refusal. (TLS streams cannot peek.)
+    let mut head = Vec::with_capacity(1024);
+    let mut chunk = [0u8; 1024];
+    while !head.windows(4).any(|w| w == b"\r\n\r\n") && head.len() < 8192 {
+        let n = tcp.read(&mut chunk).await.context("read request head")?;
+        if n == 0 {
+            break;
+        }
+        head.extend_from_slice(&chunk[..n]);
+    }
+    let head_text = String::from_utf8_lossy(&head).to_string();
+    let tcp = PrefixedStream { prefix: head, offset: 0, inner: tcp };
     if head_text.starts_with("GET ")
         && !head_text.to_ascii_lowercase().contains("upgrade: websocket")
     {
+        // The prefixed request bytes are already consumed conceptually — the
+        // responder only writes.
         return serve_http(tcp, &head_text).await;
     }
     let identity = std::sync::Arc::new(std::sync::Mutex::new(None::<Option<String>>));
@@ -363,6 +477,68 @@ mod ws_tests {
         let mut body = Vec::new();
         tcp.read_to_end(&mut body).await.unwrap();
         assert!(String::from_utf8_lossy(&body).starts_with("HTTP/1.1 404"));
+    }
+
+    /// TLS end to end: a self-signed server cert, a client that trusts it,
+    /// and the same hello over wss:// — plus the phone page over https-style
+    /// plain GET through the TLS stream.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn wss_round_trips_with_native_tls() {
+        let cert = rcgen::generate_simple_self_signed(vec!["localhost".into()]).unwrap();
+        let dir = std::env::temp_dir().join(format!("jcode-wss-test-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let cert_path = dir.join("cert.pem");
+        let key_path = dir.join("key.pem");
+        std::fs::write(&cert_path, cert.cert.pem()).unwrap();
+        std::fs::write(&key_path, cert.key_pair.serialize_pem()).unwrap();
+
+        let acceptor =
+            load_tls_acceptor(cert_path.to_str().unwrap(), key_path.to_str().unwrap()).unwrap();
+        let listener = TcpListener::bind(("127.0.0.1", 0)).await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let legacy = std::env::temp_dir().join(format!(
+            "jcode-wss-test-{}-none.sock",
+            std::process::id()
+        ));
+        tokio::spawn(run_ws_listener_with_tls(
+            listener,
+            "sekrit".to_string(),
+            legacy,
+            Some(acceptor),
+        ));
+
+        // A client that trusts exactly this cert.
+        let mut roots = tokio_rustls::rustls::RootCertStore::empty();
+        roots.add(cert.cert.der().clone()).unwrap();
+        let client_config = tokio_rustls::rustls::ClientConfig::builder()
+            .with_root_certificates(roots)
+            .with_no_client_auth();
+        let connector = tokio_tungstenite::Connector::Rustls(std::sync::Arc::new(client_config));
+
+        let mut request = format!("wss://localhost:{}/api?token=sekrit", addr.port())
+            .into_client_request()
+            .unwrap();
+        request
+            .headers_mut()
+            .insert("host", format!("localhost:{}", addr.port()).parse().unwrap());
+        let (mut ws, _) = tokio_tungstenite::connect_async_tls_with_config(
+            request,
+            None,
+            false,
+            Some(connector),
+        )
+        .await
+        .unwrap();
+        ws.send(Message::Text(
+            r#"{"v":1,"id":1,"req":"hello","min_version":1,"max_version":1,"client":"wss-test/0"}"#.into(),
+        ))
+        .await
+        .unwrap();
+        let Message::Text(text) = ws.next().await.unwrap().unwrap() else {
+            panic!("expected text frame");
+        };
+        assert!(text.contains(r#""ev":"hello_ok""#), "got: {text}");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     /// The query-string fallback works for header-less clients.
