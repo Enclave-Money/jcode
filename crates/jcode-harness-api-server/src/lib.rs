@@ -16,6 +16,7 @@
 
 pub mod background_progress;
 pub mod translate;
+pub mod ws;
 
 use anyhow::{Context, Result};
 use jcode_harness_api::{API_VERSION_MAJOR, ApiEvent, ErrorCode, ServerFrame};
@@ -160,6 +161,15 @@ pub async fn run_bridge(api_socket: PathBuf, legacy_socket: PathBuf) -> Result<(
         api_socket.display(),
         legacy_socket.display()
     );
+    // Realtime clients speak the same NDJSON frames over WebSocket (one text
+    // frame per line), token-guarded, loopback-only. `JCODE_API_WS_PORT=off`
+    // disables it; a bind failure degrades to unix-socket-only rather than
+    // killing the bridge (another runtime's bridge may hold the port).
+    match ws::spawn_from_env(legacy_socket.clone()).await {
+        Ok(Some(addr)) => eprintln!("harness API bridge: websocket on ws://{addr}/api"),
+        Ok(None) => {}
+        Err(error) => eprintln!("harness API bridge: websocket listener disabled: {error:#}"),
+    }
     loop {
         let (stream, _) = listener.accept().await?;
         let legacy = legacy_socket.clone();
@@ -172,8 +182,19 @@ pub async fn run_bridge(api_socket: PathBuf, legacy_socket: PathBuf) -> Result<(
 }
 
 async fn handle_api_client(stream: Stream, legacy_socket: PathBuf) -> Result<()> {
-    let (read_half, mut write_half) = stream.into_split();
-    let mut reader = BufReader::new(read_half);
+    let (read_half, write_half) = stream.into_split();
+    handle_api_io(BufReader::new(read_half), write_half, legacy_socket).await
+}
+
+/// Per-client bridge loop, generic over the client transport: the unix socket
+/// path and the WebSocket relay (src/ws.rs, via an in-memory duplex) share it.
+pub(crate) async fn handle_api_io<R, W>(reader: R, write_half: W, legacy_socket: PathBuf) -> Result<()>
+where
+    R: tokio::io::AsyncBufRead + Unpin,
+    W: tokio::io::AsyncWrite + Unpin,
+{
+    let mut reader = reader;
+    let mut write_half = write_half;
     let mut line = String::new();
 
     // 1. Handshake: first frame must be hello with a compatible version.

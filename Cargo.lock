@@ -3736,6 +3736,7 @@ name = "jcode-harness-api-server"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "futures",
  "jcode-background-types",
  "jcode-base",
  "jcode-harness-api",
@@ -3744,6 +3745,7 @@ dependencies = [
  "serde",
  "serde_json",
  "tokio",
+ "tokio-tungstenite",
 ]
 
 [[package]]
