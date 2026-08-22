@@ -592,6 +592,20 @@ impl BridgeState {
                 {
                     return Self::error_reply(api_id, ErrorCode::Internal, &message);
                 }
+                // The daemon only accepts notify_auth_changed on a subscribed
+                // connection. Unattached callers (the session directory, an
+                // onboarding flow with no session yet) still get the write —
+                // the daemon reads auth files per-request, so skip the notify
+                // and confirm directly instead of forwarding a doomed frame.
+                if self.session_id.is_none() && self.pending_attach_id.is_none() {
+                    return vec![Outbound::Reply(ServerFrame::reply(
+                        api_id,
+                        ApiEvent::CredentialUpdated {
+                            provider: provider.to_string(),
+                            configured,
+                        },
+                    ))];
+                }
                 let id = self.legacy_id();
                 self.pending_simple.push((
                     id,

@@ -14,6 +14,15 @@
 //! proven, the same translation can move in-process behind a `hello` sniff on
 //! the main socket.
 
+#[cfg(test)]
+pub(crate) fn jcode_home_test_lock() -> std::sync::MutexGuard<'static, ()> {
+    use std::sync::{Mutex, OnceLock};
+    static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+    LOCK.get_or_init(|| Mutex::new(()))
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
 pub mod background_progress;
 pub mod permissions;
 pub mod translate;

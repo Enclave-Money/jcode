@@ -148,11 +148,12 @@ mod permission_file_tests {
 
     #[test]
     fn decision_moves_request_from_queue_to_history() {
+        // JCODE_HOME is process-global: hold the crate-wide lock for the
+        // whole test, or a ScopedJcodeHome test running in parallel swaps the
+        // env var mid-write.
+        let _guard = crate::jcode_home_test_lock();
         let dir = std::env::temp_dir().join(format!("jcode-perm-{}", std::process::id()));
         std::fs::create_dir_all(dir.join("safety")).unwrap();
-        // Isolate via JCODE_HOME for the duration; tests in this crate that
-        // touch the env already serialize via translate_tests' lock — this one
-        // uses its own home and restores after.
         let previous = std::env::var_os("JCODE_HOME");
         unsafe { std::env::set_var("JCODE_HOME", &dir) };
         std::fs::write(

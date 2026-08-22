@@ -2,13 +2,10 @@ use super::*;
 
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
-use std::sync::{Mutex, MutexGuard, OnceLock};
+use std::sync::MutexGuard;
 
 fn jcode_home_test_lock() -> MutexGuard<'static, ()> {
-    static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
-    LOCK.get_or_init(|| Mutex::new(()))
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner())
+    crate::jcode_home_test_lock()
 }
 
 struct ScopedJcodeHome {
@@ -1285,6 +1282,9 @@ fn credential_provisioning_normalizes_gemini_and_supports_jcode() {
     )
     .unwrap();
     let mut state = BridgeState::default();
+    // An ATTACHED connection notifies the daemon so a running agent picks up
+    // the new credential immediately.
+    state.session_id = Some("sess_cred".to_string());
 
     let outbound = state.api_request_to_legacy(&json!({
         "req": "set_api_key",
@@ -1302,6 +1302,22 @@ fn credential_provisioning_normalizes_gemini_and_supports_jcode() {
         &frames[0].event,
         ApiEvent::CredentialUpdated { provider, configured }
             if provider == "gemini" && *configured
+    ));
+
+    // An UNATTACHED connection (session directory, onboarding) still writes
+    // the file but replies directly — the daemon would reject a notify from
+    // an unsubscribed connection ("must Subscribe with a working_dir").
+    let mut unattached = BridgeState::default();
+    let event = only_reply_event(unattached.api_request_to_legacy(&json!({
+        "req": "set_api_key",
+        "id": 70,
+        "provider": "google-gemini",
+        "api_key": "gemini-secret"
+    })));
+    assert!(matches!(
+        event,
+        ApiEvent::CredentialUpdated { provider, configured }
+            if provider == "gemini" && configured
     ));
     let gemini = std::fs::read_to_string(config.join("gemini.env")).unwrap();
     assert!(gemini.contains("GEMINI_API_KEY=gemini-secret\n"));
