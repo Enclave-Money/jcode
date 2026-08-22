@@ -110,6 +110,16 @@ impl Agent {
         self.append_user_context_message_with_display_role(user_message, images, None)
     }
 
+    /// Persist a team note: visible in every transcript, invisible to the
+    /// model (see `is_team_note_message` in session context assembly).
+    pub(crate) fn append_team_note(&mut self, content: &str) -> Result<()> {
+        self.append_user_context_message_with_display_role(
+            content,
+            Vec::new(),
+            Some(crate::session::StoredDisplayRole::Note),
+        )
+    }
+
     fn append_user_context_message_with_display_role(
         &mut self,
         user_message: &str,

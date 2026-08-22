@@ -65,6 +65,10 @@ pub enum ApiRequest {
     /// Cancel the in-flight generation.
     Cancel { session_id: String },
 
+    /// Post a human-only team note: persisted in the transcript (role
+    /// "note"), broadcast to every attached client, never model context.
+    SendTeamNote { session_id: String, content: String },
+
     /// Inject a message at the next safe point without cancelling.
     SoftInterrupt {
         session_id: String,

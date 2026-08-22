@@ -71,7 +71,11 @@ use storage_paths::{estimate_json_bytes, persist_vector_mode_label};
 pub use storage_paths::{session_exists, session_journal_path, session_path};
 
 fn stored_messages_to_messages(messages: &[StoredMessage]) -> Vec<Message> {
-    messages.iter().map(StoredMessage::to_message).collect()
+    messages
+        .iter()
+        .filter(|message| !is_team_note_message(message))
+        .map(StoredMessage::to_message)
+        .collect()
 }
 
 fn is_internal_system_reminder_message(message: &StoredMessage) -> bool {
@@ -83,6 +87,14 @@ fn is_internal_system_reminder_message(message: &StoredMessage) -> bool {
             _ => None,
         })
         .is_some_and(|text| text.starts_with("<system-reminder>"))
+}
+
+/// Team notes are transcript-only: attached humans see them, the model never
+/// does. The provider-context builders below skip them; `cache_len` keeps
+/// counting STORED messages, so the append fast-path stays correct even when
+/// the provider cache is shorter than the stored transcript.
+pub(crate) fn is_team_note_message(message: &StoredMessage) -> bool {
+    message.display_role == Some(StoredDisplayRole::Note)
 }
 
 fn is_visible_conversation_message(message: &StoredMessage) -> bool {
@@ -1515,6 +1527,9 @@ request in this new forked session, using the inherited conversation only as con
             self.provider_message_prefix_hashes_cache
                 .reserve(self.messages.len());
             for index in 0..self.messages.len() {
+                if is_team_note_message(&self.messages[index]) {
+                    continue;
+                }
                 let message = self.messages[index].to_message();
                 self.push_provider_message_cache_entry(message);
             }
@@ -1531,6 +1546,9 @@ request in this new forked session, using the inherited conversation only as con
             self.provider_message_prefix_hashes_cache
                 .reserve(appended_len);
             for index in self.provider_messages_cache_len..self.messages.len() {
+                if is_team_note_message(&self.messages[index]) {
+                    continue;
+                }
                 let message = self.messages[index].to_message();
                 self.push_provider_message_cache_entry(message);
             }

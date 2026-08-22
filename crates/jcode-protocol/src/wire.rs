@@ -55,6 +55,11 @@ pub enum Request {
         no_reply: bool,
     },
 
+    /// Post a human-only team note into the transcript. Persisted and fanned
+    /// to every attachment, never included in the model's context.
+    #[serde(rename = "team_note")]
+    TeamNote { id: u64, content: String },
+
     /// Cancel current generation
     #[serde(rename = "cancel")]
     Cancel { id: u64 },
@@ -1029,6 +1034,16 @@ pub enum ServerEvent {
     /// sender, so recipients can render the teammate's prompt live instead of
     /// discovering it on the next history reload. Old clients skip unknown
     /// event tags via their stray-line budget, so this is additive.
+    /// A team note posted by an attached client (multiplayer). Fanned to
+    /// every attachment including late history loads (role "note").
+    #[serde(rename = "team_note")]
+    TeamNote {
+        session_id: String,
+        content: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        by_user: Option<String>,
+    },
+
     #[serde(rename = "user_message")]
     UserMessage {
         session_id: String,

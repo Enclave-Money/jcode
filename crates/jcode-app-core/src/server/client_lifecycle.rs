@@ -1177,6 +1177,43 @@ pub(super) async fn handle_client(
                 .await;
             }
 
+            Request::TeamNote { id, content } => {
+                // Human-only discussion: persist with the Note display role
+                // (transcript-visible, never model context) and fan to every
+                // co-attached client. The sender echoed locally.
+                {
+                    let Ok(mut agent_guard) = agent.try_lock() else {
+                        send_agent_busy_error(
+                            id,
+                            "team_note",
+                            &client_session_id,
+                            client_is_processing,
+                            &client_event_tx,
+                        );
+                        continue;
+                    };
+                    if let Err(error) = agent_guard.append_team_note(&content) {
+                        let _ = client_event_tx.send(ServerEvent::Error {
+                            id,
+                            message: crate::util::format_error_chain(&error),
+                            retry_after_secs: None,
+                        });
+                        continue;
+                    }
+                }
+                let _ = client_event_tx.send(ServerEvent::Ack { id });
+                let _ = super::state::fanout_session_event_except(
+                    &swarm_members,
+                    &client_session_id,
+                    &client_connection_id,
+                    ServerEvent::TeamNote {
+                        session_id: client_session_id.clone(),
+                        content,
+                        by_user: connection_user.clone(),
+                    },
+                )
+                .await;
+            }
             Request::Cancel { id } => {
                 cancel_processing_message(
                     &mut ProcessingState {

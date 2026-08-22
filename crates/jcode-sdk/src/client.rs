@@ -660,6 +660,7 @@ impl JcodeClient {
             content: content.to_string(),
             images,
             no_reply: false,
+            active_skill: None,
         })?;
         if let (Some(stream), Some(timeout)) = (stream, wait_for_accept) {
             let deadline = std::time::Instant::now() + timeout;
@@ -688,6 +689,7 @@ impl JcodeClient {
         self.request_ok(ApiRequest::SoftInterrupt {
             session_id: session_id.to_string(),
             content: content.to_string(),
+            images: Vec::new(),
             urgent,
         })
         .map(drop)

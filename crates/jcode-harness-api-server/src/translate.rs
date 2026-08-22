@@ -24,6 +24,7 @@ const REQUIRES_ATTACH: &[&str] = &[
     "send_message",
     "cancel",
     "soft_interrupt",
+    "send_team_note",
     "cancel_soft_interrupts",
     "clear",
     "rewind",
@@ -401,6 +402,15 @@ impl BridgeState {
                 let id = self.legacy_id();
                 self.pending_simple.push((id, api_id, SimpleKind::Ok));
                 vec![Outbound::Legacy(json!({"type": "cancel", "id": id}))]
+            }
+            "send_team_note" => {
+                let id = self.legacy_id();
+                self.pending_simple.push((id, api_id, SimpleKind::Ok));
+                vec![Outbound::Legacy(json!({
+                    "type": "team_note",
+                    "id": id,
+                    "content": request["content"].as_str().unwrap_or(""),
+                }))]
             }
             "soft_interrupt" => {
                 let id = self.legacy_id();
@@ -944,6 +954,11 @@ impl BridgeState {
                     vec![]
                 }
             }
+            "team_note" => vec![ServerFrame::event(ApiEvent::TeamNote {
+                session_id: session(self),
+                content: event["content"].as_str().unwrap_or("").to_string(),
+                by_user: event["by_user"].as_str().map(str::to_string),
+            })],
             "user_message" => vec![ServerFrame::event(ApiEvent::UserMessage {
                 session_id: session(self),
                 content: event["content"].as_str().unwrap_or("").to_string(),

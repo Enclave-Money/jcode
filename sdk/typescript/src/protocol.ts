@@ -72,6 +72,7 @@ export type ApiRequest =
       active_skill?: string;
     }
   | { req: "cancel"; session_id: string }
+  | { req: "send_team_note"; session_id: string; content: string }
   | {
       req: "soft_interrupt";
       session_id: string;
@@ -198,6 +199,13 @@ export type ApiEvent =
       display_title: string;
     }
   | {
+      /** A human-only team note from an attached client (never model context). */
+      ev: "team_note";
+      session_id: string;
+      content: string;
+      by_user?: string;
+    }
+  | {
       /** Skills installed on the daemon; activate via send_message.active_skill. */
       ev: "skills";
       session_id: string;
@@ -282,6 +290,7 @@ export const KNOWN_EVENT_KINDS = [
   "compacted",
   "session_renamed",
   "skills",
+  "team_note",
   "user_message",
   "permission_resolved",
 ] as const;

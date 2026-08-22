@@ -245,6 +245,9 @@ pub struct StoredMessage {
 pub enum StoredDisplayRole {
     System,
     BackgroundTask,
+    /// Human-only team discussion: rendered in every transcript, never sent
+    /// to the model (excluded from provider context assembly).
+    Note,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

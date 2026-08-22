@@ -247,6 +247,15 @@ pub enum ApiEvent {
         skills: Vec<String>,
     },
 
+    /// A team note from an attached client — human-only side discussion,
+    /// excluded from the model's context. Never echoed to the sender.
+    TeamNote {
+        session_id: String,
+        content: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        by_user: Option<String>,
+    },
+
     /// Another attached client sent a user message to this session
     /// (multiplayer co-steering). Never echoed to the sender. `by_user` is
     /// reserved for when the server carries identities.

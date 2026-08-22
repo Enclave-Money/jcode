@@ -2468,3 +2468,64 @@ fn test_rewind_after_undo_uses_the_new_target_not_the_previous_one() {
     assert_eq!(after.last().unwrap(), "prompt-6");
     assert_eq!(session.rewind_target_count(), 11);
 }
+
+#[test]
+fn team_notes_render_but_never_reach_the_provider() {
+    let mut session = Session::create_with_id(
+        "session_team_note_test".to_string(),
+        None,
+        Some("Team notes".to_string()),
+    );
+    session.add_message(
+        Role::User,
+        vec![ContentBlock::Text {
+            text: "real prompt".to_string(),
+            cache_control: None,
+        }],
+    );
+    session.add_message_with_display_role(
+        Role::User,
+        vec![ContentBlock::Text {
+            text: "team note: humans only".to_string(),
+            cache_control: None,
+        }],
+        Some(StoredDisplayRole::Note),
+    );
+    session.add_message(
+        Role::Assistant,
+        vec![ContentBlock::Text {
+            text: "reply".to_string(),
+            cache_control: None,
+        }],
+    );
+
+    // Provider context (cached and uncached) excludes the note; the append
+    // fast-path bookkeeping (stored-len counter) survives the shorter cache.
+    let cached: Vec<String> = session
+        .messages_for_provider()
+        .iter()
+        .map(|m| format!("{:?}", m.content))
+        .collect();
+    assert_eq!(cached.len(), 2, "note leaked into provider context");
+    assert!(!cached.iter().any(|c| c.contains("humans only")));
+    let uncached = session.messages_for_provider_uncached();
+    assert_eq!(uncached.len(), 2);
+
+    // Appending after a note keeps the incremental path consistent.
+    session.add_message(
+        Role::User,
+        vec![ContentBlock::Text {
+            text: "follow up".to_string(),
+            cache_control: None,
+        }],
+    );
+    assert_eq!(session.messages_for_provider().len(), 3);
+
+    // The transcript renders the note with its own role.
+    let rendered = crate::session::render::render_messages(&session);
+    let note = rendered
+        .iter()
+        .find(|m| m.content.contains("humans only"))
+        .expect("note visible in transcript");
+    assert_eq!(note.role, "note");
+}
