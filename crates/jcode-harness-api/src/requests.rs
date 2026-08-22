@@ -65,6 +65,11 @@ pub enum ApiRequest {
     SoftInterrupt {
         session_id: String,
         content: String,
+        /// `(media_type, base64_data)` pairs, e.g. `("image/png", "...")` —
+        /// same shape as `SendMessage.images`; mid-turn follow-ups can carry
+        /// screenshots too.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        images: Vec<(String, String)>,
         #[serde(default)]
         urgent: bool,
     },

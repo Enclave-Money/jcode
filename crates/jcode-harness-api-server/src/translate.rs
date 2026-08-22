@@ -400,12 +400,18 @@ impl BridgeState {
             "soft_interrupt" => {
                 let id = self.legacy_id();
                 self.pending_simple.push((id, api_id, SimpleKind::Ok));
-                vec![Outbound::Legacy(json!({
+                let mut interrupt = json!({
                     "type": "soft_interrupt",
                     "id": id,
                     "content": request["content"].as_str().unwrap_or(""),
                     "urgent": request["urgent"].as_bool().unwrap_or(false),
-                }))]
+                });
+                if let Some(images) = request["images"].as_array()
+                    && !images.is_empty()
+                {
+                    interrupt["images"] = json!(images);
+                }
+                vec![Outbound::Legacy(interrupt)]
             }
             "clear" => {
                 let id = self.legacy_id();
