@@ -18,7 +18,7 @@ use crate::handle_api_io;
 use anyhow::{Context, Result};
 use futures::{SinkExt, StreamExt};
 use std::path::PathBuf;
-use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
 use tokio::net::{TcpListener, TcpStream};
 use tokio_tungstenite::tungstenite::Message;
 use tokio_tungstenite::tungstenite::handshake::server::{ErrorResponse, Request, Response};
@@ -185,7 +185,47 @@ fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
     a.iter().zip(b).fold(0u8, |acc, (x, y)| acc | (x ^ y)) == 0
 }
 
+/// The embedded phone/web client, served on plain GET — a browser on the
+/// same network gets a full session UI from the very port the API lives on.
+const PHONE_PAGE: &str = include_str!("../assets/phone.html");
+
+/// Serve the phone page (or health/404) to a non-upgrade HTTP request.
+async fn serve_http(mut tcp: TcpStream, head: &str) -> Result<()> {
+    // Consume the request bytes we peeked (single read is plenty for a GET).
+    let mut sink = [0u8; 8192];
+    let _ = tcp.read(&mut sink).await;
+    let path = head.split_whitespace().nth(1).unwrap_or("/");
+    let path = path.split('?').next().unwrap_or("/");
+    let (status, body, content_type) = match path {
+        "/" | "/index.html" => ("200 OK", PHONE_PAGE, "text/html; charset=utf-8"),
+        "/health" => ("200 OK", "ok", "text/plain"),
+        _ => (
+            "404 Not Found",
+            "not found — the phone client lives at /, the API at /api",
+            "text/plain",
+        ),
+    };
+    let header = format!(
+        "HTTP/1.1 {status}\r\nContent-Type: {content_type}\r\nContent-Length: {}\r\nCache-Control: no-store\r\nConnection: close\r\n\r\n",
+        body.len()
+    );
+    tcp.write_all(header.as_bytes()).await?;
+    tcp.write_all(body.as_bytes()).await?;
+    tcp.shutdown().await?;
+    Ok(())
+}
+
 async fn handle_ws_client(tcp: TcpStream, token: &str, legacy_socket: PathBuf) -> Result<()> {
+    // Sniff without consuming: a websocket handshake proceeds untouched, a
+    // plain browser GET gets the embedded phone client instead of a refusal.
+    let mut head = [0u8; 1024];
+    let peeked = tcp.peek(&mut head).await.context("peek request head")?;
+    let head_text = String::from_utf8_lossy(&head[..peeked]).to_string();
+    if head_text.starts_with("GET ")
+        && !head_text.to_ascii_lowercase().contains("upgrade: websocket")
+    {
+        return serve_http(tcp, &head_text).await;
+    }
     let identity = std::sync::Arc::new(std::sync::Mutex::new(None::<Option<String>>));
     let identity_cb = std::sync::Arc::clone(&identity);
     let ws = tokio_tungstenite::accept_hdr_async(tcp, |request: &Request, response: Response| {
@@ -303,6 +343,26 @@ mod ws_tests {
         let request = format!("ws://{addr}/api").into_client_request().unwrap();
         let error = tokio_tungstenite::connect_async(request).await.unwrap_err();
         assert!(format!("{error}").contains("401"));
+    }
+
+    /// A plain browser GET gets the embedded phone client, not a websocket
+    /// refusal; unknown paths 404; the API path is untouched.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn plain_get_serves_the_phone_client() {
+        let addr = start("sekrit").await;
+        let mut tcp = tokio::net::TcpStream::connect(addr).await.unwrap();
+        tcp.write_all(b"GET / HTTP/1.1\r\nHost: x\r\n\r\n").await.unwrap();
+        let mut body = Vec::new();
+        tcp.read_to_end(&mut body).await.unwrap();
+        let text = String::from_utf8_lossy(&body);
+        assert!(text.starts_with("HTTP/1.1 200"), "got: {}", &text[..60.min(text.len())]);
+        assert!(text.contains("blaude-phone"), "page should embed the client");
+
+        let mut tcp = tokio::net::TcpStream::connect(addr).await.unwrap();
+        tcp.write_all(b"GET /nope HTTP/1.1\r\nHost: x\r\n\r\n").await.unwrap();
+        let mut body = Vec::new();
+        tcp.read_to_end(&mut body).await.unwrap();
+        assert!(String::from_utf8_lossy(&body).starts_with("HTTP/1.1 404"));
     }
 
     /// The query-string fallback works for header-less clients.
