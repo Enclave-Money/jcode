@@ -32,6 +32,7 @@ async fn handle_resume_session_registers_live_events_before_history_replay() -> 
     let client_connections = Arc::new(RwLock::new(HashMap::from([(
         "conn_restore".to_string(),
         ClientConnectionInfo {
+            user: None,
             client_id: "conn_restore".to_string(),
             session_id: temp_session_id.to_string(),
             client_instance_id: None,

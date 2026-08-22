@@ -239,6 +239,7 @@ async fn live_target_claim_is_atomic_with_detached_source_cleanup() {
         let connections = Arc::new(RwLock::new(HashMap::from([(
             "incoming".to_string(),
             ClientConnectionInfo {
+                user: None,
                 client_id: "incoming".to_string(),
                 session_id: source_id,
                 client_instance_id: None,

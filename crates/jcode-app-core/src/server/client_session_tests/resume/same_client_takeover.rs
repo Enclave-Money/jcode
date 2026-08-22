@@ -44,6 +44,7 @@ async fn handle_resume_session_allows_same_client_instance_takeover_without_loca
         (
             "conn_existing".to_string(),
             ClientConnectionInfo {
+                user: None,
                 client_id: "conn_existing".to_string(),
                 session_id: target_session_id.to_string(),
                 client_instance_id: Some(shared_instance_id.to_string()),
@@ -59,6 +60,7 @@ async fn handle_resume_session_allows_same_client_instance_takeover_without_loca
         (
             "conn_new".to_string(),
             ClientConnectionInfo {
+                user: None,
                 client_id: "conn_new".to_string(),
                 session_id: temp_session_id.to_string(),
                 client_instance_id: Some(shared_instance_id.to_string()),

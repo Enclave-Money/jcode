@@ -954,6 +954,18 @@ impl BridgeState {
                     vec![]
                 }
             }
+            "presence" => vec![ServerFrame::event(ApiEvent::Presence {
+                session_id: session(self),
+                viewers: event["viewers"]
+                    .as_array()
+                    .map(|viewers| {
+                        viewers
+                            .iter()
+                            .filter_map(|viewer| viewer.as_str().map(str::to_string))
+                            .collect()
+                    })
+                    .unwrap_or_default(),
+            })],
             "team_note" => vec![ServerFrame::event(ApiEvent::TeamNote {
                 session_id: session(self),
                 content: event["content"].as_str().unwrap_or("").to_string(),

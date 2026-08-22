@@ -42,6 +42,7 @@ async fn handle_resume_session_allows_attach_from_different_client_instance() ->
         (
             "conn_existing".to_string(),
             ClientConnectionInfo {
+                user: None,
                 client_id: "conn_existing".to_string(),
                 session_id: target_session_id.to_string(),
                 client_instance_id: Some("client_instance_existing".to_string()),
@@ -57,6 +58,7 @@ async fn handle_resume_session_allows_attach_from_different_client_instance() ->
         (
             "conn_new".to_string(),
             ClientConnectionInfo {
+                user: None,
                 client_id: "conn_new".to_string(),
                 session_id: temp_session_id.to_string(),
                 client_instance_id: Some("client_instance_new".to_string()),

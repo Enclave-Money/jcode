@@ -378,6 +378,7 @@ async fn notify_session_runs_scheduled_task_immediately_for_idle_live_session() 
     let client_connections = Arc::new(RwLock::new(HashMap::from([(
         "client-1".to_string(),
         ClientConnectionInfo {
+            user: None,
             client_id: "client-1".to_string(),
             session_id: session_id.clone(),
             client_instance_id: None,
@@ -496,6 +497,7 @@ async fn notify_session_queues_soft_interrupt_when_live_session_is_busy() {
     let client_connections = Arc::new(RwLock::new(HashMap::from([(
         "client-1".to_string(),
         ClientConnectionInfo {
+            user: None,
             client_id: "client-1".to_string(),
             session_id: session_id.clone(),
             client_instance_id: None,

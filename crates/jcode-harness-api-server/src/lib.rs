@@ -265,6 +265,7 @@ where
                 "session_files",
                 "permissions",
                 "team_notes",
+                "presence",
             ]
             .into_iter()
             .map(str::to_string)

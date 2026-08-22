@@ -90,6 +90,7 @@ pub(super) async fn cleanup_client_connection(
         connections.remove(client_connection_id);
     }
     unregister_session_event_sender(swarm_members, client_session_id, client_connection_id).await;
+    super::state::broadcast_presence(swarm_members, client_connections, client_session_id).await;
 
     // Release stale live ownership before slower cleanup so a reconnecting TUI can
     // reclaim the same session without tripping duplicate-attach guards.

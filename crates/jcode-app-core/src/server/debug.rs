@@ -46,6 +46,9 @@ pub(super) struct ClientDebugState {
 pub(super) struct ClientConnectionInfo {
     pub(super) client_id: String,
     pub(super) session_id: String,
+    /// Declared multiplayer identity (email/handle) of this connection, for
+    /// presence and attribution. None for anonymous local clients.
+    pub(super) user: Option<String>,
     pub(super) client_instance_id: Option<String>,
     pub(super) debug_client_id: Option<String>,
     pub(super) connected_at: Instant,

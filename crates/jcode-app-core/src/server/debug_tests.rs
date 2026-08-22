@@ -143,6 +143,7 @@ mod transcript_routing_tests {
         last_seen: Instant,
     ) -> ClientConnectionInfo {
         ClientConnectionInfo {
+            user: None,
             client_id: format!("conn-{session_id}"),
             session_id: session_id.to_string(),
             client_instance_id: None,

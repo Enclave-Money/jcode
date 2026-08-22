@@ -247,6 +247,13 @@ pub enum ApiEvent {
         skills: Vec<String>,
     },
 
+    /// Who is attached to this session right now — a full snapshot on every
+    /// change (attach, detach, disconnect), so clients just replace state.
+    Presence {
+        session_id: String,
+        viewers: Vec<String>,
+    },
+
     /// A team note from an attached client — human-only side discussion,
     /// excluded from the model's context. Never echoed to the sender.
     TeamNote {

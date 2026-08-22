@@ -45,6 +45,7 @@ async fn handle_clear_session_replaces_runtime_handles_and_updates_shutdown_regi
     let client_connections = Arc::new(RwLock::new(HashMap::from([(
         "conn_clear".to_string(),
         ClientConnectionInfo {
+            user: None,
             client_id: "conn_clear".to_string(),
             session_id: old_session_id.to_string(),
             client_instance_id: None,

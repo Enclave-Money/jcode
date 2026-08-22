@@ -393,6 +393,34 @@ pub(super) async fn unregister_session_event_sender(
     }
 }
 
+/// Tell every attachment of `session_id` who is viewing it now — the
+/// connection registry is the truth (each connection records its session and
+/// declared identity at subscribe).
+pub(super) async fn broadcast_presence(
+    swarm_members: &Arc<RwLock<HashMap<String, SwarmMember>>>,
+    client_connections: &Arc<RwLock<HashMap<String, super::ClientConnectionInfo>>>,
+    session_id: &str,
+) {
+    let mut viewers: Vec<String> = {
+        let connections = client_connections.read().await;
+        connections
+            .values()
+            .filter(|info| info.session_id == session_id)
+            .map(|info| info.user.clone().unwrap_or_else(|| "local".to_string()))
+            .collect()
+    };
+    viewers.sort();
+    let _ = fanout_session_event(
+        swarm_members,
+        session_id,
+        ServerEvent::Presence {
+            session_id: session_id.to_string(),
+            viewers,
+        },
+    )
+    .await;
+}
+
 pub(super) async fn fanout_session_event(
     swarm_members: &Arc<RwLock<HashMap<String, SwarmMember>>>,
     session_id: &str,

@@ -535,6 +535,7 @@ pub(super) async fn handle_client(
             ClientConnectionInfo {
                 client_id: client_connection_id.clone(),
                 session_id: client_session_id.clone(),
+                user: None,
                 client_instance_id: None,
                 debug_client_id: None,
                 connected_at,
@@ -1492,8 +1493,10 @@ pub(super) async fn handle_client(
                     if let Some(info) = connections.get_mut(&client_connection_id) {
                         info.client_instance_id = client_instance_id.clone();
                         info.terminal_env = active_terminal_env.clone();
+                        info.user = connection_user.clone();
                     }
                 }
+                let presence_before_session = client_session_id.clone();
                 if let Some(target_session_id) = target_session_id {
                     if crate::session::session_exists(&target_session_id) {
                         let pre_resume_session_id = client_session_id.clone();
@@ -1637,6 +1640,22 @@ pub(super) async fn handle_client(
                     }
                 }
                 client_subscribed = true;
+                // Presence: tell everyone attached (old session too, if this
+                // subscribe moved the connection) who is viewing now.
+                super::state::broadcast_presence(
+                    &swarm_members,
+                    &client_connections,
+                    &client_session_id,
+                )
+                .await;
+                if presence_before_session != client_session_id {
+                    super::state::broadcast_presence(
+                        &swarm_members,
+                        &client_connections,
+                        &presence_before_session,
+                    )
+                    .await;
+                }
             }
 
             Request::GetHistory { id } => {

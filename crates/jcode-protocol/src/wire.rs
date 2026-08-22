@@ -1044,6 +1044,14 @@ pub enum ServerEvent {
         by_user: Option<String>,
     },
 
+    /// Who is attached to this session right now (multiplayer presence).
+    /// Full snapshot on every change — trivially correct across reconnects.
+    #[serde(rename = "presence")]
+    Presence {
+        session_id: String,
+        viewers: Vec<String>,
+    },
+
     #[serde(rename = "user_message")]
     UserMessage {
         session_id: String,

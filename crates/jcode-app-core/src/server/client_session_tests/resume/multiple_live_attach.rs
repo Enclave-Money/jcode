@@ -34,6 +34,7 @@ async fn handle_resume_session_allows_multiple_live_tui_attach() -> Result<()> {
         (
             "conn_existing".to_string(),
             ClientConnectionInfo {
+                user: None,
                 client_id: "conn_existing".to_string(),
                 session_id: target_session_id.to_string(),
                 client_instance_id: None,
@@ -49,6 +50,7 @@ async fn handle_resume_session_allows_multiple_live_tui_attach() -> Result<()> {
         (
             "conn_new".to_string(),
             ClientConnectionInfo {
+                user: None,
                 client_id: "conn_new".to_string(),
                 session_id: temp_session_id.to_string(),
                 client_instance_id: None,

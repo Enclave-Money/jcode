@@ -199,6 +199,12 @@ export type ApiEvent =
       display_title: string;
     }
   | {
+      /** Full snapshot of who is attached to the session (multiplayer presence). */
+      ev: "presence";
+      session_id: string;
+      viewers: string[];
+    }
+  | {
       /** A human-only team note from an attached client (never model context). */
       ev: "team_note";
       session_id: string;
@@ -290,6 +296,7 @@ export const KNOWN_EVENT_KINDS = [
   "compacted",
   "session_renamed",
   "skills",
+  "presence",
   "team_note",
   "user_message",
   "permission_resolved",
