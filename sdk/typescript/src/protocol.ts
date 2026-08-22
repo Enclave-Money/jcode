@@ -69,6 +69,7 @@ export type ApiRequest =
       content: string;
       images?: ImageAttachment[];
       no_reply?: boolean;
+      active_skill?: string;
     }
   | { req: "cancel"; session_id: string }
   | {
@@ -197,6 +198,12 @@ export type ApiEvent =
       display_title: string;
     }
   | {
+      /** Skills installed on the daemon; activate via send_message.active_skill. */
+      ev: "skills";
+      session_id: string;
+      skills: string[];
+    }
+  | {
       /** Another attached client sent a user message (multiplayer co-steering). */
       ev: "user_message";
       session_id: string;
@@ -274,6 +281,7 @@ export const KNOWN_EVENT_KINDS = [
   "file_status",
   "compacted",
   "session_renamed",
+  "skills",
   "user_message",
   "permission_resolved",
 ] as const;

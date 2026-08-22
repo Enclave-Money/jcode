@@ -235,7 +235,11 @@ pub(super) async fn handle_get_model_catalog(
         available_models,
         available_model_routes,
         mcp_servers: Vec::new(),
-        skills: Vec::new(),
+        skills: jcode_base::skill::SkillRegistry::shared_snapshot()
+            .list()
+            .iter()
+            .map(|skill| skill.name.clone())
+            .collect(),
         total_tokens: None,
         token_usage_totals: None,
         all_sessions: Vec::new(),
@@ -527,7 +531,11 @@ async fn send_history_from_persisted_session(
         available_models: Vec::new(),
         available_model_routes: Vec::new(),
         mcp_servers: Vec::new(),
-        skills: Vec::new(),
+        skills: jcode_base::skill::SkillRegistry::shared_snapshot()
+            .list()
+            .iter()
+            .map(|skill| skill.name.clone())
+            .collect(),
         total_tokens: optional_total_tokens(token_usage_totals),
         token_usage_totals: optional_token_usage_totals(token_usage_totals),
         all_sessions,

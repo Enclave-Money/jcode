@@ -11,6 +11,7 @@ fn client_frame_wire_shape() {
             content: "hi".into(),
             images: vec![],
             no_reply: false,
+            active_skill: None,
         },
     );
     let json = serde_json::to_string(&frame).unwrap();
@@ -29,6 +30,7 @@ fn send_message_no_reply_wire_shape_and_legacy_default() {
             content: "context".into(),
             images: vec![],
             no_reply: true,
+            active_skill: None,
         },
     );
     let json = serde_json::to_string(&frame).unwrap();

@@ -240,6 +240,13 @@ pub enum ApiEvent {
         display_title: String,
     },
 
+    /// The skills installed on the daemon, sent unsolicited after attach.
+    /// Activate one by naming it in `send_message.active_skill`.
+    Skills {
+        session_id: String,
+        skills: Vec<String>,
+    },
+
     /// Another attached client sent a user message to this session
     /// (multiplayer co-steering). Never echoed to the sender. `by_user` is
     /// reserved for when the server carries identities.

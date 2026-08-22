@@ -56,6 +56,10 @@ pub enum ApiRequest {
         /// Persist the message as context without starting a model turn.
         #[serde(default, skip_serializing_if = "std::ops::Not::not")]
         no_reply: bool,
+        /// Skill to activate for this and subsequent turns, resolved against
+        /// the daemon's skill registry (names arrive via the `skills` event).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        active_skill: Option<String>,
     },
 
     /// Cancel the in-flight generation.

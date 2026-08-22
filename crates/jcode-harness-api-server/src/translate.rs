@@ -390,6 +390,11 @@ impl BridgeState {
                 {
                     message["images"] = json!(images);
                 }
+                if let Some(skill) = request["active_skill"].as_str()
+                    && !skill.is_empty()
+                {
+                    message["active_skill"] = json!(skill);
+                }
                 vec![Outbound::Legacy(message)]
             }
             "cancel" => {
@@ -832,7 +837,7 @@ impl BridgeState {
                 {
                     self.pending_attach_id = None;
                     let metadata = Self::resolve_session_metadata(&session_id);
-                    return vec![ServerFrame::reply(
+                    let frames = vec![ServerFrame::reply(
                         api_id,
                         ApiEvent::Attached {
                             session: SessionInfo {
@@ -854,6 +859,7 @@ impl BridgeState {
                             },
                         },
                     )];
+                    return frames;
                 }
                 vec![]
             }
@@ -1000,13 +1006,27 @@ impl BridgeState {
                             .collect()
                     })
                     .unwrap_or_default();
-                vec![ServerFrame::reply(
+                let mut frames = vec![ServerFrame::reply(
                     api_id,
                     ApiEvent::History {
                         session_id: session(self),
                         messages,
                     },
-                )]
+                )];
+                // The history payload is where the daemon names its installed
+                // skills — surface them so clients can offer a picker.
+                if let Some(skills) = event["skills"].as_array()
+                    && !skills.is_empty()
+                {
+                    frames.push(ServerFrame::event(ApiEvent::Skills {
+                        session_id: session(self),
+                        skills: skills
+                            .iter()
+                            .filter_map(|skill| skill.as_str().map(str::to_string))
+                            .collect(),
+                    }));
+                }
+                frames
             }
             // The model can change mid-session (`/model`, a cycle, or an auth
             // change re-resolving the route), so both pushes are forwarded.
