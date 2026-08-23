@@ -33,6 +33,10 @@
   .perm button { margin-right:8px; padding:8px 14px; border-radius:8px; border:1px solid var(--line);
                  background:var(--panel); color:var(--fg); font-size:14px; }
   .perm button.allow { background:var(--accent); border-color:var(--accent); color:#fff; }
+  .row.note { border-left:3px solid #66A5DD; background:#161b22; border-radius:0 10px 10px 0;
+              padding:7px 10px; font-size:13px; color:var(--dim); }
+  .row.note .nwho { color:#66A5DD; font-weight:600; font-size:11.5px; }
+  .vc { font-size:11px; color:var(--dim); margin-left:8px; font-weight:400; }
   .working { color:var(--dim); font-size:13px; padding:4px 0; }
   .working::after { content:"…"; animation: pulse 1.2s infinite; }
   @keyframes pulse { 50% { opacity:0.3; } }
@@ -171,6 +175,7 @@ async function attach(sessionId, title) {
     for (const m of h.messages || []) {
       if (m.role === "user") row("user", "you", m.content);
       else if (m.role === "assistant") row("agent", "blaude", m.content);
+      else if (m.role === "note") noteRow("note", m.content);
       else row("tool", "", m.content.slice(0, 200));
     }
     scroll();
@@ -183,6 +188,8 @@ function onEvent(f) {
   switch (f.ev) {
     case "text_delta": setWorking(true); stream(f.text); break;
     case "user_message": streamEl = null; row("user", f.by_user || "teammate", f.content); break;
+    case "team_note": noteRow(f.by_user || "teammate", f.content); break;
+    case "presence": setViewers(f.viewers || []); break;
     case "tool_start": streamEl = null; setWorking(true); row("tool", "", "▸ " + f.name); break;
     case "tool_done": break;
     case "turn_done": setWorking(false); streamEl = null; break;
@@ -198,6 +205,23 @@ function stream(text) {
   }
   streamEl.querySelector(".bubble").textContent += text;
   scroll();
+}
+function noteRow(who, text) {
+  const div = document.createElement("div");
+  div.className = "row note";
+  const w = document.createElement("span"); w.className = "nwho"; w.textContent = who;
+  const b = document.createElement("span"); b.textContent = " " + text;
+  div.append(w, b);
+  $("chat").append(div); scroll();
+}
+function setViewers(viewers) {
+  let el = document.getElementById("viewers");
+  if (!el) {
+    el = document.createElement("span"); el.id = "viewers"; el.className = "vc";
+    document.querySelector("header h1").after(el);
+  }
+  el.textContent = viewers.length > 1 ? viewers.length + " viewing" : "";
+  el.title = viewers.join(", ");
 }
 function row(kind, who, text) {
   const div = document.createElement("div"); div.className = "row " + kind;
