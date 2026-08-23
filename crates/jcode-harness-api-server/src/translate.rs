@@ -267,6 +267,33 @@ impl BridgeState {
         }
 
         match req {
+            "add_dir" => {
+                let session_id = request["session_id"].as_str().unwrap_or_default();
+                // Only the attached session may be granted directories over
+                // this connection — the grant lands in the model's context,
+                // so it must never be attachable to someone else's session.
+                if self.session_id.as_deref() != Some(session_id) {
+                    return Self::error_reply(
+                        api_id,
+                        ErrorCode::UnknownSession,
+                        "add_dir targets a session this connection is not attached to",
+                    );
+                }
+                let path = request["path"].as_str().unwrap_or_default();
+                if !std::path::Path::new(path).is_absolute()
+                    || !std::path::Path::new(path).is_dir()
+                {
+                    return Self::error_reply(
+                        api_id,
+                        ErrorCode::InvalidRequest,
+                        "add_dir path must be an absolute path to an existing directory",
+                    );
+                }
+                match Self::grant_additional_dir(session_id, path) {
+                    Ok(()) => vec![Outbound::Reply(ServerFrame::reply(api_id, ApiEvent::Ok))],
+                    Err(message) => Self::error_reply(api_id, ErrorCode::Internal, &message),
+                }
+            }
             "archive_session" => {
                 let session_id = request["session_id"].as_str().unwrap_or_default();
                 if Self::session_record_path(session_id).is_none_or(|path| !path.is_file()) {
@@ -336,10 +363,25 @@ impl BridgeState {
                     None
                 };
                 self.pending_model_probe = Some(catalog_id);
+                // Subscribe REQUIRES a working_dir, and the daemon re-binds the
+                // session to whatever we send. For an attach that means the
+                // target's OWN stored dir — sending a fallback here would
+                // silently move the session (home used to overwrite every
+                // resumed session's dir, which clients then read as poison).
+                let attach_target_dir = if req == "attach_session" {
+                    request["session_id"]
+                        .as_str()
+                        .and_then(Self::resolve_session_metadata)
+                        .and_then(|metadata| metadata.working_dir)
+                        .filter(|dir| dir != "/")
+                } else {
+                    None
+                };
                 let working_dir =
                     request["working_dir"]
                         .as_str()
                         .map(str::to_string)
+                        .or(attach_target_dir)
                         .or_else(|| std::env::var("HOME").ok())
                         .or_else(|| {
                             std::env::current_dir()
@@ -1420,6 +1462,36 @@ impl BridgeState {
     /// the daemon persists. Best-effort by design: an unreadable or missing
     /// record simply leaves the session ungrouped rather than failing the
     /// list, and results are cached because this is on a poll path.
+    /// The write half of `/add-dir`: load-fresh -> mutate -> save on the
+    /// session snapshot, the same pattern the remote TUI uses for metadata
+    /// (`/rename`). `additional_dirs` is serde-defaulted, so appending to the
+    /// raw JSON is safe for sessions written before the field existed.
+    fn grant_additional_dir(session_id: &str, path: &str) -> Result<(), String> {
+        let record = Self::session_record_path(session_id)
+            .filter(|record| record.is_file())
+            .ok_or_else(|| "session record not found".to_string())?;
+        let text = std::fs::read_to_string(&record).map_err(|e| e.to_string())?;
+        let mut value: serde_json::Value =
+            serde_json::from_str(&text).map_err(|e| e.to_string())?;
+        let dirs = value
+            .as_object_mut()
+            .ok_or_else(|| "session record is not an object".to_string())?
+            .entry("additional_dirs")
+            .or_insert_with(|| serde_json::Value::Array(Vec::new()));
+        let list = dirs
+            .as_array_mut()
+            .ok_or_else(|| "additional_dirs is not a list".to_string())?;
+        if list.iter().any(|entry| entry.as_str() == Some(path)) {
+            return Ok(());
+        }
+        list.push(serde_json::Value::String(path.to_string()));
+        let serialized = serde_json::to_string(&value).map_err(|e| e.to_string())?;
+        // Write-then-rename so a crash mid-write can't truncate the record.
+        let tmp = record.with_extension("json.tmp");
+        std::fs::write(&tmp, serialized).map_err(|e| e.to_string())?;
+        std::fs::rename(&tmp, &record).map_err(|e| e.to_string())
+    }
+
     fn resolve_session_metadata(session_id: &str) -> Option<PersistedSessionMetadata> {
         let path = Self::session_record_path(session_id)?;
         // A missing or malformed record is expected (a session may predate the

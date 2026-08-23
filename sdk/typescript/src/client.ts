@@ -420,6 +420,12 @@ export class JcodeClient extends EventEmitter {
   }
 
   /** Reversibly hide a session from the default list. No transcript is deleted. */
+  /** Grant the attached session an extra working directory (the wire form
+   * of the TUI's `/add-dir`). Granting one it already has is a no-op. */
+  async addDir(sessionId: string, path: string): Promise<void> {
+    await this.requestOk({ req: "add_dir", session_id: sessionId, path });
+  }
+
   async archiveSession(sessionId: string): Promise<void> {
     await this.requestOk({ req: "archive_session", session_id: sessionId });
   }

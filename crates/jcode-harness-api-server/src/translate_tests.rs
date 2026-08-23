@@ -1595,3 +1595,39 @@ fn attaching_a_live_session_still_binds_it() {
     assert!(matches!(&frames[0].event, ApiEvent::Attached { session } if session.session_id == "s9"));
     assert_eq!(state.session_id.as_deref(), Some("s9"));
 }
+
+/// add_dir mutates the model's context, so it must only ever apply to the
+/// session THIS connection is attached to — never an arbitrary session id.
+#[test]
+fn add_dir_refuses_a_session_the_connection_is_not_attached_to() {
+    let mut state = state_with_session();
+    let out = state.api_request_to_legacy(&json!({
+        "req": "add_dir", "id": 3, "session_id": "someone_elses", "path": "/tmp",
+    }));
+    let Outbound::Reply(frame) = &out[0] else {
+        panic!("expected a local reply");
+    };
+    assert_eq!(frame.reply_to, Some(3));
+    assert!(matches!(
+        &frame.event,
+        ApiEvent::Error { code: ErrorCode::UnknownSession, .. }
+    ));
+}
+
+/// A relative or missing path is refused before any file is touched.
+#[test]
+fn add_dir_refuses_relative_and_missing_paths() {
+    let mut state = state_with_session();
+    for path in ["relative/dir", "/definitely/not/a/real/dir/xyz"] {
+        let out = state.api_request_to_legacy(&json!({
+            "req": "add_dir", "id": 5, "session_id": "s1", "path": path,
+        }));
+        let Outbound::Reply(frame) = &out[0] else {
+            panic!("expected a local reply");
+        };
+        assert!(
+            matches!(&frame.event, ApiEvent::Error { code: ErrorCode::InvalidRequest, .. }),
+            "path {path} must be refused"
+        );
+    }
+}

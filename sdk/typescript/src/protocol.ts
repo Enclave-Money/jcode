@@ -57,6 +57,7 @@ export type ImageAttachment = [string, string];
 export type ApiRequest =
   | { req: "hello"; min_version: number; max_version: number; client: string }
   | { req: "list_sessions"; include_archived?: boolean }
+  | { req: "add_dir"; session_id: string; path: string }
   | { req: "archive_session"; session_id: string }
   | { req: "restore_session"; session_id: string }
   | { req: "set_retention_policy"; archive_after_days?: number }
@@ -309,6 +310,7 @@ export const KNOWN_EVENT_KINDS = [
 export const KNOWN_REQUEST_KINDS = [
   "hello",
   "list_sessions",
+  "add_dir",
   "archive_session",
   "restore_session",
   "set_retention_policy",

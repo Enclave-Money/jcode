@@ -21,6 +21,11 @@ pub enum ApiRequest {
         include_archived: bool,
     },
 
+    /// Grant the session an extra working directory (the wire form of the
+    /// TUI's `/add-dir`): recorded in session metadata and surfaced in the
+    /// session context. Adding a directory it already has is an Ok no-op.
+    AddDir { session_id: String, path: String },
+
     /// Reversibly hide a session from the default list. Its transcript remains
     /// on disk and can be restored at any time.
     ArchiveSession { session_id: String },
