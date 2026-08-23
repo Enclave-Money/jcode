@@ -1575,6 +1575,10 @@ pub(super) async fn handle_client(
                             if let Some(snapshot) = try_available_models_snapshot(&agent) {
                                 last_available_models_snapshot = Some(snapshot);
                             }
+                            remove_abandoned_placeholder_session(
+                                &pre_resume_session_id,
+                                &client_session_id,
+                            );
                         } else {
                             crate::logging::warn(&format!(
                                 "Target-aware subscribe failed to bind {} from temporary {}; closing temporary client connection {}",
@@ -3376,3 +3380,36 @@ pub(super) async fn process_message_streaming_mpsc(
 #[cfg(test)]
 #[path = "client_lifecycle_tests.rs"]
 mod tests;
+
+/// A target-aware subscribe binds a fresh placeholder session first and only
+/// then resumes the requested one. The placeholder is never visible to the
+/// client, but its snapshot file — one priming reminder, no conversation —
+/// used to survive as a ghost row in every session list (one per attach).
+/// Delete it once the resume commits, and only if nothing beyond system
+/// priming ever landed in it.
+fn remove_abandoned_placeholder_session(placeholder_id: &str, resumed_id: &str) {
+    if placeholder_id == resumed_id {
+        return;
+    }
+    let Ok(path) = crate::session::session_path(placeholder_id) else {
+        return;
+    };
+    let Ok(text) = std::fs::read_to_string(&path) else {
+        return;
+    };
+    let Ok(value) = serde_json::from_str::<serde_json::Value>(&text) else {
+        return;
+    };
+    let only_priming = value["messages"].as_array().is_some_and(|messages| {
+        messages
+            .iter()
+            .all(|message| message["display_role"].as_str() == Some("system"))
+    });
+    if !only_priming {
+        return;
+    }
+    let _ = std::fs::remove_file(&path);
+    if let Ok(journal) = crate::session::session_journal_path(placeholder_id) {
+        let _ = std::fs::remove_file(journal);
+    }
+}

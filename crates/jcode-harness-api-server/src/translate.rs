@@ -97,6 +97,10 @@ pub struct BridgeState {
     pending_no_reply_message_id: Option<(u64, u64)>,
     /// Legacy id of an in-flight `create/attach` subscribe.
     pending_attach_id: Option<(u64, u64)>,
+    /// attach_session's requested id — a state reply naming a *different*
+    /// session means the target is gone and the attach must fail loudly,
+    /// never silently bind the fresh placeholder the daemon offers.
+    pending_attach_target: Option<String>,
     /// Legacy id of the unsolicited model-catalog probe sent after attach. Its
     /// reply becomes a `model_info` event rather than a request reply, so it is
     /// tracked apart from `pending_simple`.
@@ -326,11 +330,17 @@ impl BridgeState {
                 let state_id = self.legacy_id();
                 let catalog_id = self.legacy_id();
                 self.pending_attach_id = Some((state_id, api_id));
+                self.pending_attach_target = if req == "attach_session" {
+                    request["session_id"].as_str().map(str::to_string)
+                } else {
+                    None
+                };
                 self.pending_model_probe = Some(catalog_id);
                 let working_dir =
                     request["working_dir"]
                         .as_str()
                         .map(str::to_string)
+                        .or_else(|| std::env::var("HOME").ok())
                         .or_else(|| {
                             std::env::current_dir()
                                 .ok()
@@ -843,14 +853,40 @@ impl BridgeState {
             }
             "state" => {
                 let session_id = event["session_id"].as_str().unwrap_or("").to_string();
+                let id = event["id"].as_u64().unwrap_or(0);
+                // The daemon answers a target-aware subscribe whose target no
+                // longer exists (pruned, expired, daemon restarted) by keeping
+                // the fresh placeholder it made for the connection. Binding
+                // that placeholder would silently replace the client's session
+                // with an empty one rooted who-knows-where — the client asked
+                // for THAT session, so a different id is an error.
+                if let Some((state_id, api_id)) = self.pending_attach_id
+                    && state_id == id
+                    && let Some(requested) = self.pending_attach_target.clone()
+                    && !session_id.is_empty()
+                    && requested != session_id
+                {
+                    self.pending_attach_id = None;
+                    self.pending_attach_target = None;
+                    self.session_id = None;
+                    return vec![ServerFrame::reply(
+                        api_id,
+                        ApiEvent::Error {
+                            code: ErrorCode::UnknownSession,
+                            message: format!(
+                                "session `{requested}` no longer exists (pruned, or the daemon restarted); create a new session instead"
+                            ),
+                        },
+                    )];
+                }
                 if !session_id.is_empty() {
                     self.session_id = Some(session_id.clone());
                 }
-                let id = event["id"].as_u64().unwrap_or(0);
                 if let Some((state_id, api_id)) = self.pending_attach_id
                     && state_id == id
                 {
                     self.pending_attach_id = None;
+                    self.pending_attach_target = None;
                     let metadata = Self::resolve_session_metadata(&session_id);
                     let frames = vec![ServerFrame::reply(
                         api_id,

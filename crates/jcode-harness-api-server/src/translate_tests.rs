@@ -1541,3 +1541,57 @@ fn foreign_turn_terminal_becomes_turn_done() {
     // The boundary is consumed: the next stray done is silent again.
     assert!(state.legacy_event_to_api(&json!({"type": "done", "id": 480})).is_empty());
 }
+
+/// Attaching to a session that no longer exists must FAIL, not silently bind
+/// the placeholder the daemon creates for the connection. The daemon reports
+/// the swap via `state` naming a different session id; that is an
+/// unknown_session error to the client — never an `attached` for a session it
+/// did not ask for (empty transcript, wrong working dir).
+#[test]
+fn attaching_a_dead_session_errors_instead_of_binding_the_placeholder() {
+    let mut state = BridgeState::default();
+    let out = state.api_request_to_legacy(&json!({
+        "req": "attach_session", "id": 4, "session_id": "session_gone",
+    }));
+    let Outbound::Legacy(get_state) = &out[1] else {
+        panic!("expected the pipelined get_state");
+    };
+    let state_id = get_state["id"].as_u64().unwrap();
+
+    let frames = state.legacy_event_to_api(&json!({
+        "type": "state", "id": state_id, "session_id": "session_fresh_placeholder",
+    }));
+    assert_eq!(frames.len(), 1);
+    assert_eq!(frames[0].reply_to, Some(4));
+    match &frames[0].event {
+        ApiEvent::Error { code, message } => {
+            assert_eq!(*code, ErrorCode::UnknownSession);
+            assert!(message.contains("session_gone"), "names the target: {message}");
+        }
+        other => panic!("expected an unknown_session error, got {other:?}"),
+    }
+    assert!(
+        state.session_id.is_none(),
+        "the connection must stay unattached after a refused swap"
+    );
+}
+
+/// The same state reply naming the id that WAS requested is a normal attach.
+#[test]
+fn attaching_a_live_session_still_binds_it() {
+    let mut state = BridgeState::default();
+    let out = state.api_request_to_legacy(&json!({
+        "req": "attach_session", "id": 4, "session_id": "s9",
+    }));
+    let Outbound::Legacy(get_state) = &out[1] else {
+        panic!("expected the pipelined get_state");
+    };
+    let state_id = get_state["id"].as_u64().unwrap();
+
+    let frames = state.legacy_event_to_api(&json!({
+        "type": "state", "id": state_id, "session_id": "s9",
+    }));
+    assert_eq!(frames[0].reply_to, Some(4));
+    assert!(matches!(&frames[0].event, ApiEvent::Attached { session } if session.session_id == "s9"));
+    assert_eq!(state.session_id.as_deref(), Some("s9"));
+}
