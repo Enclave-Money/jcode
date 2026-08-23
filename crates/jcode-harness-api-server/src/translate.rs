@@ -396,6 +396,11 @@ impl BridgeState {
                 {
                     message["active_skill"] = json!(skill);
                 }
+                if let Some(reminder) = request["system_reminder"].as_str()
+                    && !reminder.is_empty()
+                {
+                    message["system_reminder"] = json!(reminder);
+                }
                 vec![Outbound::Legacy(message)]
             }
             "cancel" => {

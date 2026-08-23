@@ -661,6 +661,7 @@ impl JcodeClient {
             images,
             no_reply: false,
             active_skill: None,
+            system_reminder: None,
         })?;
         if let (Some(stream), Some(timeout)) = (stream, wait_for_accept) {
             let deadline = std::time::Instant::now() + timeout;

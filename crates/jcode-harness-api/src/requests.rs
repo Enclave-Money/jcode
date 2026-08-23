@@ -60,6 +60,10 @@ pub enum ApiRequest {
         /// the daemon's skill registry (names arrive via the `skills` event).
         #[serde(default, skip_serializing_if = "Option::is_none")]
         active_skill: Option<String>,
+        /// Client-side working-mode reminder injected for this turn (the
+        /// Shift+Tab plan/ask/manual texts) — same slot the TUI uses.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        system_reminder: Option<String>,
     },
 
     /// Cancel the in-flight generation.

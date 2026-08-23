@@ -70,6 +70,7 @@ export type ApiRequest =
       images?: ImageAttachment[];
       no_reply?: boolean;
       active_skill?: string;
+      system_reminder?: string;
     }
   | { req: "cancel"; session_id: string }
   | { req: "send_team_note"; session_id: string; content: string }
