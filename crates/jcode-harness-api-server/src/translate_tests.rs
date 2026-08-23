@@ -1661,3 +1661,27 @@ fn install_skill_validation_accepts_repo_urls_and_refuses_junk() {
         );
     }
 }
+
+/// A granted directory means nothing until the model hears about it: add_dir
+/// queues a reminder and the NEXT send_message must carry it, merged after
+/// any reminder the client sent itself, then stop repeating.
+#[test]
+fn add_dir_reminder_rides_the_next_message() {
+    let mut state = state_with_session();
+    state.pending_dir_reminders.push("Added additional working directory: /tmp/x.".to_string());
+
+    let out = state.api_request_to_legacy(&json!({
+        "req": "send_message", "id": 9, "session_id": "s1",
+        "content": "hi", "system_reminder": "Plan mode is ON.",
+    }));
+    let Outbound::Legacy(message) = &out[0] else { panic!("expected legacy message") };
+    let reminder = message["system_reminder"].as_str().unwrap();
+    assert!(reminder.starts_with("Plan mode is ON."), "client reminder first: {reminder}");
+    assert!(reminder.contains("/tmp/x"), "grant appended: {reminder}");
+
+    let out = state.api_request_to_legacy(&json!({
+        "req": "send_message", "id": 10, "session_id": "s1", "content": "again",
+    }));
+    let Outbound::Legacy(message) = &out[0] else { panic!("expected legacy message") };
+    assert!(message["system_reminder"].is_null(), "reminder must not repeat");
+}

@@ -101,6 +101,11 @@ pub struct BridgeState {
     /// session means the target is gone and the attach must fail loudly,
     /// never silently bind the fresh placeholder the daemon offers.
     pending_attach_target: Option<String>,
+    /// Directory grants the model has not been told about yet. Session
+    /// metadata alone changes nothing for a LIVE session (its context priming
+    /// was built at creation), so add_dir queues a reminder here and the next
+    /// send_message carries it — the same pairing the TUI's /add-dir uses.
+    pub(crate) pending_dir_reminders: Vec<String>,
     /// Legacy id of the unsolicited model-catalog probe sent after attach. Its
     /// reply becomes a `model_info` event rather than a request reply, so it is
     /// tracked apart from `pending_simple`.
@@ -160,6 +165,9 @@ struct ArchiveState {
 struct PersistedSessionMetadata {
     #[serde(default)]
     working_dir: Option<String>,
+    /// Extra working directories granted via add_dir / the TUI's /add-dir.
+    #[serde(default)]
+    additional_dirs: Vec<String>,
     /// Generated or imported title.
     #[serde(default)]
     title: Option<String>,
@@ -346,7 +354,14 @@ impl BridgeState {
                     );
                 }
                 match Self::grant_additional_dir(session_id, path) {
-                    Ok(()) => vec![Outbound::Reply(ServerFrame::reply(api_id, ApiEvent::Ok))],
+                    Ok(()) => {
+                        // Metadata alone is invisible to a live session; the
+                        // next prompt carries the news.
+                        self.pending_dir_reminders.push(format!(
+                            "Added additional working directory: {path}. Treat it as in-scope project code alongside the primary working directory, which is unchanged."
+                        ));
+                        vec![Outbound::Reply(ServerFrame::reply(api_id, ApiEvent::Ok))]
+                    }
                     Err(message) => Self::error_reply(api_id, ErrorCode::Internal, &message),
                 }
             }
@@ -504,9 +519,20 @@ impl BridgeState {
                 {
                     message["active_skill"] = json!(skill);
                 }
-                if let Some(reminder) = request["system_reminder"].as_str()
-                    && !reminder.is_empty()
-                {
+                let mut reminder = request["system_reminder"]
+                    .as_str()
+                    .unwrap_or_default()
+                    .to_string();
+                if !self.pending_dir_reminders.is_empty() {
+                    let dirs = self.pending_dir_reminders.join("\n");
+                    self.pending_dir_reminders.clear();
+                    if reminder.is_empty() {
+                        reminder = dirs;
+                    } else {
+                        reminder = format!("{reminder}\n\n{dirs}");
+                    }
+                }
+                if !reminder.is_empty() {
                     message["system_reminder"] = json!(reminder);
                 }
                 vec![Outbound::Legacy(message)]
@@ -986,6 +1012,19 @@ impl BridgeState {
                     self.pending_attach_id = None;
                     self.pending_attach_target = None;
                     let metadata = Self::resolve_session_metadata(&session_id);
+                    // A resumed session's context priming predates any add_dir
+                    // grants — restate them so the model knows its full
+                    // workspace on this connection's first prompt.
+                    if let Some(dirs) = metadata
+                        .as_ref()
+                        .map(|metadata| metadata.additional_dirs.clone())
+                        .filter(|dirs| !dirs.is_empty())
+                    {
+                        self.pending_dir_reminders.push(format!(
+                            "This session's workspace also includes these additional working directories (granted via add-dir): {}. Treat them as in-scope project code alongside the working directory.",
+                            dirs.join(", ")
+                        ));
+                    }
                     let frames = vec![ServerFrame::reply(
                         api_id,
                         ApiEvent::Attached {
