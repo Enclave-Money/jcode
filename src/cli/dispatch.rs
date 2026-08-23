@@ -327,6 +327,12 @@ pub(crate) async fn run_main(mut args: Args) -> Result<()> {
         }
         Some(Command::Auth(subcmd)) => match subcmd {
             AuthCommand::Status { json } => commands::run_auth_status_command(json)?,
+            AuthCommand::ImportClaudeCode => {
+                crate::auth::claude::trust_native_source()?;
+                let label = crate::auth::claude::import_native_credentials_into_account_labeled(None)?;
+                crate::auth::claude::set_active_account(&label)?;
+                println!("Imported Claude Code credentials as account `{label}` (now active).");
+            }
             AuthCommand::Doctor {
                 provider,
                 validate,

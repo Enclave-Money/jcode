@@ -1103,6 +1103,10 @@ pub(crate) enum AuthCommand {
         #[arg(long)]
         json: bool,
     },
+    /// Import Claude Code's native credentials (macOS Keychain or
+    /// CLAUDE_CODE_OAUTH_TOKEN) into blaude's own account store as an
+    /// additional Anthropic account, and make it active. Non-interactive.
+    ImportClaudeCode,
 }
 
 #[derive(Subcommand, Debug)]

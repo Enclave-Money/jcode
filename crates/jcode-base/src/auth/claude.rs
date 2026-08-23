@@ -911,6 +911,14 @@ pub fn trust_native_source() -> Result<()> {
 ///
 /// Returns the label of the account the credentials were stored under.
 pub fn import_native_credentials_into_account() -> Result<String> {
+    import_native_credentials_into_account_labeled(None)
+}
+
+/// Like [`import_native_credentials_into_account`], but with an explicit
+/// label request. Passing `None` used to resolve to the ACTIVE account's
+/// label, silently overwriting its tokens with the imported ones — an import
+/// must create a distinct account unless the caller names a target.
+pub fn import_native_credentials_into_account_labeled(requested: Option<&str>) -> Result<String> {
     let creds = load_native_credentials()
         .context("Could not read Claude Code native credentials to import")?;
 
@@ -923,7 +931,20 @@ pub fn import_native_credentials_into_account() -> Result<String> {
         );
     }
 
-    let label = login_target_label(None)?;
+    let label = match requested {
+        Some(name) => login_target_label(Some(name))?,
+        // A fresh, non-colliding label: never the active account's.
+        None => {
+            let auth = load_auth_file()?;
+            let mut n = auth.anthropic_accounts.len() + 1;
+            let mut candidate = format!("{ACCOUNT_LABEL_PREFIX}-import");
+            while auth.anthropic_accounts.iter().any(|a| a.label == candidate) {
+                n += 1;
+                candidate = format!("{ACCOUNT_LABEL_PREFIX}-import-{n}");
+            }
+            candidate
+        }
+    };
     upsert_account(AnthropicAccount {
         label: label.clone(),
         access: creds.access_token,
