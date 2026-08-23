@@ -128,6 +128,11 @@ test-support = ["jcode-base/test-support"]
 [dev-dependencies]
 # Used by async streaming tests (ambient/runner_tests, server/client_actions_tests).
 async-stream = "0.3"
+# Runs `test_home`'s sandbox installer before the unit-test binary's first test,
+# so tests that never set JCODE_HOME themselves cannot write sessions into the
+# developer's real ~/.jcode. Dev-dependency + #[cfg(test)]: never in any build
+# of the daemon, including dev builds that enable `test-support`.
+ctor = "1"
 # Enables jcode-base's test-support helpers (storage::lock_test_env,
 # auth::test_sandbox, bus::reset_models_updated_publish_state_for_tests) for
 # *this* crate's own test target. Feature unification applies this only to

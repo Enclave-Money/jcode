@@ -687,7 +687,11 @@ mod utf8_truncation_tests {
 
         match prev_home {
             Some(prev) => crate::env::set_var("JCODE_HOME", prev),
-            None => crate::env::remove_var("JCODE_HOME"),
+            None => {
+                // Fall back to the shared sandbox, not an unset home: unsetting
+                // sends every later test in this binary back to the real ~/.jcode.
+                crate::test_home::use_shared_test_home();
+            }
         }
         if let Some(prev) = prev_scratch {
             crate::env::set_var("JCODE_SCRATCH_DIR", prev);

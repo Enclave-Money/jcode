@@ -47,6 +47,8 @@ pub mod session_rebuild;
 pub mod setup_hints;
 pub mod ssh_remote;
 pub mod startup_profile;
+#[cfg(any(test, feature = "test-support"))]
+pub mod test_home;
 pub mod tool;
 pub mod turn_cancel_registry;
 pub mod update;

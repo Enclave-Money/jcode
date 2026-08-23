@@ -284,7 +284,13 @@ fn prepare_visible_spawn_session_persists_startup_before_launch() {
         "startup file should remain for launched visible session"
     );
 
-    crate::env::remove_var("JCODE_HOME");
+    // Restore the shared test sandbox rather than unsetting the var: an
+
+    // unset home sends every later test in this binary back to the real
+
+    // ~/.jcode.
+
+    crate::test_home::use_shared_test_home();
 }
 
 #[test]
@@ -320,7 +326,13 @@ fn prepare_visible_spawn_session_cleans_startup_when_launch_not_started() {
         "prepared session should be cleaned up when visible launch does not start"
     );
 
-    crate::env::remove_var("JCODE_HOME");
+    // Restore the shared test sandbox rather than unsetting the var: an
+
+    // unset home sends every later test in this binary back to the real
+
+    // ~/.jcode.
+
+    crate::test_home::use_shared_test_home();
 }
 
 #[test]
@@ -357,7 +369,13 @@ fn prepare_visible_spawn_session_cleans_session_when_launch_errors() {
         "failed visible launch should not leave orphan prepared sessions"
     );
 
-    crate::env::remove_var("JCODE_HOME");
+    // Restore the shared test sandbox rather than unsetting the var: an
+
+    // unset home sends every later test in this binary back to the real
+
+    // ~/.jcode.
+
+    crate::test_home::use_shared_test_home();
 }
 
 #[test]
@@ -387,7 +405,13 @@ fn prepare_visible_spawn_session_persists_and_launches_provider_key_for_openrout
     assert_eq!(session.model.as_deref(), Some("openai/gpt-5.4@OpenAI"));
     assert_eq!(session.provider_key.as_deref(), Some("openrouter"));
 
-    crate::env::remove_var("JCODE_HOME");
+    // Restore the shared test sandbox rather than unsetting the var: an
+
+    // unset home sends every later test in this binary back to the real
+
+    // ~/.jcode.
+
+    crate::test_home::use_shared_test_home();
 }
 
 #[test]
@@ -418,7 +442,13 @@ fn prepare_visible_spawn_session_persists_requested_effort() {
         "requested effort should persist so the headed client restores it"
     );
 
-    crate::env::remove_var("JCODE_HOME");
+    // Restore the shared test sandbox rather than unsetting the var: an
+
+    // unset home sends every later test in this binary back to the real
+
+    // ~/.jcode.
+
+    crate::test_home::use_shared_test_home();
 }
 
 #[test]
@@ -448,7 +478,13 @@ fn prepare_visible_spawn_session_prefers_parent_provider_key_over_model_guess() 
     assert_eq!(session.model.as_deref(), Some("gpt-5.4"));
     assert_eq!(session.provider_key.as_deref(), Some("ollama"));
 
-    crate::env::remove_var("JCODE_HOME");
+    // Restore the shared test sandbox rather than unsetting the var: an
+
+    // unset home sends every later test in this binary back to the real
+
+    // ~/.jcode.
+
+    crate::test_home::use_shared_test_home();
 }
 
 fn coordinator_identity(
@@ -757,7 +793,13 @@ async fn coordinator_identity_falls_back_to_persisted_session_when_agent_busy() 
     assert_eq!(identity.provider_key.as_deref(), Some("claude-api"));
     assert_eq!(identity.route_api_method.as_deref(), Some("claude-api"));
 
-    crate::env::remove_var("JCODE_HOME");
+    // Restore the shared test sandbox rather than unsetting the var: an
+
+    // unset home sends every later test in this binary back to the real
+
+    // ~/.jcode.
+
+    crate::test_home::use_shared_test_home();
 }
 
 #[tokio::test]

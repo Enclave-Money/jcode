@@ -1937,7 +1937,11 @@ mod tests {
 
         match previous_home {
             Some(value) => crate::env::set_var("JCODE_HOME", value),
-            None => crate::env::remove_var("JCODE_HOME"),
+            None => {
+                // Fall back to the shared sandbox, not an unset home: unsetting
+                // sends every later test in this binary back to the real ~/.jcode.
+                crate::test_home::use_shared_test_home();
+            }
         }
     }
 
@@ -2002,7 +2006,11 @@ mod tests {
 
         match previous_home {
             Some(value) => crate::env::set_var("JCODE_HOME", value),
-            None => crate::env::remove_var("JCODE_HOME"),
+            None => {
+                // Fall back to the shared sandbox, not an unset home: unsetting
+                // sends every later test in this binary back to the real ~/.jcode.
+                crate::test_home::use_shared_test_home();
+            }
         }
     }
 
