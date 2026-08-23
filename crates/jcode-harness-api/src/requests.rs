@@ -21,6 +21,13 @@ pub enum ApiRequest {
         include_archived: bool,
     },
 
+    /// Install a skill from a github.com/owner/repo URL into
+    /// `~/.jcode/skills/<repo>` and reload the daemon's skill registry, so
+    /// the skill is usable without a restart. Connection-scoped, no session
+    /// required; clients should send it on a spare connection (the clone
+    /// stalls the pipe it runs on).
+    InstallSkill { url: String },
+
     /// Grant the session an extra working directory (the wire form of the
     /// TUI's `/add-dir`): recorded in session metadata and surfaced in the
     /// session context. Adding a directory it already has is an Ok no-op.

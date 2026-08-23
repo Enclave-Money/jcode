@@ -426,6 +426,12 @@ export class JcodeClient extends EventEmitter {
     await this.requestOk({ req: "add_dir", session_id: sessionId, path });
   }
 
+  /** Install a skill from a github.com/owner/repo URL and reload the
+   * daemon's registry. Use a spare connection — the clone stalls the pipe. */
+  async installSkill(url: string): Promise<void> {
+    await this.requestOk({ req: "install_skill", url });
+  }
+
   async archiveSession(sessionId: string): Promise<void> {
     await this.requestOk({ req: "archive_session", session_id: sessionId });
   }

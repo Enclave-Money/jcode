@@ -588,6 +588,7 @@ impl Request {
             Request::CycleModel { id, .. } => *id,
             Request::RefreshModels { id } => *id,
             Request::SetModel { id, .. } => *id,
+            Request::ReloadSkills { id } => *id,
             Request::SetRoute { id, .. } => *id,
             Request::SetSubagentModel { id, .. } => *id,
             Request::RunSubagent { id, .. } => *id,
@@ -646,6 +647,7 @@ impl Request {
         matches!(
             self,
             Request::Ping { .. }
+                | Request::ReloadSkills { .. }
                 | Request::CommShare { .. }
                 | Request::CommRead { .. }
                 | Request::CommMessage { .. }

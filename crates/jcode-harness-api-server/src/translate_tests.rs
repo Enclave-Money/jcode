@@ -1631,3 +1631,33 @@ fn add_dir_refuses_relative_and_missing_paths() {
         );
     }
 }
+
+/// install_skill URL validation: only github.com/owner/repo shapes pass, and
+/// the parsed identity is exactly (clone url, repo name).
+#[test]
+fn install_skill_validation_accepts_repo_urls_and_refuses_junk() {
+    let ok = BridgeState::validate_skill_install("https://github.com/acme/my-skill");
+    let (clone_url, name, _dest) = ok.expect("plain repo URL");
+    assert_eq!(clone_url, "https://github.com/acme/my-skill.git");
+    assert_eq!(name, "my-skill");
+
+    let (clone_url, name, _dest) =
+        BridgeState::validate_skill_install("github.com/acme/my-skill.git/").expect("bare + .git");
+    assert_eq!(clone_url, "https://github.com/acme/my-skill.git");
+    assert_eq!(name, "my-skill");
+
+    for junk in [
+        "",
+        "https://example.com/acme/skill",
+        "https://github.com/acme",
+        "https://github.com/acme/skill/extra",
+        "https://github.com/../etc",
+        "https://github.com/acme/..",
+        "https://github.com/acme/a b",
+    ] {
+        assert!(
+            BridgeState::validate_skill_install(junk).is_err(),
+            "{junk:?} must be refused"
+        );
+    }
+}

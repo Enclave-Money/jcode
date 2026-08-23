@@ -244,6 +244,12 @@ pub enum Request {
     #[serde(rename = "set_model")]
     SetModel { id: u64, model: String },
 
+    /// Reload the daemon's global skill registry from disk — the follow-up to
+    /// installing or removing a skill under `~/.jcode/skills` — and answer
+    /// with `Done`. New skills become loadable without a daemon restart.
+    #[serde(rename = "reload_skills")]
+    ReloadSkills { id: u64 },
+
     /// Set the active model by structured route identity.
     #[serde(rename = "set_route")]
     SetRoute {

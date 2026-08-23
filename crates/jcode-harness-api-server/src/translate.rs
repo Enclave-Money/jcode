@@ -207,6 +207,62 @@ impl BridgeState {
         self.next_legacy_id
     }
 
+    /// For request handlers that live outside the translate state machine
+    /// (`install_skill` runs async in the connection loop) but still need a
+    /// unique legacy id for follow-up daemon requests.
+    pub(crate) fn next_legacy_request_id(&mut self) -> u64 {
+        self.legacy_id()
+    }
+
+    /// Validate an install_skill request: a github.com/owner/repo URL becomes
+    /// (clone_url, skill_name, destination). Refuses anything else, and
+    /// refuses a destination that already exists.
+    pub(crate) fn validate_skill_install(url: &str) -> Result<(String, String, std::path::PathBuf), (ErrorCode, String)> {
+        let trimmed = url.trim().trim_end_matches('/');
+        let rest = trimmed
+            .strip_prefix("https://github.com/")
+            .or_else(|| trimmed.strip_prefix("http://github.com/"))
+            .or_else(|| trimmed.strip_prefix("github.com/"))
+            .ok_or((
+                ErrorCode::InvalidRequest,
+                "install_skill needs a github.com/owner/repo URL".to_string(),
+            ))?;
+        let rest = rest.strip_suffix(".git").unwrap_or(rest);
+        let parts: Vec<&str> = rest.split('/').collect();
+        let valid_part = |part: &str| {
+            !part.is_empty()
+                && part.len() <= 100
+                && part
+                    .chars()
+                    .all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '-' | '_' | '.'))
+                && part != "." && part != ".."
+        };
+        if parts.len() != 2 || !parts.iter().all(|part| valid_part(part)) {
+            return Err((
+                ErrorCode::InvalidRequest,
+                "install_skill needs a github.com/owner/repo URL".to_string(),
+            ));
+        }
+        let name = parts[1].to_string();
+        let home = std::env::var("HOME").map_err(|_| {
+            (ErrorCode::Internal, "HOME is not set".to_string())
+        })?;
+        let dest = std::path::Path::new(&home)
+            .join(".jcode/skills")
+            .join(&name);
+        if dest.exists() {
+            return Err((
+                ErrorCode::InvalidRequest,
+                format!("a skill named `{name}` is already installed"),
+            ));
+        }
+        Ok((
+            format!("https://github.com/{}/{}.git", parts[0], name),
+            name,
+            dest,
+        ))
+    }
+
     /// Translate one API request (raw JSON) into outbound actions.
     pub fn api_request_to_legacy(&mut self, request: &Value) -> Vec<Outbound> {
         let api_id = request["id"].as_u64().unwrap_or(0);

@@ -1842,6 +1842,29 @@ pub(super) async fn handle_client(
                 handle_set_model(id, model, &agent, &client_event_tx).await;
             }
 
+            Request::ReloadSkills { id } => {
+                let outcome = {
+                    let registry = crate::skill::SkillRegistry::shared_registry();
+                    let mut guard = registry.write().await;
+                    guard.reload_global()
+                };
+                match outcome {
+                    Ok(count) => {
+                        crate::logging::info(&format!(
+                            "reload_skills: {count} skills loaded"
+                        ));
+                        let _ = client_event_tx.send(ServerEvent::Done { id });
+                    }
+                    Err(error) => {
+                        let _ = client_event_tx.send(ServerEvent::Error {
+                            id,
+                            message: format!("skill reload failed: {error}"),
+                            retry_after_secs: None,
+                        });
+                    }
+                }
+            }
+
             Request::SetRoute { id, selection } => {
                 handle_set_route(id, selection, &agent, &client_event_tx).await;
             }

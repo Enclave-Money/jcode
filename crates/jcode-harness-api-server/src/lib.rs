@@ -268,6 +268,7 @@ where
                 "team_notes",
                 "presence",
                 "add_dir",
+                "skill_install",
             ]
             .into_iter()
             .map(str::to_string)
@@ -358,6 +359,62 @@ where
                         continue;
                     }
                 };
+                // install_skill clones a repo — an async job the sync
+                // translate machine can't run. Handle it here: the await
+                // stalls only THIS connection (clients install on a spare
+                // connection), and on success the daemon reloads its registry
+                // so the skill is usable without a restart.
+                if request["req"].as_str() == Some("install_skill") {
+                    let api_id = request["id"].as_u64().unwrap_or(0);
+                    let url = request["url"].as_str().unwrap_or_default();
+                    match translate::BridgeState::validate_skill_install(url) {
+                        Err((code, message)) => {
+                            let frame = ServerFrame::reply(api_id, ApiEvent::Error { code, message });
+                            write_json_line(&mut write_half, &frame).await?;
+                        }
+                        Ok((clone_url, name, dest)) => {
+                            let clone = tokio::time::timeout(
+                                std::time::Duration::from_secs(120),
+                                tokio::process::Command::new("git")
+                                    .args(["clone", "--depth", "1", &clone_url])
+                                    .arg(&dest)
+                                    .output(),
+                            )
+                            .await;
+                            let frame = match clone {
+                                Ok(Ok(output)) if output.status.success() => {
+                                    let reload_id = state.next_legacy_request_id();
+                                    let reload = serde_json::json!({
+                                        "type": "reload_skills", "id": reload_id,
+                                    });
+                                    write_json_line(&mut legacy_write, &reload).await?;
+                                    ServerFrame::reply(api_id, ApiEvent::Ok)
+                                }
+                                Ok(Ok(output)) => ServerFrame::reply(api_id, ApiEvent::Error {
+                                    code: ErrorCode::Internal,
+                                    message: format!(
+                                        "git clone failed for {clone_url}: {}",
+                                        String::from_utf8_lossy(&output.stderr).trim(),
+                                    ),
+                                }),
+                                Ok(Err(error)) => ServerFrame::reply(api_id, ApiEvent::Error {
+                                    code: ErrorCode::Internal,
+                                    message: format!("couldn't run git: {error}"),
+                                }),
+                                Err(_) => {
+                                    // A half-cloned tree would block retries.
+                                    let _ = tokio::fs::remove_dir_all(&dest).await;
+                                    ServerFrame::reply(api_id, ApiEvent::Error {
+                                        code: ErrorCode::Internal,
+                                        message: format!("git clone of {name} timed out after 120s"),
+                                    })
+                                }
+                            };
+                            write_json_line(&mut write_half, &frame).await?;
+                        }
+                    }
+                    continue;
+                }
                 // Translation may inspect persisted session/archive files. Tell
                 // Tokio before entering that synchronous region so it can keep
                 // the accept loop and fresh-client handshakes scheduled.

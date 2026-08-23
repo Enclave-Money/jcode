@@ -107,6 +107,35 @@ pub(super) async fn handle_lightweight_control_request(
         return Ok(());
     }
 
+    // Skill installs arrive on unattached connections (the bridge clones the
+    // repo, then asks for a reload) — requiring a subscribe here would force
+    // every installer to mint a throwaway session first.
+    if let Request::ReloadSkills { id } = request {
+        let outcome = {
+            let registry = crate::skill::SkillRegistry::shared_registry();
+            let mut guard = registry.write().await;
+            guard.reload_global()
+        };
+        match outcome {
+            Ok(count) => {
+                crate::logging::info(&format!("reload_skills: {count} skills loaded"));
+                write_direct_event(&writer, &ServerEvent::Done { id }).await?;
+            }
+            Err(error) => {
+                write_direct_event(
+                    &writer,
+                    &ServerEvent::Error {
+                        id,
+                        message: format!("skill reload failed: {error}"),
+                        retry_after_secs: None,
+                    },
+                )
+                .await?;
+            }
+        }
+        return Ok(());
+    }
+
     write_direct_event(&writer, &ServerEvent::Ack { id: request.id() }).await?;
 
     let (client_event_tx, mut client_event_rx) = mpsc::unbounded_channel::<ServerEvent>();
