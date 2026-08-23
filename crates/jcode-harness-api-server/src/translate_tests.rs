@@ -1685,3 +1685,44 @@ fn add_dir_reminder_rides_the_next_message() {
     let Outbound::Legacy(message) = &out[0] else { panic!("expected legacy message") };
     assert!(message["system_reminder"].is_null(), "reminder must not repeat");
 }
+
+/// After a refused attach, later unsolicited session/state events must NOT
+/// rebind the connection to the daemon's placeholder — a team note sent next
+/// would otherwise land in a ghost session nobody can see (found live).
+#[test]
+fn a_refused_attach_poisons_the_connection_until_the_client_reattaches() {
+    let mut state = BridgeState::default();
+    let out = state.api_request_to_legacy(&json!({
+        "req": "attach_session", "id": 4, "session_id": "session_gone",
+    }));
+    let Outbound::Legacy(get_state) = &out[1] else { panic!("expected get_state") };
+    let state_id = get_state["id"].as_u64().unwrap();
+    let _ = state.legacy_event_to_api(&json!({
+        "type": "state", "id": state_id, "session_id": "session_placeholder",
+    }));
+    assert!(state.session_id.is_none());
+
+    // The daemon's unsolicited pushes must not bind the placeholder.
+    let _ = state.legacy_event_to_api(&json!({"type": "session", "session_id": "session_placeholder"}));
+    let _ = state.legacy_event_to_api(&json!({"type": "state", "id": 0, "session_id": "session_placeholder"}));
+    assert!(state.session_id.is_none(), "placeholder must not bind after refusal");
+
+    // A stateful request is refused locally, not forwarded into the ghost.
+    let out = state.api_request_to_legacy(&json!({
+        "req": "send_team_note", "id": 9, "session_id": "session_gone", "content": "x",
+    }));
+    let Outbound::Reply(frame) = &out[0] else { panic!("expected local refusal") };
+    assert!(matches!(&frame.event, ApiEvent::Error { code: ErrorCode::UnknownSession, .. }));
+
+    // An explicit re-attach lifts the poison.
+    let out = state.api_request_to_legacy(&json!({
+        "req": "attach_session", "id": 10, "session_id": "session_real",
+    }));
+    let Outbound::Legacy(get_state) = &out[1] else { panic!("expected get_state") };
+    let state_id = get_state["id"].as_u64().unwrap();
+    let frames = state.legacy_event_to_api(&json!({
+        "type": "state", "id": state_id, "session_id": "session_real",
+    }));
+    assert!(matches!(&frames[0].event, ApiEvent::Attached { .. }));
+    assert_eq!(state.session_id.as_deref(), Some("session_real"));
+}

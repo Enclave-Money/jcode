@@ -101,6 +101,12 @@ pub struct BridgeState {
     /// session means the target is gone and the attach must fail loudly,
     /// never silently bind the fresh placeholder the daemon offers.
     pending_attach_target: Option<String>,
+    /// A refused attach poisons the connection until the client explicitly
+    /// creates or attaches again: the daemon still holds its placeholder
+    /// session, and without this flag a later unsolicited `session`/`state`
+    /// event would silently bind it — stateful requests (a team note, a
+    /// message) would land in a ghost session nobody can see.
+    refused_attach: bool,
     /// Directory grants the model has not been told about yet. Session
     /// metadata alone changes nothing for a LIVE session (its context priming
     /// was built at creation), so add_dir queues a reminder here and the next
@@ -428,6 +434,7 @@ impl BridgeState {
                 let state_id = self.legacy_id();
                 let catalog_id = self.legacy_id();
                 self.pending_attach_id = Some((state_id, api_id));
+                self.refused_attach = false;
                 self.pending_attach_target = if req == "attach_session" {
                     request["session_id"].as_str().map(str::to_string)
                 } else {
@@ -969,7 +976,9 @@ impl BridgeState {
         match kind {
             "session" => {
                 let session_id = event["session_id"].as_str().unwrap_or("").to_string();
-                self.session_id = Some(session_id.clone());
+                if !self.refused_attach {
+                    self.session_id = Some(session_id.clone());
+                }
                 vec![ServerFrame::event(ApiEvent::SessionStatus {
                     session_id,
                     status: "attached".into(),
@@ -993,6 +1002,7 @@ impl BridgeState {
                     self.pending_attach_id = None;
                     self.pending_attach_target = None;
                     self.session_id = None;
+                    self.refused_attach = true;
                     return vec![ServerFrame::reply(
                         api_id,
                         ApiEvent::Error {
@@ -1003,7 +1013,7 @@ impl BridgeState {
                         },
                     )];
                 }
-                if !session_id.is_empty() {
+                if !session_id.is_empty() && !self.refused_attach {
                     self.session_id = Some(session_id.clone());
                 }
                 if let Some((state_id, api_id)) = self.pending_attach_id
