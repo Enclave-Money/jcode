@@ -1182,24 +1182,35 @@ pub(super) async fn handle_client(
                 // Human-only discussion: persist with the Note display role
                 // (transcript-visible, never model context) and fan to every
                 // co-attached client. The sender echoed locally.
-                {
-                    let Ok(mut agent_guard) = agent.try_lock() else {
-                        send_agent_busy_error(
-                            id,
-                            "team_note",
-                            &client_session_id,
-                            client_is_processing,
-                            &client_event_tx,
-                        );
-                        continue;
-                    };
-                    if let Err(error) = agent_guard.append_team_note(&content) {
-                        let _ = client_event_tx.send(ServerEvent::Error {
-                            id,
-                            message: crate::util::format_error_chain(&error),
-                            retry_after_secs: None,
+                //
+                // A busy agent must NOT refuse the note — discussing while
+                // the agent works is the point of team notes. When the turn
+                // holds the agent lock, broadcast immediately (realtime is
+                // the product) and persist from a background task the moment
+                // the lock frees.
+                match agent.try_lock() {
+                    Ok(mut agent_guard) => {
+                        if let Err(error) = agent_guard.append_team_note(&content) {
+                            let _ = client_event_tx.send(ServerEvent::Error {
+                                id,
+                                message: crate::util::format_error_chain(&error),
+                                retry_after_secs: None,
+                            });
+                            continue;
+                        }
+                    }
+                    Err(_) => {
+                        let agent = Arc::clone(&agent);
+                        let deferred = content.clone();
+                        let session = client_session_id.clone();
+                        tokio::spawn(async move {
+                            let mut agent_guard = agent.lock().await;
+                            if let Err(error) = agent_guard.append_team_note(&deferred) {
+                                crate::logging::warn(&format!(
+                                    "deferred team note failed to persist for {session}: {error:#}"
+                                ));
+                            }
                         });
-                        continue;
                     }
                 }
                 let _ = client_event_tx.send(ServerEvent::Ack { id });
