@@ -59,6 +59,8 @@ export type ApiRequest =
   | { req: "list_sessions"; include_archived?: boolean }
   | { req: "add_dir"; session_id: string; path: string }
   | { req: "install_skill"; url: string }
+  | { req: "list_accounts"; provider: string }
+  | { req: "set_active_account"; provider: string; label: string }
   | { req: "archive_session"; session_id: string }
   | { req: "restore_session"; session_id: string }
   | { req: "set_retention_policy"; archive_after_days?: number }
@@ -114,6 +116,7 @@ export type ApiEvent =
       identity?: string;
     }
   | { ev: "ok" }
+  | { ev: "accounts"; provider: string; accounts: Array<{ label: string; email: string; active: boolean }> }
   | { ev: "error"; code: ErrorCode; message: string }
   | { ev: "sessions"; sessions: SessionInfo[] }
   | { ev: "attached"; session: SessionInfo }
@@ -271,6 +274,7 @@ export type ServerFrame = { v: number; reply_to?: number } & UnknownApiEvent;
 export const KNOWN_EVENT_KINDS = [
   "hello_ok",
   "ok",
+  "accounts",
   "error",
   "sessions",
   "attached",
@@ -313,6 +317,8 @@ export const KNOWN_REQUEST_KINDS = [
   "list_sessions",
   "add_dir",
   "install_skill",
+  "list_accounts",
+  "set_active_account",
   "archive_session",
   "restore_session",
   "set_retention_policy",

@@ -337,6 +337,48 @@ impl BridgeState {
         }
 
         match req {
+            "list_accounts" => {
+                if request["provider"].as_str() != Some("claude") {
+                    return Self::error_reply(
+                        api_id,
+                        ErrorCode::InvalidRequest,
+                        "list_accounts supports provider `claude` for now",
+                    );
+                }
+                match Self::read_claude_accounts() {
+                    Ok((accounts, active)) => {
+                        let listed: Vec<Value> = accounts
+                            .into_iter()
+                            .map(|(label, email)| {
+                                json!({
+                                    "label": label,
+                                    "email": email,
+                                    "active": Some(label.as_str()) == active.as_deref(),
+                                })
+                            })
+                            .collect();
+                        vec![Outbound::Reply(ServerFrame::reply(
+                            api_id,
+                            ApiEvent::Accounts { provider: "claude".into(), accounts: listed },
+                        ))]
+                    }
+                    Err(message) => Self::error_reply(api_id, ErrorCode::Internal, &message),
+                }
+            }
+            "set_active_account" => {
+                if request["provider"].as_str() != Some("claude") {
+                    return Self::error_reply(
+                        api_id,
+                        ErrorCode::InvalidRequest,
+                        "set_active_account supports provider `claude` for now",
+                    );
+                }
+                let label = request["label"].as_str().unwrap_or_default();
+                match Self::set_active_claude_account(label) {
+                    Ok(()) => vec![Outbound::Reply(ServerFrame::reply(api_id, ApiEvent::Ok))],
+                    Err(message) => Self::error_reply(api_id, ErrorCode::InvalidRequest, &message),
+                }
+            }
             "add_dir" => {
                 let session_id = request["session_id"].as_str().unwrap_or_default();
                 // Only the attached session may be granted directories over
@@ -1567,6 +1609,55 @@ impl BridgeState {
     /// the daemon persists. Best-effort by design: an unreadable or missing
     /// record simply leaves the session ungrouped rather than failing the
     /// list, and results are cached because this is on a poll path.
+    /// Accounts from ~/.jcode/auth.json — labels and emails ONLY. Token
+    /// fields are never read, held, or logged here.
+    fn read_claude_accounts() -> Result<(Vec<(String, String)>, Option<String>), String> {
+        let home = std::env::var("HOME").map_err(|_| "HOME is not set".to_string())?;
+        let path = std::path::Path::new(&home).join(".jcode/auth.json");
+        let text = std::fs::read_to_string(&path).map_err(|e| e.to_string())?;
+        let value: Value = serde_json::from_str(&text).map_err(|e| e.to_string())?;
+        let accounts = value["anthropic_accounts"]
+            .as_array()
+            .map(|list| {
+                list.iter()
+                    .map(|a| {
+                        (
+                            a["label"].as_str().unwrap_or_default().to_string(),
+                            a["email"].as_str().unwrap_or_default().to_string(),
+                        )
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+        let active = value["active_anthropic_account"].as_str().map(str::to_string);
+        Ok((accounts, active))
+    }
+
+    /// Flip active_anthropic_account, preserving every other byte of the
+    /// file (token material passes through as opaque JSON). The daemon
+    /// resolves auth per token fetch, so the next turn uses the new account.
+    fn set_active_claude_account(label: &str) -> Result<(), String> {
+        let home = std::env::var("HOME").map_err(|_| "HOME is not set".to_string())?;
+        let path = std::path::Path::new(&home).join(".jcode/auth.json");
+        let text = std::fs::read_to_string(&path).map_err(|e| e.to_string())?;
+        let mut value: Value = serde_json::from_str(&text).map_err(|e| e.to_string())?;
+        let known = value["anthropic_accounts"]
+            .as_array()
+            .map(|list| {
+                list.iter()
+                    .any(|a| a["label"].as_str() == Some(label))
+            })
+            .unwrap_or(false);
+        if !known {
+            return Err(format!("no Claude account labeled `{label}`"));
+        }
+        value["active_anthropic_account"] = json!(label);
+        let serialized = serde_json::to_string(&value).map_err(|e| e.to_string())?;
+        let tmp = path.with_extension("json.tmp");
+        std::fs::write(&tmp, serialized).map_err(|e| e.to_string())?;
+        std::fs::rename(&tmp, &path).map_err(|e| e.to_string())
+    }
+
     /// The write half of `/add-dir`: load-fresh -> mutate -> save on the
     /// session snapshot, the same pattern the remote TUI uses for metadata
     /// (`/rename`). `additional_dirs` is serde-defaulted, so appending to the

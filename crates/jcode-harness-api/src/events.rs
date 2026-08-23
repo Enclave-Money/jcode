@@ -24,6 +24,12 @@ pub enum ApiEvent {
     /// Generic success acknowledgment for requests without a richer reply.
     Ok,
 
+    /// Stored accounts for a provider — labels/emails only, never tokens.
+    Accounts {
+        provider: String,
+        accounts: Vec<serde_json::Value>,
+    },
+
     /// Request failed.
     Error { code: ErrorCode, message: String },
 

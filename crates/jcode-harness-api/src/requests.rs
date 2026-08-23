@@ -21,6 +21,15 @@ pub enum ApiRequest {
         include_archived: bool,
     },
 
+    /// List the stored provider accounts (labels and emails only — token
+    /// material never crosses the wire). `provider` currently: "claude".
+    ListAccounts { provider: String },
+
+    /// Make a stored account the active one for its provider. The daemon
+    /// reads auth state per token fetch, so the switch applies to the next
+    /// turn without a restart.
+    SetActiveAccount { provider: String, label: String },
+
     /// Install a skill from a github.com/owner/repo URL into
     /// `~/.jcode/skills/<repo>` and reload the daemon's skill registry, so
     /// the skill is usable without a restart. Connection-scoped, no session
