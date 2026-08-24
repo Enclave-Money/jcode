@@ -68,6 +68,10 @@ pub enum ApiRequest {
     /// exchange automatically (localhost callback, bridge-owned).
     StartClaudeLogin,
 
+    /// Start a Codex/OpenAI (ChatGPT) OAuth sign-in as a bridge job — the
+    /// same job lifecycle, records, and events as `start_claude_login`.
+    StartCodexLogin,
+
     /// One login job's record: `{ job_id, provider, state, url?, error? }`
     /// with state starting | waiting_for_browser | done | failed | cancelled.
     LoginStatus { job_id: String },

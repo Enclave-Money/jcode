@@ -126,6 +126,7 @@ fn run_demo() {
                             transcript_bytes: None,
                             archived: false,
                             archived_at_ms: None,
+                            last_active_ms: None,
                         },
                     },
                 )),

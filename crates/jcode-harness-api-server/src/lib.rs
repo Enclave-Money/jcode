@@ -295,6 +295,7 @@ where
                 "session_modes",
                 "council_jobs",
                 "login_jobs",
+                "codex_login",
                 "team_access",
             ]
             .into_iter()
@@ -456,7 +457,14 @@ where
                 }
                 if request["req"].as_str() == Some("start_claude_login") {
                     let api_id = request["id"].as_u64().unwrap_or(0);
-                    let job_id = login_jobs::start();
+                    let job_id = login_jobs::start("claude");
+                    let frame = ServerFrame::reply(api_id, ApiEvent::LoginStarted { job_id });
+                    write_json_line(&mut write_half, &frame).await?;
+                    continue;
+                }
+                if request["req"].as_str() == Some("start_codex_login") {
+                    let api_id = request["id"].as_u64().unwrap_or(0);
+                    let job_id = login_jobs::start("codex");
                     let frame = ServerFrame::reply(api_id, ApiEvent::LoginStarted { job_id });
                     write_json_line(&mut write_half, &frame).await?;
                     continue;

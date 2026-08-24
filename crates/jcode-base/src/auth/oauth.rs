@@ -880,35 +880,53 @@ pub async fn login_openai(no_browser: bool) -> Result<OAuthTokens> {
         open::that(&auth_url).is_ok()
     };
 
-    if browser_opened {
-        if let Some(listener) = callback_listener {
+    // Wait for the callback whether or not WE opened the browser: the user
+    // may open the printed URL themselves (the desktop app's copy-into-a-
+    // private-window path), and the redirect still lands on this listener.
+    // Gating the wait on browser_opened made --no-browser logins dead on
+    // arrival — the claude flow already carries this fix.
+    if let Some(listener) = callback_listener {
+        if !browser_opened {
             eprintln!(
-                "Waiting up to 300s for automatic callback on {}",
-                redirect_uri
-            );
-            match tokio::time::timeout(
-                std::time::Duration::from_secs(300),
-                wait_for_callback_async_on_listener(listener, &state),
-            )
-            .await
-            {
-                Ok(Ok(code)) => return exchange_openai_code(&code, &verifier, &redirect_uri).await,
-                Ok(Err(err)) => {
-                    eprintln!("Automatic callback failed ({err}). Falling back to manual paste.");
-                }
-                Err(_) => {
-                    eprintln!("Timed out waiting for callback. Falling back to manual paste.");
-                }
-            }
-        } else {
-            eprintln!(
-                "Local callback port {} is unavailable. Finish login in any browser, then paste the full callback URL here.\n",
-                port
+                "Open the URL above in any browser on this machine — a private \
+window lets you sign in as a DIFFERENT account."
             );
         }
-    } else if !browser_opened {
         eprintln!(
-            "Couldn't open a browser on this machine. Use the QR code above, then paste the full callback URL here.\n"
+            "Waiting up to 300s for automatic callback on {}",
+            redirect_uri
+        );
+        match tokio::time::timeout(
+            std::time::Duration::from_secs(300),
+            wait_for_callback_async_on_listener(listener, &state),
+        )
+        .await
+        {
+            Ok(Ok(code)) => return exchange_openai_code(&code, &verifier, &redirect_uri).await,
+            Ok(Err(err)) => {
+                if !std::io::stdin().is_terminal() {
+                    anyhow::bail!("automatic callback failed: {err}");
+                }
+                eprintln!("Automatic callback failed ({err}). Falling back to manual paste.");
+            }
+            Err(_) => {
+                if !std::io::stdin().is_terminal() {
+                    anyhow::bail!(
+                        "timed out after 300s waiting for the browser sign-in to reach {redirect_uri}"
+                    );
+                }
+                eprintln!("Timed out waiting for callback. Falling back to manual paste.");
+            }
+        }
+    } else {
+        if !std::io::stdin().is_terminal() {
+            anyhow::bail!(
+                "local callback port {port} is unavailable (another login flow, or the Codex CLI, is holding it)"
+            );
+        }
+        eprintln!(
+            "Local callback port {} is unavailable. Finish login in any browser, then paste the full callback URL here.\n",
+            port
         );
     }
 

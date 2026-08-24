@@ -1,12 +1,12 @@
-//! Bridge-global Claude login jobs.
+//! Bridge-global provider login jobs (Claude and Codex/OpenAI).
 //!
 //! The desktop app used to shell the login CLI itself — a non-wire path
 //! (process spawning + stdout scraping in the frontend). Login is now a
-//! bridge job like council runs: `start_claude_login` replies with a job
-//! id, the authorize URL lands on the job record as soon as the flow
-//! prints it, and any connection can await/status/cancel. The child is the
-//! same `blaude login claude --no-browser --callback` flow, so approval in
-//! the browser completes the exchange automatically.
+//! bridge job like council runs: `start_claude_login` / `start_codex_login`
+//! replies with a job id, the authorize URL lands on the job record as soon
+//! as the flow prints it, and any connection can await/status/cancel. The
+//! child is the same `blaude login <provider> --no-browser --callback`
+//! flow, so approval in the browser completes the exchange automatically.
 
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -67,12 +67,14 @@ fn finish(job_id: &str, state: &str, error: Option<String>) {
 
 /// Start a login; returns the job id immediately. The `url` field appears
 /// on the record as soon as the flow prints the authorize link (typically
-/// well under a second).
-pub fn start() -> String {
+/// well under a second). `provider` is the CLI login target: "claude" or
+/// "codex" (the OpenAI/ChatGPT flow).
+pub fn start(provider: &str) -> String {
+    let provider = if provider == "codex" { "codex" } else { "claude" };
     let job_id = new_job_id();
     let record = json!({
         "job_id": job_id,
-        "provider": "claude",
+        "provider": provider,
         "state": "starting",
         "started_at": now_secs(),
     });
@@ -84,12 +86,15 @@ pub fn start() -> String {
     );
 
     let id = job_id.clone();
+    // Job records say "codex" (the product name); the CLI's login target
+    // for that flow is "openai" (ChatGPT OAuth + Codex account store).
+    let login_target = if provider == "codex" { "openai".to_string() } else { provider.to_string() };
     tokio::spawn(async move {
         let exe = std::env::current_exe().unwrap_or_else(|_| PathBuf::from("blaude"));
         let mut command = tokio::process::Command::new(exe);
         command
             .arg("login")
-            .arg("claude")
+            .arg(&login_target)
             .arg("--no-browser")
             .arg("--callback")
             .stdin(std::process::Stdio::null())
