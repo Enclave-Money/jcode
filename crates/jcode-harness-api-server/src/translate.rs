@@ -770,6 +770,7 @@ impl BridgeState {
                             "idle".into()
                         },
                         transcript_bytes: Self::transcript_bytes(&session_id),
+                        last_active_ms: Self::session_modified_ms(&session_id),
                         archived: archive.sessions.contains_key(&session_id),
                         archived_at_ms: archive.sessions.get(&session_id).copied(),
                         session_id,
@@ -1142,6 +1143,7 @@ impl BridgeState {
                         ApiEvent::Attached {
                             session: SessionInfo {
                                 transcript_bytes: Self::transcript_bytes(&session_id),
+                                last_active_ms: Self::session_modified_ms(&session_id),
                                 session_id,
                                 working_dir: metadata
                                     .as_ref()

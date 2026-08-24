@@ -358,6 +358,11 @@ pub struct SessionInfo {
     /// could not determine it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub transcript_bytes: Option<u64>,
+    /// Milliseconds since epoch of the stored record's last modification —
+    /// the browser's "last active" column, served over the wire so clients
+    /// never stat the daemon's files themselves.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_active_ms: Option<u64>,
     /// Archived sessions are hidden from the default list but never deleted.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub archived: bool,
