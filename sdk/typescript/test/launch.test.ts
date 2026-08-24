@@ -135,12 +135,19 @@ test("login inheritance creates file links, never credential directory links", (
   const config = path.join(sandbox, "config");
   const from = path.join(home, ".jcode");
   const to = path.join(sandbox, "instance");
+  // The source config dir mirrors Rust's dirs::config_dir(): Application
+  // Support on macOS, XDG on Linux. The instance-side layout is always
+  // config/jcode/ regardless of platform.
+  const sourceConfig =
+    process.platform === "darwin"
+      ? path.join(home, "Library", "Application Support", "jcode")
+      : path.join(config, "jcode");
   fs.mkdirSync(path.join(home, ".claude"), { recursive: true });
-  fs.mkdirSync(path.join(config, "jcode"), { recursive: true });
+  fs.mkdirSync(sourceConfig, { recursive: true });
   fs.mkdirSync(from, { recursive: true });
   fs.writeFileSync(path.join(home, ".claude", ".credentials.json"), "{}");
-  fs.writeFileSync(path.join(config, "jcode", "n.env"), "TOKEN=test");
-  fs.writeFileSync(path.join(config, "jcode", "usage.json"), "{}");
+  fs.writeFileSync(path.join(sourceConfig, "n.env"), "TOKEN=test");
+  fs.writeFileSync(path.join(sourceConfig, "usage.json"), "{}");
   const legacyTarget = path.join(sandbox, "legacy-linked-config");
   fs.mkdirSync(legacyTarget);
   fs.writeFileSync(path.join(legacyTarget, "precious"), "untouched");

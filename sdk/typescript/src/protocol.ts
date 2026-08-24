@@ -374,6 +374,7 @@ export const KNOWN_REQUEST_KINDS = [
   "attach_session",
   "detach_session",
   "send_message",
+  "send_team_note",
   "cancel",
   "soft_interrupt",
   "get_history",
