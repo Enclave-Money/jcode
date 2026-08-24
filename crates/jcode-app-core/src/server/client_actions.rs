@@ -542,6 +542,41 @@ pub(super) async fn handle_set_feature(
     }
 }
 
+pub(super) async fn handle_set_work_mode(
+    id: u64,
+    mode: String,
+    agent: &Arc<Mutex<Agent>>,
+    client_event_tx: &mpsc::UnboundedSender<ServerEvent>,
+) {
+    let Some(parsed) = jcode_base::session::WorkMode::parse(&mode) else {
+        let _ = client_event_tx.send(ServerEvent::Error {
+            id,
+            message: format!("unknown work mode `{mode}` (auto | plan | ask | manual)"),
+            retry_after_secs: None,
+        });
+        return;
+    };
+    let stored = if parsed == jcode_base::session::WorkMode::Auto {
+        None
+    } else {
+        Some(parsed)
+    };
+    let result = {
+        let mut agent_guard = agent.lock().await;
+        agent_guard.set_work_mode(stored)
+    };
+    if let Err(error) = result {
+        let _ = client_event_tx.send(ServerEvent::Error {
+            id,
+            message: crate::util::format_error_chain(&error),
+            retry_after_secs: None,
+        });
+        return;
+    }
+    crate::session_list_cache::invalidate();
+    let _ = client_event_tx.send(ServerEvent::Done { id });
+}
+
 pub(super) async fn handle_rename_session(
     id: u64,
     title: Option<String>,

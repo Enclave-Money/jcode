@@ -60,7 +60,12 @@ export type ApiRequest =
   | { req: "add_dir"; session_id: string; path: string }
   | { req: "install_skill"; url: string }
   | { req: "list_councils" }
-  | { req: "run_council"; name: string; prompt: string; working_dir?: string }
+  | { req: "run_council"; name: string; prompt: string; working_dir?: string; tag?: string }
+  | { req: "await_council"; job_id: string }
+  | { req: "council_status"; job_id: string }
+  | { req: "cancel_council"; job_id: string }
+  | { req: "list_council_runs"; tag?: string }
+  | { req: "set_work_mode"; session_id: string; mode: string }
   | { req: "list_accounts"; provider: string }
   | { req: "set_active_account"; provider: string; label: string }
   | { req: "archive_session"; session_id: string }
@@ -121,6 +126,9 @@ export type ApiEvent =
   | { ev: "accounts"; provider: string; accounts: Array<{ label: string; email: string; active: boolean }> }
   | { ev: "councils"; councils: Array<{ name: string; members: string[] }> }
   | { ev: "council_result"; name: string; output: string }
+  | { ev: "council_started"; job_id: string }
+  | { ev: "council_run"; run: unknown }
+  | { ev: "council_runs"; runs: unknown[] }
   | { ev: "error"; code: ErrorCode; message: string }
   | { ev: "sessions"; sessions: SessionInfo[] }
   | { ev: "attached"; session: SessionInfo }
@@ -281,6 +289,9 @@ export const KNOWN_EVENT_KINDS = [
   "accounts",
   "councils",
   "council_result",
+  "council_started",
+  "council_run",
+  "council_runs",
   "error",
   "sessions",
   "attached",
@@ -325,6 +336,11 @@ export const KNOWN_REQUEST_KINDS = [
   "install_skill",
   "list_councils",
   "run_council",
+  "await_council",
+  "council_status",
+  "cancel_council",
+  "list_council_runs",
+  "set_work_mode",
   "list_accounts",
   "set_active_account",
   "archive_session",

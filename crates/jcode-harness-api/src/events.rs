@@ -31,6 +31,17 @@ pub enum ApiEvent {
     /// plan) as rendered text.
     CouncilResult { name: String, output: String },
 
+    /// A council job was accepted and is running in the background.
+    CouncilStarted { job_id: String },
+
+    /// One council job record: `{ job_id, name, tag, state, prompt,
+    /// output?, error?, started_at, finished_at? }` with state one of
+    /// running | done | failed | cancelled.
+    CouncilRun { run: serde_json::Value },
+
+    /// Council job records, newest first.
+    CouncilRuns { runs: Vec<serde_json::Value> },
+
     /// Stored accounts for a provider — labels/emails only, never tokens.
     Accounts {
         provider: String,

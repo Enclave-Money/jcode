@@ -87,8 +87,19 @@ impl Agent {
             );
         }
 
-        self.current_turn_system_reminder =
-            system_reminder.filter(|value| !value.trim().is_empty());
+        // The session's work mode (daemon-owned) merges with any per-turn
+        // reminder the client sent — mode guardrails must never be lost
+        // just because a client also had something to say.
+        let incoming = system_reminder.filter(|value| !value.trim().is_empty());
+        let mode_reminder = self
+            .session
+            .work_mode
+            .and_then(jcode_base::session::WorkMode::turn_reminder);
+        self.current_turn_system_reminder = match (mode_reminder, incoming) {
+            (Some(mode), Some(extra)) => Some(format!("{mode}\n\n{extra}")),
+            (Some(mode), None) => Some(mode.to_string()),
+            (None, extra) => extra,
+        };
 
         self.append_user_context_message_with_display_role(user_message, images, display_role)?;
         crate::telemetry::record_turn();

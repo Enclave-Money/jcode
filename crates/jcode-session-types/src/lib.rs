@@ -161,6 +161,68 @@ impl SessionStatus {
     }
 }
 
+/// Conversation work mode — daemon-owned so every attached client agrees
+/// and the mode survives client restarts. The daemon injects the mode's
+/// guardrails into each turn's dynamic system prompt.
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum WorkMode {
+    #[default]
+    Auto,
+    Plan,
+    Ask,
+    Manual,
+}
+
+impl WorkMode {
+    pub fn parse(raw: &str) -> Option<Self> {
+        match raw.trim().to_ascii_lowercase().as_str() {
+            "auto" => Some(Self::Auto),
+            "plan" => Some(Self::Plan),
+            "ask" => Some(Self::Ask),
+            "manual" => Some(Self::Manual),
+            _ => None,
+        }
+    }
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Auto => "auto",
+            Self::Plan => "plan",
+            Self::Ask => "ask",
+            Self::Manual => "manual",
+        }
+    }
+
+    /// The per-turn guardrail text (None for Auto). Same wording the TUI
+    /// uses for Shift+Tab modes, so the model behaves identically in
+    /// every client.
+    pub fn turn_reminder(self) -> Option<&'static str> {
+        match self {
+            Self::Auto => None,
+            Self::Plan => Some(
+                "Plan mode is ON for this conversation. Research, read code, and design — but do NOT \
+edit files, run state-changing commands, or commit. Present the final plan inside a ```plan fenced \
+block (markdown: a short title heading, then sections like Context, Design, Steps, Risks, \
+Verification with concrete file paths) — the UI renders that block as a plan card. Then wait; the \
+user toggles plan mode off when ready to execute.",
+            ),
+            Self::Ask => Some(
+                "Ask mode is ON for this conversation. Reading and exploring (viewing files, \
+searching, read-only commands) is fine without asking. Before ANY state-changing action — editing \
+or creating files, git commands that mutate state, installs, network mutations, or long-running \
+processes — STOP and ask the user for permission in plain text, naming exactly what you intend to \
+run, and wait for their reply before proceeding.",
+            ),
+            Self::Manual => Some(
+                "Manual mode is ON for this conversation. Do not run ANY tool without approval: \
+before every single tool call (including reads), state in plain text what you want to do and why, \
+then wait for the user's confirmation. One action per approval.",
+            ),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 pub enum SessionImproveMode {
     #[serde(rename = "improve_run", alias = "run")]

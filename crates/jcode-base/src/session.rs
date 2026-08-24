@@ -48,7 +48,7 @@ pub use crash::{
 };
 pub use jcode_session_types::{
     EnvSnapshot, GitState, SessionImproveMode, SessionStatus, StoredCompactionState,
-    StoredDisplayRole, StoredMemoryInjection, StoredMessage, StoredTokenUsage,
+    StoredDisplayRole, StoredMemoryInjection, StoredMessage, StoredTokenUsage, WorkMode,
 };
 use journal::{PersistVectorMode, SessionJournalMeta, SessionPersistState};
 pub use maintenance::prune_old_session_backups;
@@ -156,6 +156,9 @@ pub struct Session {
     /// Whether automatic end-of-turn judging is enabled for this session.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub autojudge_enabled: Option<bool>,
+    /// Conversation work mode (plan/ask/manual guardrails); None = auto.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub work_mode: Option<WorkMode>,
     /// Whether this session is a canary session (testing new builds)
     #[serde(default)]
     pub is_canary: bool,
@@ -243,6 +246,8 @@ struct SessionStartupStub {
     subagent_model: Option<String>,
     #[serde(default)]
     improve_mode: Option<SessionImproveMode>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    work_mode: Option<WorkMode>,
     #[serde(default)]
     autoreview_enabled: Option<bool>,
     #[serde(default)]
@@ -349,6 +354,7 @@ impl Session {
         session.reasoning_effort = stub.reasoning_effort;
         session.subagent_model = stub.subagent_model;
         session.improve_mode = stub.improve_mode;
+        session.work_mode = stub.work_mode;
         session.autoreview_enabled = stub.autoreview_enabled;
         session.autojudge_enabled = stub.autojudge_enabled;
         session.is_canary = stub.is_canary;
@@ -384,6 +390,7 @@ impl Session {
         session.reasoning_effort = snapshot.reasoning_effort;
         session.subagent_model = snapshot.subagent_model;
         session.improve_mode = snapshot.improve_mode;
+        session.work_mode = snapshot.work_mode;
         session.autoreview_enabled = snapshot.autoreview_enabled;
         session.autojudge_enabled = snapshot.autojudge_enabled;
         session.is_canary = snapshot.is_canary;
@@ -521,6 +528,7 @@ impl Session {
             reasoning_effort: self.reasoning_effort.clone(),
             subagent_model: self.subagent_model.clone(),
             improve_mode: self.improve_mode,
+            work_mode: self.work_mode,
             autoreview_enabled: self.autoreview_enabled,
             autojudge_enabled: self.autojudge_enabled,
             is_canary: self.is_canary,
@@ -722,6 +730,7 @@ impl Session {
         self.reasoning_effort = meta.reasoning_effort;
         self.subagent_model = meta.subagent_model;
         self.improve_mode = meta.improve_mode;
+        self.work_mode = meta.work_mode;
         self.autoreview_enabled = meta.autoreview_enabled;
         self.autojudge_enabled = meta.autojudge_enabled;
         self.is_canary = meta.is_canary;
@@ -764,6 +773,7 @@ impl Session {
             improve_mode: None,
             autoreview_enabled: None,
             autojudge_enabled: None,
+            work_mode: None,
             is_canary: false,
             testing_build: None,
             working_dir: current_working_dir_string(),
@@ -819,6 +829,7 @@ impl Session {
             improve_mode: None,
             autoreview_enabled: None,
             autojudge_enabled: None,
+            work_mode: None,
             is_canary: false,
             testing_build: None,
             working_dir: current_working_dir_string(),
@@ -1666,6 +1677,8 @@ struct RemoteStartupSessionSnapshot {
     route_api_method: Option<String>,
     #[serde(default)]
     reasoning_effort: Option<String>,
+    #[serde(default)]
+    work_mode: Option<WorkMode>,
     #[serde(default)]
     subagent_model: Option<String>,
     #[serde(default)]

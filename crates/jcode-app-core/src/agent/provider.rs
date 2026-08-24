@@ -214,6 +214,15 @@ impl Agent {
         Ok(self.session.display_title_or_name().to_string())
     }
 
+    /// Set (or clear, with Auto/None) the session's work mode. Applies
+    /// from the next turn: the turn loop reads it at reminder-merge time.
+    pub fn set_work_mode(&mut self, mode: Option<jcode_base::session::WorkMode>) -> Result<()> {
+        self.session.work_mode = mode;
+        self.log_env_snapshot("set_work_mode");
+        self.session.save()?;
+        Ok(())
+    }
+
     pub fn autoreview_enabled(&self) -> Option<bool> {
         self.session.autoreview_enabled
     }

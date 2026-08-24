@@ -33,6 +33,7 @@ const REQUIRES_ATTACH: &[&str] = &[
     "list_models",
     "set_model",
     "set_reasoning_effort",
+    "set_work_mode",
     "compact",
     "rename_session",
     "get_runtime_info",
@@ -970,6 +971,25 @@ impl BridgeState {
                     "type": "set_model",
                     "id": id,
                     "model": model,
+                }))]
+            }
+            "set_work_mode" => {
+                let mode = request["mode"].as_str().unwrap_or("");
+                if !["auto", "plan", "ask", "manual"].contains(&mode) {
+                    return vec![Outbound::Reply(ServerFrame::reply(
+                        api_id,
+                        ApiEvent::Error {
+                            code: ErrorCode::InvalidRequest,
+                            message: "set_work_mode needs `mode`: auto | plan | ask | manual".into(),
+                        },
+                    ))];
+                }
+                let id = self.legacy_id();
+                self.pending_simple.push((id, api_id, SimpleKind::Ok));
+                vec![Outbound::Legacy(json!({
+                    "type": "set_work_mode",
+                    "id": id,
+                    "mode": mode,
                 }))]
             }
             "set_reasoning_effort" => {

@@ -1,5 +1,6 @@
 use super::available_models_dedup::available_models_dedup_key;
 use super::client_actions::{
+    handle_set_work_mode,
     AgentTaskContext, NotifySessionContext, handle_agent_task, handle_compact, handle_input_shell,
     handle_notify_session, handle_rename_session, handle_run_subagent, handle_set_feature,
     handle_set_subagent_model, handle_split, handle_stdin_response, handle_transfer,
@@ -1946,6 +1947,11 @@ pub(super) async fn handle_client(
                 handle_set_compaction_mode(id, mode, &agent, &client_event_tx).await;
             }
 
+            Request::SetWorkMode { id, mode } => {
+                // Mode flips mid-turn are safe: the guardrail is read at
+                // the START of each turn, so the change applies next turn.
+                handle_set_work_mode(id, mode, &agent, &client_event_tx).await;
+            }
             Request::RenameSession { id, title } => {
                 if reject_if_agent_busy_for_request(
                     id,

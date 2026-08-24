@@ -24,15 +24,43 @@ pub enum ApiRequest {
     /// List saved councils (cross-model panels) and their member model ids.
     ListCouncils,
 
-    /// Fan `prompt` out to every member of the named council in
-    /// `working_dir` and return the members' proposals plus the synthesized
-    /// joint plan. Long-running (minutes); run it on a spare connection.
+    /// Start a council run: fan `prompt` out to every member of the named
+    /// council in `working_dir`. Replies immediately with `council_started`
+    /// carrying a job id — the run itself is a bridge-global job that
+    /// survives the requesting connection. `tag` is an opaque client
+    /// binding (e.g. a chat id) echoed back in run records.
     RunCouncil {
         name: String,
         prompt: String,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         working_dir: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        tag: Option<String>,
     },
+
+    /// Block until the council job reaches a terminal state, then reply
+    /// with its full `council_run` record. Safe to call from any
+    /// connection, any number of times, including after a client restart.
+    AwaitCouncil { job_id: String },
+
+    /// One council job's current record (state + output when finished).
+    CouncilStatus { job_id: String },
+
+    /// Kill a running council job's child process and mark it cancelled.
+    CancelCouncil { job_id: String },
+
+    /// All known council runs (in-flight and persisted finished ones),
+    /// optionally filtered to a client `tag`.
+    ListCouncilRuns {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        tag: Option<String>,
+    },
+
+    /// Set the session's work mode: "auto" | "plan" | "ask" | "manual".
+    /// Daemon-owned: the mode persists on the session, applies to every
+    /// attached client, and its guardrail text is injected server-side
+    /// into each turn — clients carry no reminder wording.
+    SetWorkMode { session_id: String, mode: String },
 
     /// List the stored provider accounts (labels and emails only — token
     /// material never crosses the wire). `provider` currently: "claude".

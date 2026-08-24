@@ -24,6 +24,7 @@ pub(crate) fn jcode_home_test_lock() -> std::sync::MutexGuard<'static, ()> {
 }
 
 pub mod background_progress;
+pub mod council_jobs;
 pub mod permissions;
 pub mod translate;
 pub mod ws;
@@ -269,6 +270,8 @@ where
                 "presence",
                 "add_dir",
                 "skill_install",
+                "session_modes",
+                "council_jobs",
             ]
             .into_iter()
             .map(str::to_string)
@@ -368,60 +371,71 @@ where
                 // another async job the sync translate machine can't host.
                 // The await stalls only THIS connection; clients run councils
                 // on a spare connection.
+                // Council runs are bridge-global JOBS, not per-connection
+                // awaits: `run_council` replies immediately with a job id,
+                // and any connection — including one from a relaunched app —
+                // can await, poll, cancel, or list runs. Results persist in
+                // ~/.jcode/council-runs/.
                 if request["req"].as_str() == Some("run_council") {
                     let api_id = request["id"].as_u64().unwrap_or(0);
                     let name = request["name"].as_str().unwrap_or_default().to_string();
                     let prompt = request["prompt"].as_str().unwrap_or_default().to_string();
                     let cwd = request["working_dir"].as_str().map(str::to_string);
-                    if name.is_empty() || prompt.is_empty() {
-                        let frame = ServerFrame::reply(api_id, ApiEvent::Error {
+                    let tag = request["tag"].as_str().map(str::to_string);
+                    let frame = if name.is_empty() || prompt.is_empty() {
+                        ServerFrame::reply(api_id, ApiEvent::Error {
                             code: ErrorCode::InvalidRequest,
                             message: "run_council needs `name` and `prompt`".into(),
-                        });
-                        write_json_line(&mut write_half, &frame).await?;
-                        continue;
-                    }
-                    let exe = std::env::current_exe()
-                        .unwrap_or_else(|_| std::path::PathBuf::from("blaude"));
-                    let mut command = tokio::process::Command::new(exe);
-                    command.arg("council").arg("run").arg(&name).arg(&prompt);
-                    if let Some(dir) = &cwd {
-                        command.current_dir(dir);
-                    }
-                    // The run is tied to this connection: a client cancelling
-                    // (closing the connection) drops this future, and the
-                    // council child must die with it, not burn tokens for
-                    // twenty more minutes.
-                    command.kill_on_drop(true);
-                    let outcome = tokio::time::timeout(
-                        std::time::Duration::from_secs(1200),
-                        command.output(),
-                    )
-                    .await;
-                    let frame = match outcome {
-                        Ok(Ok(output)) if output.status.success() => ServerFrame::reply(
-                            api_id,
-                            ApiEvent::CouncilResult {
-                                name,
-                                output: String::from_utf8_lossy(&output.stdout).into_owned(),
-                            },
-                        ),
-                        Ok(Ok(output)) => ServerFrame::reply(api_id, ApiEvent::Error {
-                            code: ErrorCode::Internal,
-                            message: format!(
-                                "council run failed: {}",
-                                String::from_utf8_lossy(&output.stderr).trim(),
-                            ),
-                        }),
-                        Ok(Err(error)) => ServerFrame::reply(api_id, ApiEvent::Error {
-                            code: ErrorCode::Internal,
-                            message: format!("couldn't launch council: {error}"),
-                        }),
-                        Err(_) => ServerFrame::reply(api_id, ApiEvent::Error {
-                            code: ErrorCode::Internal,
-                            message: "council run timed out after 20 minutes".into(),
+                        })
+                    } else {
+                        let job_id = council_jobs::start(name, prompt, cwd, tag);
+                        ServerFrame::reply(api_id, ApiEvent::CouncilStarted { job_id })
+                    };
+                    write_json_line(&mut write_half, &frame).await?;
+                    continue;
+                }
+                if request["req"].as_str() == Some("await_council") {
+                    let api_id = request["id"].as_u64().unwrap_or(0);
+                    let job_id = request["job_id"].as_str().unwrap_or_default().to_string();
+                    let frame = match council_jobs::wait(&job_id).await {
+                        Some(run) => ServerFrame::reply(api_id, ApiEvent::CouncilRun { run }),
+                        None => ServerFrame::reply(api_id, ApiEvent::Error {
+                            code: ErrorCode::UnknownRequest,
+                            message: format!("no council run `{job_id}`"),
                         }),
                     };
+                    write_json_line(&mut write_half, &frame).await?;
+                    continue;
+                }
+                if request["req"].as_str() == Some("council_status") {
+                    let api_id = request["id"].as_u64().unwrap_or(0);
+                    let job_id = request["job_id"].as_str().unwrap_or_default();
+                    let frame = match council_jobs::status(job_id) {
+                        Some(run) => ServerFrame::reply(api_id, ApiEvent::CouncilRun { run }),
+                        None => ServerFrame::reply(api_id, ApiEvent::Error {
+                            code: ErrorCode::UnknownRequest,
+                            message: format!("no council run `{job_id}`"),
+                        }),
+                    };
+                    write_json_line(&mut write_half, &frame).await?;
+                    continue;
+                }
+                if request["req"].as_str() == Some("cancel_council") {
+                    let api_id = request["id"].as_u64().unwrap_or(0);
+                    let job_id = request["job_id"].as_str().unwrap_or_default();
+                    // Cancelling an already-finished (or unknown) job is a
+                    // no-op, not an error: the client raced completion.
+                    let _ = council_jobs::cancel(job_id);
+                    let frame = ServerFrame::reply(api_id, ApiEvent::Ok);
+                    write_json_line(&mut write_half, &frame).await?;
+                    continue;
+                }
+                if request["req"].as_str() == Some("list_council_runs") {
+                    let api_id = request["id"].as_u64().unwrap_or(0);
+                    let tag = request["tag"].as_str();
+                    let frame = ServerFrame::reply(api_id, ApiEvent::CouncilRuns {
+                        runs: council_jobs::list(tag),
+                    });
                     write_json_line(&mut write_half, &frame).await?;
                     continue;
                 }

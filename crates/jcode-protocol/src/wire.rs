@@ -321,6 +321,12 @@ pub enum Request {
         title: Option<String>,
     },
 
+    /// Set the session's work mode (auto | plan | ask | manual). The
+    /// daemon injects the mode's guardrails into every following turn
+    /// until the mode changes — clients carry no reminder text.
+    #[serde(rename = "set_work_mode")]
+    SetWorkMode { id: u64, mode: String },
+
     /// Split the current session — clone conversation into a new session
     #[serde(rename = "split")]
     Split { id: u64 },
