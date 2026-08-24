@@ -305,12 +305,24 @@ where
     );
     write_json_line(&mut write_half, &hello_ok).await?;
 
-    // 2. Dial the legacy daemon for this client.
-    let legacy = Stream::connect(&legacy_socket)
-        .await
-        .with_context(|| format!("connect legacy socket {}", legacy_socket.display()))?;
-    let (legacy_read, mut legacy_write) = legacy.into_split();
-    let mut legacy_reader = BufReader::new(legacy_read);
+    // 2. Dial the legacy daemon for this client. A fresh team server may not
+    //    have a bootable daemon yet (no provider credentials) — that must NOT
+    //    kill the connection, or the bridge-local verbs that FIX it (the
+    //    login jobs, invites) can never run. Serve bridge-only until the
+    //    daemon appears, then upgrade in place on the next daemon-bound
+    //    request.
+    let (mut legacy_reader, mut legacy_write) = match Stream::connect(&legacy_socket).await {
+        Ok(stream) => {
+            let (read, write) = stream.into_split();
+            (Some(BufReader::new(read)), Some(write))
+        }
+        Err(error) => {
+            eprintln!(
+                "harness API bridge: daemon unreachable ({error}); serving bridge-only verbs until it comes up"
+            );
+            (None, None)
+        }
+    };
 
     let mut state = translate::BridgeState::default();
     state.identity = identity;
@@ -573,11 +585,15 @@ where
                             .await;
                             let frame = match clone {
                                 Ok(Ok(output)) if output.status.success() => {
-                                    let reload_id = state.next_legacy_request_id();
-                                    let reload = serde_json::json!({
-                                        "type": "reload_skills", "id": reload_id,
-                                    });
-                                    write_json_line(&mut legacy_write, &reload).await?;
+                                    // No daemon yet? The skill is on disk; the
+                                    // daemon reads the registry when it boots.
+                                    if let Some(legacy) = legacy_write.as_mut() {
+                                        let reload_id = state.next_legacy_request_id();
+                                        let reload = serde_json::json!({
+                                            "type": "reload_skills", "id": reload_id,
+                                        });
+                                        write_json_line(legacy, &reload).await?;
+                                    }
                                     ServerFrame::reply(api_id, ApiEvent::Ok)
                                 }
                                 Ok(Ok(output)) => ServerFrame::reply(api_id, ApiEvent::Error {
@@ -605,6 +621,28 @@ where
                     }
                     continue;
                 }
+                // Everything past here needs the daemon. If it was down when
+                // this connection opened, try ONE re-dial now — credentials
+                // may have just landed via the login job and systemd brought
+                // it up — so the same connection upgrades in place.
+                if legacy_write.is_none() {
+                    if let Ok(stream) = Stream::connect(&legacy_socket).await {
+                        let (read, write) = stream.into_split();
+                        legacy_reader = Some(BufReader::new(read));
+                        legacy_write = Some(write);
+                        eprintln!("harness API bridge: daemon is up — connection upgraded");
+                    }
+                }
+                if legacy_write.is_none() {
+                    let api_id = request["id"].as_u64().unwrap_or(0);
+                    let frame = ServerFrame::reply(api_id, ApiEvent::Error {
+                        code: ErrorCode::Internal,
+                        message: "the agent daemon is not running (usually: no AI account yet). \
+                                  Add an account — sign-in works right now — and retry.".into(),
+                    });
+                    write_json_line(&mut write_half, &frame).await?;
+                    continue;
+                }
                 // Translation may inspect persisted session/archive files. Tell
                 // Tokio before entering that synchronous region so it can keep
                 // the accept loop and fresh-client handshakes scheduled.
@@ -614,7 +652,7 @@ where
                 for out in outbound {
                     match out {
                         translate::Outbound::Legacy(value) => {
-                            write_json_line(&mut legacy_write, &value).await?;
+                            write_json_line(legacy_write.as_mut().expect("guarded above"), &value).await?;
                         }
                         translate::Outbound::Reply(frame) => {
                             write_json_line(&mut write_half, &frame).await?;
@@ -622,7 +660,13 @@ where
                     }
                 }
             }
-            n = legacy_reader.read_line({ legacy_line.clear(); &mut legacy_line }) => {
+            n = async {
+                legacy_reader
+                    .as_mut()
+                    .expect("branch guarded on legacy_reader.is_some()")
+                    .read_line({ legacy_line.clear(); &mut legacy_line })
+                    .await
+            }, if legacy_reader.is_some() => {
                 if n? == 0 {
                     let frame = ServerFrame::event(ApiEvent::Error {
                         code: ErrorCode::Internal,
