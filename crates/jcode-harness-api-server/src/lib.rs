@@ -25,6 +25,8 @@ pub(crate) fn jcode_home_test_lock() -> std::sync::MutexGuard<'static, ()> {
 
 pub mod background_progress;
 pub mod council_jobs;
+pub mod login_jobs;
+pub mod team_access;
 pub mod permissions;
 pub mod translate;
 pub mod ws;
@@ -292,6 +294,8 @@ where
                 "skill_install",
                 "session_modes",
                 "council_jobs",
+                "login_jobs",
+                "team_access",
             ]
             .into_iter()
             .map(str::to_string)
@@ -447,6 +451,89 @@ where
                     // no-op, not an error: the client raced completion.
                     let _ = council_jobs::cancel(job_id);
                     let frame = ServerFrame::reply(api_id, ApiEvent::Ok);
+                    write_json_line(&mut write_half, &frame).await?;
+                    continue;
+                }
+                if request["req"].as_str() == Some("start_claude_login") {
+                    let api_id = request["id"].as_u64().unwrap_or(0);
+                    let job_id = login_jobs::start();
+                    let frame = ServerFrame::reply(api_id, ApiEvent::LoginStarted { job_id });
+                    write_json_line(&mut write_half, &frame).await?;
+                    continue;
+                }
+                if request["req"].as_str() == Some("login_status") {
+                    let api_id = request["id"].as_u64().unwrap_or(0);
+                    let job_id = request["job_id"].as_str().unwrap_or_default();
+                    let frame = match login_jobs::status(job_id) {
+                        Some(run) => ServerFrame::reply(api_id, ApiEvent::LoginRun { run }),
+                        None => ServerFrame::reply(api_id, ApiEvent::Error {
+                            code: ErrorCode::UnknownRequest,
+                            message: format!("no login job `{job_id}`"),
+                        }),
+                    };
+                    write_json_line(&mut write_half, &frame).await?;
+                    continue;
+                }
+                if request["req"].as_str() == Some("await_login") {
+                    let api_id = request["id"].as_u64().unwrap_or(0);
+                    let job_id = request["job_id"].as_str().unwrap_or_default().to_string();
+                    let frame = match login_jobs::wait(&job_id).await {
+                        Some(run) => ServerFrame::reply(api_id, ApiEvent::LoginRun { run }),
+                        None => ServerFrame::reply(api_id, ApiEvent::Error {
+                            code: ErrorCode::UnknownRequest,
+                            message: format!("no login job `{job_id}`"),
+                        }),
+                    };
+                    write_json_line(&mut write_half, &frame).await?;
+                    continue;
+                }
+                if request["req"].as_str() == Some("cancel_login") {
+                    let api_id = request["id"].as_u64().unwrap_or(0);
+                    let _ = login_jobs::cancel(request["job_id"].as_str().unwrap_or_default());
+                    let frame = ServerFrame::reply(api_id, ApiEvent::Ok);
+                    write_json_line(&mut write_half, &frame).await?;
+                    continue;
+                }
+                if request["req"].as_str() == Some("invite_member") {
+                    let api_id = request["id"].as_u64().unwrap_or(0);
+                    let email = request["email"].as_str().unwrap_or_default().to_string();
+                    let host = request["host"].as_str().unwrap_or("127.0.0.1").to_string();
+                    let send_email = request["send_email"].as_bool().unwrap_or(false);
+                    let frame = if email.is_empty() {
+                        ServerFrame::reply(api_id, ApiEvent::Error {
+                            code: ErrorCode::InvalidRequest,
+                            message: "invite_member needs `email`".into(),
+                        })
+                    } else {
+                        match team_access::invite(&email, &host, send_email).await {
+                            Ok(invite) => ServerFrame::reply(api_id, ApiEvent::MemberInvited { invite }),
+                            Err(error) => ServerFrame::reply(api_id, ApiEvent::Error {
+                                code: ErrorCode::Internal,
+                                message: error.to_string(),
+                            }),
+                        }
+                    };
+                    write_json_line(&mut write_half, &frame).await?;
+                    continue;
+                }
+                if request["req"].as_str() == Some("list_team_members") {
+                    let api_id = request["id"].as_u64().unwrap_or(0);
+                    let frame = ServerFrame::reply(api_id, ApiEvent::TeamMembers {
+                        emails: team_access::member_emails(),
+                    });
+                    write_json_line(&mut write_half, &frame).await?;
+                    continue;
+                }
+                if request["req"].as_str() == Some("revoke_member") {
+                    let api_id = request["id"].as_u64().unwrap_or(0);
+                    let email = request["email"].as_str().unwrap_or_default();
+                    let frame = match team_access::revoke(email) {
+                        Ok(_) => ServerFrame::reply(api_id, ApiEvent::Ok),
+                        Err(error) => ServerFrame::reply(api_id, ApiEvent::Error {
+                            code: ErrorCode::Internal,
+                            message: error.to_string(),
+                        }),
+                    };
                     write_json_line(&mut write_half, &frame).await?;
                     continue;
                 }

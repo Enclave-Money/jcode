@@ -62,6 +62,40 @@ pub enum ApiRequest {
     /// into each turn — clients carry no reminder wording.
     SetWorkMode { session_id: String, mode: String },
 
+    /// Start a Claude OAuth sign-in as a bridge job. Replies with
+    /// `login_started { job_id }`; the record gains `url` the moment the
+    /// authorize link exists, and approval in the browser completes the
+    /// exchange automatically (localhost callback, bridge-owned).
+    StartClaudeLogin,
+
+    /// One login job's record: `{ job_id, provider, state, url?, error? }`
+    /// with state starting | waiting_for_browser | done | failed | cancelled.
+    LoginStatus { job_id: String },
+
+    /// Block until the login job reaches a terminal state.
+    AwaitLogin { job_id: String },
+
+    /// Cancel a login job (kills the callback listener).
+    CancelLogin { job_id: String },
+
+    /// Invite a team member: the BRIDGE mints the bearer token, writes its
+    /// own authorization files, and (optionally) sends the Clerk email —
+    /// the app never touches token files or the Clerk secret. `host` is
+    /// the address members dial. The reply carries the member token for
+    /// the owner's invite blob (same trust boundary as the local socket).
+    InviteMember {
+        email: String,
+        host: String,
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        send_email: bool,
+    },
+
+    /// Member emails from the bridge's authorization store — never tokens.
+    ListTeamMembers,
+
+    /// Revoke a member's access; immediate (the WS door reloads per handshake).
+    RevokeMember { email: String },
+
     /// List the stored provider accounts (labels and emails only — token
     /// material never crosses the wire). `provider` currently: "claude".
     ListAccounts { provider: String },

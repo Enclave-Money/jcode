@@ -66,6 +66,13 @@ export type ApiRequest =
   | { req: "cancel_council"; job_id: string }
   | { req: "list_council_runs"; tag?: string }
   | { req: "set_work_mode"; session_id: string; mode: string }
+  | { req: "start_claude_login" }
+  | { req: "login_status"; job_id: string }
+  | { req: "await_login"; job_id: string }
+  | { req: "cancel_login"; job_id: string }
+  | { req: "invite_member"; email: string; host: string; send_email?: boolean }
+  | { req: "list_team_members" }
+  | { req: "revoke_member"; email: string }
   | { req: "list_accounts"; provider: string }
   | { req: "set_active_account"; provider: string; label: string }
   | { req: "archive_session"; session_id: string }
@@ -129,6 +136,10 @@ export type ApiEvent =
   | { ev: "council_started"; job_id: string }
   | { ev: "council_run"; run: unknown }
   | { ev: "council_runs"; runs: unknown[] }
+  | { ev: "login_started"; job_id: string }
+  | { ev: "login_run"; run: unknown }
+  | { ev: "member_invited"; invite: unknown }
+  | { ev: "team_members"; emails: string[] }
   | { ev: "error"; code: ErrorCode; message: string }
   | { ev: "sessions"; sessions: SessionInfo[] }
   | { ev: "attached"; session: SessionInfo }
@@ -292,6 +303,10 @@ export const KNOWN_EVENT_KINDS = [
   "council_started",
   "council_run",
   "council_runs",
+  "login_started",
+  "login_run",
+  "member_invited",
+  "team_members",
   "error",
   "sessions",
   "attached",
@@ -341,6 +356,13 @@ export const KNOWN_REQUEST_KINDS = [
   "cancel_council",
   "list_council_runs",
   "set_work_mode",
+  "start_claude_login",
+  "login_status",
+  "await_login",
+  "cancel_login",
+  "invite_member",
+  "list_team_members",
+  "revoke_member",
   "list_accounts",
   "set_active_account",
   "archive_session",

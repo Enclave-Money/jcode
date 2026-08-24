@@ -42,6 +42,18 @@ pub enum ApiEvent {
     /// Council job records, newest first.
     CouncilRuns { runs: Vec<serde_json::Value> },
 
+    /// A login job was accepted.
+    LoginStarted { job_id: String },
+
+    /// One login job record.
+    LoginRun { run: serde_json::Value },
+
+    /// Invite result: `{ email, ws_url, token, join_url, emailed, email_error? }`.
+    MemberInvited { invite: serde_json::Value },
+
+    /// Team member emails.
+    TeamMembers { emails: Vec<String> },
+
     /// Stored accounts for a provider — labels/emails only, never tokens.
     Accounts {
         provider: String,

@@ -1,0 +1,168 @@
+//! Team access as harness verbs.
+//!
+//! The desktop app used to author `~/.jcode/team-tokens.json` and
+//! `join-tickets.json` itself and POST to Clerk with a secret it read off
+//! disk — the frontend writing the bridge's own authorization database
+//! out-of-band. These are bridge operations now: the app asks over the
+//! wire, the bridge mints/writes/revokes and talks to Clerk. Bearer
+//! tokens are returned only on the owner-facing invite reply (local
+//! 0600 socket / token-gated WS — the same trust boundary as the files).
+
+use anyhow::{Context, Result};
+use serde_json::{Value, json};
+use std::collections::HashMap;
+
+use crate::ws;
+
+fn home() -> Result<std::path::PathBuf> {
+    let home = std::env::var("HOME").context("HOME is not set")?;
+    Ok(std::path::PathBuf::from(home).join(".jcode"))
+}
+
+fn write_owner_only(path: &std::path::Path, bytes: &[u8]) -> Result<()> {
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent).ok();
+    }
+    let tmp = path.with_extension("tmp");
+    std::fs::write(&tmp, bytes)?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&tmp, std::fs::Permissions::from_mode(0o600))?;
+    }
+    std::fs::rename(&tmp, path)?;
+    Ok(())
+}
+
+fn random_hex(bytes: usize) -> Result<String> {
+    use std::io::Read;
+    let mut buffer = vec![0u8; bytes];
+    std::fs::File::open("/dev/urandom")
+        .context("open /dev/urandom")?
+        .read_exact(&mut buffer)
+        .context("read /dev/urandom")?;
+    Ok(buffer.iter().map(|b| format!("{b:02x}")).collect())
+}
+
+/// Issue (or return the existing) bearer token for a member email.
+pub fn issue_token(email: &str) -> Result<String> {
+    let path = home()?.join("team-tokens.json");
+    let mut tokens: HashMap<String, String> = std::fs::read_to_string(&path)
+        .ok()
+        .and_then(|raw| serde_json::from_str(&raw).ok())
+        .unwrap_or_default();
+    if let Some(existing) = tokens.get(email) {
+        return Ok(existing.clone());
+    }
+    let token = format!("member-{}", random_hex(24)?);
+    tokens.insert(email.to_string(), token.clone());
+    write_owner_only(&path, &serde_json::to_vec(&tokens)?)?;
+    Ok(token)
+}
+
+/// Remove a member's bearer token; the WS door reloads per handshake, so
+/// revocation is immediate.
+pub fn revoke(email: &str) -> Result<bool> {
+    let path = home()?.join("team-tokens.json");
+    let mut tokens: HashMap<String, String> = std::fs::read_to_string(&path)
+        .ok()
+        .and_then(|raw| serde_json::from_str(&raw).ok())
+        .unwrap_or_default();
+    let removed = tokens.remove(email).is_some();
+    if removed {
+        write_owner_only(&path, &serde_json::to_vec(&tokens)?)?;
+    }
+    Ok(removed)
+}
+
+/// Member emails only — never their tokens.
+pub fn member_emails() -> Vec<String> {
+    let mut emails: Vec<String> = ws::team_tokens().keys().cloned().collect();
+    emails.sort();
+    emails
+}
+
+/// Mint a one-time join ticket redeemable at the bridge's /join page.
+fn mint_join_ticket(email: &str) -> Result<String> {
+    let code = format!("jt-{}", random_hex(16)?);
+    let path = home()?.join("join-tickets.json");
+    let mut tickets: HashMap<String, Value> = std::fs::read_to_string(&path)
+        .ok()
+        .and_then(|raw| serde_json::from_str(&raw).ok())
+        .unwrap_or_default();
+    let now_ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0);
+    tickets.insert(code.clone(), json!({ "email": email, "created_ms": now_ms }));
+    write_owner_only(&path, &serde_json::to_vec(&tickets)?)?;
+    Ok(code)
+}
+
+fn clerk_secret() -> Option<String> {
+    let raw = std::fs::read_to_string(home().ok()?.join("clerk.env")).ok()?;
+    for line in raw.lines() {
+        let mut parts = line.splitn(2, '=');
+        if parts.next()?.trim() == "CLERK_SECRET_KEY" {
+            let value = parts.next()?.trim();
+            if !value.is_empty() {
+                return Some(value.to_string());
+            }
+        }
+    }
+    None
+}
+
+async fn send_clerk_invitation(email: &str, redirect_url: &str) -> Result<(), String> {
+    let Some(secret) = clerk_secret() else {
+        return Err("no Clerk key at ~/.jcode/clerk.env — token issued, share the endpoint manually".into());
+    };
+    let client = reqwest::Client::new();
+    let response = client
+        .post("https://api.clerk.com/v1/invitations")
+        .bearer_auth(secret)
+        .json(&json!({ "email_address": email, "redirect_url": redirect_url }))
+        .send()
+        .await
+        .map_err(|e| format!("Clerk request failed: {e}"))?;
+    let status = response.status();
+    if status.is_success() {
+        return Ok(());
+    }
+    let body = response.text().await.unwrap_or_default();
+    if status.as_u16() == 400 && body.contains("duplicate_record") {
+        return Ok(()); // already invited counts as success
+    }
+    Err(format!("Clerk invitation failed (HTTP {status})"))
+}
+
+fn ws_endpoint(host: &str) -> String {
+    let port = std::env::var("JCODE_API_WS_PORT").unwrap_or_else(|_| "7644".into());
+    format!("ws://{host}:{port}/api")
+}
+
+/// The whole invite operation: token + ticket + (optionally) the Clerk
+/// email. `host` is the address members should dial (the app passes its
+/// LAN address; loopback for same-machine testing).
+pub async fn invite(email: &str, host: &str, send_email: bool) -> Result<Value> {
+    let token = issue_token(email)?;
+    let ticket = mint_join_ticket(email)?;
+    let port = std::env::var("JCODE_API_WS_PORT").unwrap_or_else(|_| "7644".into());
+    let join_url = format!("http://{host}:{port}/join?ticket={ticket}");
+    let mut emailed = false;
+    let mut email_error: Option<String> = None;
+    if send_email {
+        match send_clerk_invitation(email, &join_url).await {
+            Ok(()) => emailed = true,
+            Err(error) => email_error = Some(error),
+        }
+    }
+    Ok(json!({
+        "email": email,
+        "ws_url": ws_endpoint(host),
+        "token": token,
+        "join_url": join_url,
+        "emailed": emailed,
+        "email_error": email_error,
+    }))
+}
