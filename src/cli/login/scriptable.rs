@@ -8,6 +8,11 @@ pub(super) fn auto_scriptable_flow_reason(
     if options.print_auth_url || options.complete || options.has_provided_input() {
         return None;
     }
+    // The caller explicitly wants the localhost-callback flow — it now
+    // completes headless (the callback wait never reads stdin).
+    if options.callback {
+        return None;
+    }
 
     let supports_scriptable = matches!(
         provider.target,

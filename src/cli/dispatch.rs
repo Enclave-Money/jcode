@@ -241,6 +241,7 @@ pub(crate) async fn run_main(mut args: Args) -> Result<()> {
             provider: login_provider,
             account,
             no_browser,
+            callback,
             print_auth_url,
             callback_url,
             auth_code,
@@ -257,6 +258,7 @@ pub(crate) async fn run_main(mut args: Args) -> Result<()> {
                 account.as_deref(),
                 login::LoginOptions {
                     no_browser,
+                    callback,
                     print_auth_url,
                     callback_url,
                     auth_code,
@@ -283,7 +285,7 @@ pub(crate) async fn run_main(mut args: Args) -> Result<()> {
             council::run(action)?;
         }
         Some(Command::Account { action }) => match action {
-            super::args::AccountCommand::Login { no_browser } => {
+            super::args::AccountCommand::Login { no_browser, callback: _ } => {
                 account::run_login(no_browser).await?
             }
             super::args::AccountCommand::Status { json } => account::run_status(json).await?,

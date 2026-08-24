@@ -188,6 +188,12 @@ pub(crate) enum Command {
         #[arg(long, alias = "headless")]
         no_browser: bool,
 
+        /// Wait for the localhost OAuth callback and complete automatically
+        /// (no code pasting; suitable for non-interactive callers like the
+        /// desktop app)
+        #[arg(long)]
+        callback: bool,
+
         /// Print a script-friendly auth URL and persist temporary login state for later completion.
         #[arg(long, conflicts_with_all = ["callback_url", "auth_code"])]
         print_auth_url: bool,
@@ -653,6 +659,12 @@ pub(crate) enum AccountCommand {
         /// Do not open a browser automatically; print the public approval URL instead
         #[arg(long, alias = "headless")]
         no_browser: bool,
+
+        /// Wait for the localhost OAuth callback and complete automatically
+        /// (no code pasting; suitable for non-interactive callers like the
+        /// desktop app)
+        #[arg(long)]
+        callback: bool,
     },
     /// Show canonical account, plan, and usage status from /v1/me
     Status {

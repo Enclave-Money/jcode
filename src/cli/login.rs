@@ -20,6 +20,10 @@ use scriptable::*;
 #[derive(Debug, Clone, Default)]
 pub struct LoginOptions {
     pub no_browser: bool,
+    /// Force the localhost-callback flow (fully automatic completion) even
+    /// when stdin is not a terminal or --no-browser is set — without this,
+    /// those conditions auto-route to the scriptable print-and-exit flow.
+    pub callback: bool,
     pub print_auth_url: bool,
     pub callback_url: Option<String>,
     pub auth_code: Option<String>,
