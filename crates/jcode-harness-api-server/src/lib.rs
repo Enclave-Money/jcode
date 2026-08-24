@@ -388,6 +388,11 @@ where
                     if let Some(dir) = &cwd {
                         command.current_dir(dir);
                     }
+                    // The run is tied to this connection: a client cancelling
+                    // (closing the connection) drops this future, and the
+                    // council child must die with it, not burn tokens for
+                    // twenty more minutes.
+                    command.kill_on_drop(true);
                     let outcome = tokio::time::timeout(
                         std::time::Duration::from_secs(1200),
                         command.output(),
