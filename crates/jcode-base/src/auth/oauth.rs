@@ -442,11 +442,10 @@ pub async fn login_claude(no_browser: bool) -> Result<OAuthTokens> {
         return exchange_claude_code(&verifier, trimmed, claude::REDIRECT_URI).await;
     }
 
-    if !std::io::stdin().is_terminal() {
-        anyhow::bail!(
-            "Claude login needs an authorization code from stdin. Re-run in an interactive terminal, or set JCODE_CLAUDE_AUTH_CODE."
-        );
-    }
+    // NOTE: headless callers (the desktop app spawns this with a null
+    // stdin) complete the fully automatic localhost-callback flow below,
+    // which never reads stdin. Only the paste-a-code fallbacks need a
+    // terminal — they bail individually.
 
     // Try local callback first for a fully automatic flow.
     if let Ok(listener) = bind_callback_listener(0) {
@@ -473,34 +472,48 @@ pub async fn login_claude(no_browser: bool) -> Result<OAuthTokens> {
         };
         if browser_opened {
             eprintln!(
-                "Waiting up to 120s for automatic callback on {}",
+                "Waiting up to 300s for automatic callback on {}",
                 redirect_uri
             );
         } else {
             eprintln!(
-                "Couldn't open a browser on this machine. Use the QR code or manual URL above, then paste the callback URL here.\n"
+                "Open the URL above in any browser on this machine — a private \
+window lets you sign in as a DIFFERENT account. Waiting up to 300s for the \
+callback on {}\n",
+                redirect_uri
             );
         }
 
-        if browser_opened {
-            match tokio::time::timeout(
-                std::time::Duration::from_secs(120),
-                wait_for_callback_async_on_listener(listener, &verifier),
-            )
-            .await
-            {
-                Ok(Ok(code)) => {
-                    eprintln!("Received callback. Exchanging code for tokens...");
-                    return exchange_claude_code(&verifier, &code, &redirect_uri).await;
+        // Wait for the callback whether or not WE opened the browser: the
+        // user may open the printed URL themselves (the desktop app's
+        // copy-into-a-private-window path), and the redirect still lands
+        // on this listener. Gating the wait on browser_opened made
+        // --no-browser logins dead on arrival.
+        match tokio::time::timeout(
+            std::time::Duration::from_secs(300),
+            wait_for_callback_async_on_listener(listener, &verifier),
+        )
+        .await
+        {
+            Ok(Ok(code)) => {
+                eprintln!("Received callback. Exchanging code for tokens...");
+                return exchange_claude_code(&verifier, &code, &redirect_uri).await;
+            }
+            Ok(Err(err)) => {
+                if !std::io::stdin().is_terminal() {
+                    anyhow::bail!("automatic callback failed: {err}");
                 }
-                Ok(Err(err)) => {
-                    eprintln!(
-                        "Automatic callback failed ({err}). Falling back to manual code paste."
+                eprintln!(
+                    "Automatic callback failed ({err}). Falling back to manual code paste."
+                );
+            }
+            Err(_) => {
+                if !std::io::stdin().is_terminal() {
+                    anyhow::bail!(
+                        "timed out after 300s waiting for the browser sign-in to reach {redirect_uri}"
                     );
                 }
-                Err(_) => {
-                    eprintln!("Timed out waiting for callback. Falling back to manual code paste.");
-                }
+                eprintln!("Timed out waiting for callback. Falling back to manual code paste.");
             }
         }
 
@@ -519,6 +532,11 @@ pub async fn login_claude(no_browser: bool) -> Result<OAuthTokens> {
     }
 
     // Last-resort manual flow if localhost callback binding is unavailable.
+    if !std::io::stdin().is_terminal() {
+        anyhow::bail!(
+            "Claude login needs an authorization code from stdin (no localhost callback port could be bound). Re-run in an interactive terminal, or set JCODE_CLAUDE_AUTH_CODE."
+        );
+    }
     let auth_url = claude_auth_url(claude::REDIRECT_URI, &challenge, &verifier);
 
     eprintln!("\nOpen this URL in your browser:\n");
