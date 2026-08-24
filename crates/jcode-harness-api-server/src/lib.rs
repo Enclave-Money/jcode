@@ -83,9 +83,13 @@ pub(crate) struct InstanceLock {
 #[cfg(unix)]
 impl Drop for InstanceLock {
     fn drop(&mut self) {
-        // Best effort: the flock is released by the fd close regardless, and a
-        // leftover empty lock file is harmless (the next bridge re-locks it).
-        let _ = std::fs::remove_file(&self.path);
+        // Deliberately do NOT unlink the lock file. The flock releases on fd
+        // close regardless, and unlinking raced: a dying bridge deleted the
+        // path while a NEWER bridge held the lock on that inode, so the next
+        // spawner created a fresh inode, locked it, and TWO bridges ran with
+        // split state (job tables, WS vs unix socket). A persistent empty
+        // lock file is harmless.
+        let _ = &self.path;
     }
 }
 
@@ -100,14 +104,30 @@ pub(crate) fn single_instance_lock(api_socket: &std::path::Path) -> Result<Optio
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent).ok();
     }
-    let file = std::fs::OpenOptions::new()
-        .create(true)
-        .write(true)
-        .truncate(false)
-        .open(&path)
-        .with_context(|| format!("open bridge lock {}", path.display()))?;
-    let taken = unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } == 0;
-    Ok(taken.then_some(InstanceLock { _file: file, path }))
+    // Retry loop: if the inode we locked is no longer the inode at the
+    // path (an old build's Drop unlinked it mid-race), the lock protects
+    // nothing — lock the fresh inode instead.
+    use std::os::unix::fs::MetadataExt;
+    for _ in 0..3 {
+        let file = std::fs::OpenOptions::new()
+            .create(true)
+            .write(true)
+            .truncate(false)
+            .open(&path)
+            .with_context(|| format!("open bridge lock {}", path.display()))?;
+        let taken = unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } == 0;
+        if !taken {
+            return Ok(None);
+        }
+        let locked_ino = file.metadata().map(|m| m.ino()).unwrap_or(0);
+        match std::fs::metadata(&path) {
+            Ok(meta) if meta.ino() == locked_ino => {
+                return Ok(Some(InstanceLock { _file: file, path }));
+            }
+            _ => continue,
+        }
+    }
+    Ok(None)
 }
 
 pub async fn run_bridge(api_socket: PathBuf, legacy_socket: PathBuf) -> Result<()> {
