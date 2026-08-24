@@ -90,6 +90,20 @@ pub fn classify_failover_error_message(message: &str) -> FailoverDecision {
         return FailoverDecision::RetryNextProvider;
     }
 
+    // Capacity shedding — Anthropic's overloaded_error / HTTP 529 and kin.
+    // The provider runtime already retried in-stream with backoff before
+    // this error escaped, so it is persistent enough to kill the turn.
+    // Retry on another route, but do NOT mark the provider unavailable:
+    // the outage is model/pool-scoped (opus-5 can shed while fable-5
+    // streams fine) and clears on its own.
+    let capacity_shed = ["overloaded", "server_overloaded", "capacity"]
+        .iter()
+        .any(|needle| lower.contains(needle))
+        || contains_independent_status_code(&lower, "529");
+    if capacity_shed {
+        return FailoverDecision::RetryNextProvider;
+    }
+
     let rate_or_quota = [
         "rate limit",
         "rate-limited",
@@ -138,6 +152,22 @@ pub fn classify_failover_error_message(message: &str) -> FailoverDecision {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn overloaded_stream_errors_failover_without_marking_unavailable() {
+        let decision = super::classify_failover_error_message(
+            "Retryable stream error: {\"type\":\"error\",\"error\":{\"details\":null,\"type\":\"overloaded_error\",\"message\":\"Overloaded\"},\"request_id\":\"req_x\"}",
+        );
+        assert_eq!(decision, super::FailoverDecision::RetryNextProvider);
+        assert!(decision.should_failover());
+        assert!(!decision.should_mark_provider_unavailable());
+    }
+
+    #[test]
+    fn plain_529_status_fails_over() {
+        let decision = super::classify_failover_error_message("HTTP 529 from upstream");
+        assert_eq!(decision, super::FailoverDecision::RetryNextProvider);
+    }
+
     use super::*;
 
     #[test]
