@@ -1107,6 +1107,16 @@ pub(crate) enum AuthCommand {
     /// CLAUDE_CODE_OAUTH_TOKEN) into blaude's own account store as an
     /// additional Anthropic account, and make it active. Non-interactive.
     ImportClaudeCode,
+    /// Resolve and persist the email behind each stored OAuth account
+    /// (Anthropic profile endpoint; OpenAI id_token claims). Prints
+    /// label → email only — never token material.
+    Whoami,
+    /// Remove a stored Anthropic account by label (credentials are
+    /// deleted from auth.json; the active account cannot be removed).
+    Remove {
+        /// Account label to remove (see `blaude auth whoami`)
+        label: String,
+    },
 }
 
 #[derive(Subcommand, Debug)]

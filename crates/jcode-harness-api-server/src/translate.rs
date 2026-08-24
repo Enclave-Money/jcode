@@ -356,11 +356,33 @@ impl BridgeState {
                 ))]
             }
             "list_accounts" => {
-                if request["provider"].as_str() != Some("claude") {
+                let provider = request["provider"].as_str().unwrap_or_default();
+                if provider == "openai" {
+                    return match Self::read_openai_accounts() {
+                        Ok((accounts, active)) => {
+                            let listed: Vec<Value> = accounts
+                                .into_iter()
+                                .map(|(label, email)| {
+                                    json!({
+                                        "label": label,
+                                        "email": email,
+                                        "active": Some(label.as_str()) == active.as_deref(),
+                                    })
+                                })
+                                .collect();
+                            vec![Outbound::Reply(ServerFrame::reply(
+                                api_id,
+                                ApiEvent::Accounts { provider: "openai".into(), accounts: listed },
+                            ))]
+                        }
+                        Err(message) => Self::error_reply(api_id, ErrorCode::Internal, &message),
+                    };
+                }
+                if provider != "claude" {
                     return Self::error_reply(
                         api_id,
                         ErrorCode::InvalidRequest,
-                        "list_accounts supports provider `claude` for now",
+                        "list_accounts supports providers `claude` and `openai`",
                     );
                 }
                 match Self::read_claude_accounts() {
@@ -1648,6 +1670,30 @@ impl BridgeState {
             })
             .unwrap_or_default();
         let active = value["active_anthropic_account"].as_str().map(str::to_string);
+        Ok((accounts, active))
+    }
+
+    /// Labels and emails from ~/.jcode/openai-auth.json — token material is
+    /// never read past serde's untyped Value and never leaves this function.
+    fn read_openai_accounts() -> Result<(Vec<(String, String)>, Option<String>), String> {
+        let home = std::env::var("HOME").map_err(|_| "HOME is not set".to_string())?;
+        let path = std::path::Path::new(&home).join(".jcode/openai-auth.json");
+        let text = std::fs::read_to_string(&path).map_err(|e| e.to_string())?;
+        let value: Value = serde_json::from_str(&text).map_err(|e| e.to_string())?;
+        let accounts = value["openai_accounts"]
+            .as_array()
+            .map(|list| {
+                list.iter()
+                    .map(|a| {
+                        (
+                            a["label"].as_str().unwrap_or_default().to_string(),
+                            a["email"].as_str().unwrap_or_default().to_string(),
+                        )
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+        let active = value["active_openai_account"].as_str().map(str::to_string);
         Ok((accounts, active))
     }
 

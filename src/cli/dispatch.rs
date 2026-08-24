@@ -333,6 +333,58 @@ pub(crate) async fn run_main(mut args: Args) -> Result<()> {
                 crate::auth::claude::set_active_account(&label)?;
                 println!("Imported Claude Code credentials as account `{label}` (now active).");
             }
+            AuthCommand::Whoami => {
+                let accounts = crate::auth::claude::list_accounts().unwrap_or_default();
+                if accounts.is_empty() {
+                    println!("claude: no accounts stored");
+                }
+                for account in accounts {
+                    let fetched = crate::auth::oauth::update_claude_account_profile(
+                        &account.label,
+                        &account.access,
+                    )
+                    .await;
+                    let outcome = match fetched {
+                        Ok(email) => Ok(email),
+                        Err(_) => {
+                            // Stored access token may be stale; refresh once and retry.
+                            match crate::auth::oauth::refresh_claude_tokens_for_account(
+                                &account.refresh,
+                                &account.label,
+                            )
+                            .await
+                            {
+                                Ok(tokens) => crate::auth::oauth::update_claude_account_profile(
+                                    &account.label,
+                                    &tokens.access_token,
+                                )
+                                .await,
+                                Err(e) => Err(e),
+                            }
+                        }
+                    };
+                    match outcome {
+                        Ok(Some(email)) => println!("claude/{}: {}", account.label, email),
+                        Ok(None) => println!("claude/{}: profile returned no email", account.label),
+                        Err(e) => println!("claude/{}: unavailable ({e})", account.label),
+                    }
+                }
+                for account in crate::auth::codex::list_accounts().unwrap_or_default() {
+                    println!(
+                        "openai/{}: {}",
+                        account.label,
+                        account.email.as_deref().unwrap_or("(no email recorded)")
+                    );
+                }
+            }
+            AuthCommand::Remove { label } => {
+                let active = crate::auth::claude::active_account_label();
+                if active.as_deref() == Some(label.as_str()) {
+                    anyhow::bail!("`{label}` is the active account — switch first, then remove");
+                }
+                crate::auth::claude::remove_account(&label)?;
+                println!("Removed Anthropic account `{label}`.");
+            }
             AuthCommand::Doctor {
                 provider,
                 validate,
