@@ -1778,12 +1778,22 @@ impl Server {
         } else {
             let idle_client_count = Arc::clone(&self.client_count);
             let idle_server_name = self.identity.name.clone();
+            // A TEAM server must survive quiet nights: JCODE_IDLE_TIMEOUT_SECS
+            // overrides the default, and 0 disables idle shutdown entirely.
+            let idle_timeout_secs = std::env::var("JCODE_IDLE_TIMEOUT_SECS")
+                .ok()
+                .and_then(|raw| raw.trim().parse::<u64>().ok())
+                .unwrap_or(IDLE_TIMEOUT_SECS);
             tokio::spawn(async move {
                 let mut idle_since: Option<std::time::Instant> = None;
                 let mut check_interval = tokio::time::interval(std::time::Duration::from_secs(10));
 
                 loop {
                     check_interval.tick().await;
+
+                    if idle_timeout_secs == 0 {
+                        continue;
+                    }
 
                     let count = *idle_client_count.read().await;
 
@@ -1793,13 +1803,13 @@ impl Server {
                             idle_since = Some(std::time::Instant::now());
                             crate::logging::info(&format!(
                                 "No clients connected. Server will exit after {} minutes of idle.",
-                                IDLE_TIMEOUT_SECS / 60
+                                idle_timeout_secs / 60
                             ));
                         }
 
                         if let Some(since) = idle_since {
                             let idle_duration = since.elapsed().as_secs();
-                            if idle_duration >= IDLE_TIMEOUT_SECS {
+                            if idle_duration >= idle_timeout_secs {
                                 crate::logging::info(&format!(
                                     "Server idle for {} minutes with no clients. Shutting down.",
                                     idle_duration / 60
