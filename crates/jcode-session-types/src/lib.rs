@@ -1129,3 +1129,44 @@ mod session_search_tests {
         assert!(fenced.ends_with("\n````"));
     }
 }
+
+#[cfg(test)]
+mod work_mode_tests {
+    use super::*;
+
+    #[test]
+    fn parses_all_four_modes() {
+        assert_eq!(WorkMode::parse("auto"), Some(WorkMode::Auto));
+        assert_eq!(WorkMode::parse("plan"), Some(WorkMode::Plan));
+        assert_eq!(WorkMode::parse("ask"), Some(WorkMode::Ask));
+        assert_eq!(WorkMode::parse("manual"), Some(WorkMode::Manual));
+    }
+
+    #[test]
+    fn parsing_is_case_insensitive() {
+        assert_eq!(WorkMode::parse("Plan"), Some(WorkMode::Plan));
+        assert_eq!(WorkMode::parse("ASK"), Some(WorkMode::Ask));
+        assert_eq!(WorkMode::parse("AuTo"), Some(WorkMode::Auto));
+        assert_eq!(WorkMode::parse("MANUAL"), Some(WorkMode::Manual));
+    }
+
+    #[test]
+    fn surrounding_whitespace_is_ignored() {
+        assert_eq!(WorkMode::parse("  plan  "), Some(WorkMode::Plan));
+        assert_eq!(WorkMode::parse("\tASK\n"), Some(WorkMode::Ask));
+    }
+
+    #[test]
+    fn garbage_input_returns_none() {
+        for raw in ["", "   ", "planning", "pla", "auto mode", "🙂", "0"] {
+            assert_eq!(WorkMode::parse(raw), None, "expected None for {raw:?}");
+        }
+    }
+
+    #[test]
+    fn as_str_round_trips_through_parse() {
+        for mode in [WorkMode::Auto, WorkMode::Plan, WorkMode::Ask, WorkMode::Manual] {
+            assert_eq!(WorkMode::parse(mode.as_str()), Some(mode));
+        }
+    }
+}
