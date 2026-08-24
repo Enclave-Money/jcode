@@ -337,6 +337,24 @@ impl BridgeState {
         }
 
         match req {
+            "list_councils" => {
+                let home = match std::env::var("HOME") {
+                    Ok(home) => home,
+                    Err(_) => {
+                        return Self::error_reply(api_id, ErrorCode::Internal, "HOME is not set")
+                    }
+                };
+                let path = std::path::Path::new(&home).join(".jcode/councils.json");
+                let councils = std::fs::read_to_string(&path)
+                    .ok()
+                    .and_then(|text| serde_json::from_str::<Value>(&text).ok())
+                    .and_then(|value| value["councils"].as_array().cloned())
+                    .unwrap_or_default();
+                vec![Outbound::Reply(ServerFrame::reply(
+                    api_id,
+                    ApiEvent::Councils { councils },
+                ))]
+            }
             "list_accounts" => {
                 if request["provider"].as_str() != Some("claude") {
                     return Self::error_reply(

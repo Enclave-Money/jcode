@@ -21,6 +21,19 @@ pub enum ApiRequest {
         include_archived: bool,
     },
 
+    /// List saved councils (cross-model panels) and their member model ids.
+    ListCouncils,
+
+    /// Fan `prompt` out to every member of the named council in
+    /// `working_dir` and return the members' proposals plus the synthesized
+    /// joint plan. Long-running (minutes); run it on a spare connection.
+    RunCouncil {
+        name: String,
+        prompt: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        working_dir: Option<String>,
+    },
+
     /// List the stored provider accounts (labels and emails only — token
     /// material never crosses the wire). `provider` currently: "claude".
     ListAccounts { provider: String },

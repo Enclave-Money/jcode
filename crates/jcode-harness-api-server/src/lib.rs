@@ -364,6 +364,62 @@ where
                 // stalls only THIS connection (clients install on a spare
                 // connection), and on success the daemon reloads its registry
                 // so the skill is usable without a restart.
+                // Council runs fan a prompt to 2-3 models and take minutes —
+                // another async job the sync translate machine can't host.
+                // The await stalls only THIS connection; clients run councils
+                // on a spare connection.
+                if request["req"].as_str() == Some("run_council") {
+                    let api_id = request["id"].as_u64().unwrap_or(0);
+                    let name = request["name"].as_str().unwrap_or_default().to_string();
+                    let prompt = request["prompt"].as_str().unwrap_or_default().to_string();
+                    let cwd = request["working_dir"].as_str().map(str::to_string);
+                    if name.is_empty() || prompt.is_empty() {
+                        let frame = ServerFrame::reply(api_id, ApiEvent::Error {
+                            code: ErrorCode::InvalidRequest,
+                            message: "run_council needs `name` and `prompt`".into(),
+                        });
+                        write_json_line(&mut write_half, &frame).await?;
+                        continue;
+                    }
+                    let exe = std::env::current_exe()
+                        .unwrap_or_else(|_| std::path::PathBuf::from("blaude"));
+                    let mut command = tokio::process::Command::new(exe);
+                    command.arg("council").arg("run").arg(&name).arg(&prompt);
+                    if let Some(dir) = &cwd {
+                        command.current_dir(dir);
+                    }
+                    let outcome = tokio::time::timeout(
+                        std::time::Duration::from_secs(1200),
+                        command.output(),
+                    )
+                    .await;
+                    let frame = match outcome {
+                        Ok(Ok(output)) if output.status.success() => ServerFrame::reply(
+                            api_id,
+                            ApiEvent::CouncilResult {
+                                name,
+                                output: String::from_utf8_lossy(&output.stdout).into_owned(),
+                            },
+                        ),
+                        Ok(Ok(output)) => ServerFrame::reply(api_id, ApiEvent::Error {
+                            code: ErrorCode::Internal,
+                            message: format!(
+                                "council run failed: {}",
+                                String::from_utf8_lossy(&output.stderr).trim(),
+                            ),
+                        }),
+                        Ok(Err(error)) => ServerFrame::reply(api_id, ApiEvent::Error {
+                            code: ErrorCode::Internal,
+                            message: format!("couldn't launch council: {error}"),
+                        }),
+                        Err(_) => ServerFrame::reply(api_id, ApiEvent::Error {
+                            code: ErrorCode::Internal,
+                            message: "council run timed out after 20 minutes".into(),
+                        }),
+                    };
+                    write_json_line(&mut write_half, &frame).await?;
+                    continue;
+                }
                 if request["req"].as_str() == Some("install_skill") {
                     let api_id = request["id"].as_u64().unwrap_or(0);
                     let url = request["url"].as_str().unwrap_or_default();

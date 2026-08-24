@@ -59,6 +59,8 @@ export type ApiRequest =
   | { req: "list_sessions"; include_archived?: boolean }
   | { req: "add_dir"; session_id: string; path: string }
   | { req: "install_skill"; url: string }
+  | { req: "list_councils" }
+  | { req: "run_council"; name: string; prompt: string; working_dir?: string }
   | { req: "list_accounts"; provider: string }
   | { req: "set_active_account"; provider: string; label: string }
   | { req: "archive_session"; session_id: string }
@@ -117,6 +119,8 @@ export type ApiEvent =
     }
   | { ev: "ok" }
   | { ev: "accounts"; provider: string; accounts: Array<{ label: string; email: string; active: boolean }> }
+  | { ev: "councils"; councils: Array<{ name: string; members: string[] }> }
+  | { ev: "council_result"; name: string; output: string }
   | { ev: "error"; code: ErrorCode; message: string }
   | { ev: "sessions"; sessions: SessionInfo[] }
   | { ev: "attached"; session: SessionInfo }
@@ -275,6 +279,8 @@ export const KNOWN_EVENT_KINDS = [
   "hello_ok",
   "ok",
   "accounts",
+  "councils",
+  "council_result",
   "error",
   "sessions",
   "attached",
@@ -317,6 +323,8 @@ export const KNOWN_REQUEST_KINDS = [
   "list_sessions",
   "add_dir",
   "install_skill",
+  "list_councils",
+  "run_council",
   "list_accounts",
   "set_active_account",
   "archive_session",

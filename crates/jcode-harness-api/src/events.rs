@@ -24,6 +24,13 @@ pub enum ApiEvent {
     /// Generic success acknowledgment for requests without a richer reply.
     Ok,
 
+    /// Saved councils and their member model ids.
+    Councils { councils: Vec<serde_json::Value> },
+
+    /// A council run finished: the full report (member proposals + joint
+    /// plan) as rendered text.
+    CouncilResult { name: String, output: String },
+
     /// Stored accounts for a provider — labels/emails only, never tokens.
     Accounts {
         provider: String,
