@@ -280,6 +280,14 @@ pub trait Provider: Send + Sync {
         vec![]
     }
 
+    /// Switch the active provider's ACCOUNT after a terminal in-stream
+    /// failure (channel-backed runtimes surface connect errors through the
+    /// stream, past create-time failover). Returns the new account label
+    /// when a switch happened. Default: no multi-account support.
+    async fn failover_account(&self, _reason: &str) -> Option<String> {
+        None
+    }
+
     /// Get the active service tier override (if applicable).
     fn service_tier(&self) -> Option<String> {
         None

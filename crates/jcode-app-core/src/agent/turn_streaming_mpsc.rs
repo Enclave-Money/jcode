@@ -93,6 +93,7 @@ impl Agent {
             self.graceful_shutdown.clone(),
         );
         let trace = trace_enabled();
+        let mut account_failover_retries: u32 = 0;
         let mut context_limit_retries = 0u32;
         let mut incomplete_continuations = 0u32;
         let mut empty_post_tool_continuations = 0u32;
@@ -453,6 +454,34 @@ impl Agent {
                                 summary_chars: None,
                                 active_messages: None,
                             });
+                            break;
+                        }
+                        // Terminal connect-shedding (429/529 after the
+                        // runtime's own retries) arrives IN-STREAM, past the
+                        // create-time failover loop. If nothing streamed yet,
+                        // switch to a sibling account and re-issue the same
+                        // request — this is what makes a second signed-in
+                        // account actually useful.
+                        if account_failover_retries < 1
+                            && text_content.is_empty()
+                            && tool_id_to_name.is_empty()
+                            && jcode_provider_core::classify_failover_error_message(&err_str)
+                                .should_failover()
+                            && let Some(next_account) = provider.failover_account(&err_str).await
+                        {
+                            account_failover_retries += 1;
+                            log_agent_provider_stream_lifecycle(
+                                logging::LogLevel::Warn,
+                                self,
+                                "stream_error_retry_on_account",
+                                api_start,
+                                vec![
+                                    ("mode", "mpsc".to_string()),
+                                    ("error", err_str.clone()),
+                                    ("account", next_account),
+                                ],
+                            );
+                            retry_after_compaction = true;
                             break;
                         }
                         log_agent_provider_stream_lifecycle(

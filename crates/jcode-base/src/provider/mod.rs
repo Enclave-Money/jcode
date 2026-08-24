@@ -1718,6 +1718,30 @@ impl Default for MultiProvider {
 
 #[async_trait]
 impl Provider for MultiProvider {
+    async fn failover_account(&self, reason: &str) -> Option<String> {
+        if !same_provider_account_failover_enabled() {
+            return None;
+        }
+        let provider = self.active_provider();
+        let original = active_account_label_for_provider(provider)?;
+        let next = same_provider_account_candidates(provider)
+            .into_iter()
+            .find(|label| *label != original)?;
+        crate::logging::info(&format!(
+            "In-stream account failover: {} '{}' -> '{}' ({})",
+            Self::provider_label(provider),
+            original,
+            next,
+            reason.lines().next().unwrap_or("")
+        ));
+        set_account_override_for_provider(provider, Some(next.clone()));
+        clear_provider_unavailable_for_account(Self::provider_key(provider));
+        self.invalidate_provider_credentials_for_account_switch(provider)
+            .await;
+        Some(next)
+    }
+
+
     async fn complete(
         &self,
         messages: &[Message],
