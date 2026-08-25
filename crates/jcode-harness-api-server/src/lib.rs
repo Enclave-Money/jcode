@@ -39,7 +39,41 @@ use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 // Unix sockets on Unix, named pipes on Windows, one API. Without this the
 // bridge simply did not compile for Windows, so the SDK could not run there at
 // all.
-use jcode_transport::{Listener, Stream};
+use jcode_transport::{Listener, Stream, WriteHalf};
+
+/// Dial the legacy daemon and start a dedicated reader task that forwards
+/// complete newline-delimited frames over an unbounded channel.
+///
+/// The reader lives OUTSIDE the connection's `select!` loop on purpose:
+/// `AsyncBufReadExt::read_line` is not cancellation-safe (a dropped future
+/// discards bytes already pulled out of the BufReader), and the loop's other
+/// arms — a 900ms permission tick, every inbound client frame — fire
+/// constantly. Reading a multi-MB history/state line straight off a select
+/// arm therefore truncates and silently loses it. An mpsc receiver, by
+/// contrast, IS cancel-safe, so the loop can await it freely.
+async fn dial_legacy(
+    legacy_socket: &std::path::Path,
+) -> Option<(tokio::sync::mpsc::UnboundedReceiver<String>, WriteHalf)> {
+    let stream = Stream::connect(legacy_socket).await.ok()?;
+    let (read, write) = stream.into_split();
+    let (tx, rx) = tokio::sync::mpsc::unbounded_channel::<String>();
+    tokio::spawn(async move {
+        let mut reader = BufReader::new(read);
+        let mut line = String::new();
+        loop {
+            line.clear();
+            match reader.read_line(&mut line).await {
+                Ok(0) | Err(_) => break, // EOF / error: dropping tx signals close
+                Ok(_) => {
+                    if tx.send(std::mem::take(&mut line)).is_err() {
+                        break;
+                    }
+                }
+            }
+        }
+    });
+    Some((rx, write))
+}
 
 // Socket paths live in `jcode-harness-api` so clients and the bridge can never
 // resolve different directories (they once did, and the desktop app could not
@@ -218,16 +252,19 @@ async fn handle_api_client(stream: Stream, legacy_socket: PathBuf) -> Result<()>
     let (read_half, write_half) = stream.into_split();
     // Local unix-socket clients are the machine owner by definition (0600).
     let identity = std::env::var("USER").ok();
-    handle_api_io(BufReader::new(read_half), write_half, legacy_socket, identity).await
+    handle_api_io(BufReader::new(read_half), write_half, legacy_socket, identity, true).await
 }
 
 /// Per-client bridge loop, generic over the client transport: the unix socket
 /// path and the WebSocket relay (src/ws.rs, via an in-memory duplex) share it.
+/// `is_owner` gates team-management verbs — members can attach and steer, but
+/// never invite, enumerate, or revoke.
 pub(crate) async fn handle_api_io<R, W>(
     reader: R,
     write_half: W,
     legacy_socket: PathBuf,
     identity: Option<String>,
+    is_owner: bool,
 ) -> Result<()>
 where
     R: tokio::io::AsyncBufRead + Unpin,
@@ -311,14 +348,11 @@ where
     //    login jobs, invites) can never run. Serve bridge-only until the
     //    daemon appears, then upgrade in place on the next daemon-bound
     //    request.
-    let (mut legacy_reader, mut legacy_write) = match Stream::connect(&legacy_socket).await {
-        Ok(stream) => {
-            let (read, write) = stream.into_split();
-            (Some(BufReader::new(read)), Some(write))
-        }
-        Err(error) => {
+    let (mut legacy_rx, mut legacy_write) = match dial_legacy(&legacy_socket).await {
+        Some((rx, write)) => (Some(rx), Some(write)),
+        None => {
             eprintln!(
-                "harness API bridge: daemon unreachable ({error}); serving bridge-only verbs until it comes up"
+                "harness API bridge: daemon unreachable; serving bridge-only verbs until it comes up"
             );
             (None, None)
         }
@@ -332,7 +366,6 @@ where
     //    permission prompts reach API clients (they are file-mediated by
     //    design — see src/permissions.rs).
     let mut api_line = String::new();
-    let mut legacy_line = String::new();
     let mut permission_poll = tokio::time::interval(std::time::Duration::from_millis(900));
     permission_poll.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
     let mut announced_permissions: std::collections::HashSet<String> = Default::default();
@@ -514,6 +547,22 @@ where
                     write_json_line(&mut write_half, &frame).await?;
                     continue;
                 }
+                // Team management is owner-only: a member's bearer token must
+                // never invite (and receive a minted credential), enumerate,
+                // or revoke. The three verbs share one gate.
+                if matches!(
+                    request["req"].as_str(),
+                    Some("invite_member") | Some("list_team_members") | Some("revoke_member")
+                ) && !is_owner
+                {
+                    let api_id = request["id"].as_u64().unwrap_or(0);
+                    let frame = ServerFrame::reply(api_id, ApiEvent::Error {
+                        code: ErrorCode::InvalidRequest,
+                        message: "team management is owner-only".into(),
+                    });
+                    write_json_line(&mut write_half, &frame).await?;
+                    continue;
+                }
                 if request["req"].as_str() == Some("invite_member") {
                     let api_id = request["id"].as_u64().unwrap_or(0);
                     let email = request["email"].as_str().unwrap_or_default().to_string();
@@ -639,9 +688,8 @@ where
                             // the login job and systemd brought it up — so
                             // the same connection upgrades in place.
                             if legacy_write.is_none() {
-                                if let Ok(stream) = Stream::connect(&legacy_socket).await {
-                                    let (read, write) = stream.into_split();
-                                    legacy_reader = Some(BufReader::new(read));
+                                if let Some((rx, write)) = dial_legacy(&legacy_socket).await {
+                                    legacy_rx = Some(rx);
                                     legacy_write = Some(write);
                                     eprintln!("harness API bridge: daemon is up — connection upgraded");
                                 }
@@ -666,21 +714,24 @@ where
                     }
                 }
             }
-            n = async {
-                legacy_reader
+            // Cancel-safe: recv() never loses a partially-read frame the way
+            // an inline read_line would when a sibling arm fires.
+            received = async {
+                legacy_rx
                     .as_mut()
-                    .expect("branch guarded on legacy_reader.is_some()")
-                    .read_line({ legacy_line.clear(); &mut legacy_line })
+                    .expect("branch guarded on legacy_rx.is_some()")
+                    .recv()
                     .await
-            }, if legacy_reader.is_some() => {
-                if n? == 0 {
+            }, if legacy_rx.is_some() => {
+                let Some(legacy_line) = received else {
+                    // The reader task ended: daemon closed the socket.
                     let frame = ServerFrame::event(ApiEvent::Error {
                         code: ErrorCode::Internal,
                         message: "daemon connection closed".into(),
                     });
                     write_json_line(&mut write_half, &frame).await?;
                     return Ok(());
-                }
+                };
                 if legacy_line.trim().is_empty() { continue; }
                 let event: Value = match serde_json::from_str(legacy_line.trim()) {
                     Ok(value) => value,

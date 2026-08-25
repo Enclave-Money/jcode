@@ -190,11 +190,22 @@ fn claim_join_ticket(code: &str) -> Option<String> {
     }
     let email = entry.get("email")?.as_str()?.to_string();
     let member_token = team_tokens().get(&email)?.clone();
-    Some(format!(
+    let grant = format!(
         r#"{{"email":{},"token":{}}}"#,
         serde_json::to_string(&email).ok()?,
         serde_json::to_string(&member_token).ok()?
-    ))
+    );
+    // This lands inside a <script> literal. JSON escaping alone does NOT
+    // stop `</script>` (or U+2028/2029) from terminating the element, so
+    // neutralise the HTML-significant characters — the values parse
+    // identically as JSON afterwards.
+    Some(
+        grant
+            .replace('<', "\\u003c")
+            .replace('>', "\\u003e")
+            .replace('\u{2028}', "\\u2028")
+            .replace('\u{2029}', "\\u2029"),
+    )
 }
 
 pub async fn run_ws_listener(
@@ -223,11 +234,21 @@ pub async fn run_ws_listener_with_tls(
         let legacy = legacy_socket.clone();
         let tls = tls.clone();
         tokio::spawn(async move {
+            // The TLS handshake is bounded here; the request-head read is
+            // bounded inside handle_ws_client. Both guard only connection
+            // setup, so an established session's frames are never affected —
+            // but a slowloris peer that dribbles (or withholds) bytes on the
+            // public 0.0.0.0 bind can no longer pin a task forever before it
+            // ever presents a token for the bad-token throttle to catch.
+            const TLS_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(15);
             let result = match tls {
-                Some(acceptor) => match acceptor.accept(tcp).await {
-                    Ok(stream) => handle_ws_client(stream, &token, legacy, peer.ip()).await,
-                    Err(error) => Err(anyhow::Error::from(error).context("tls handshake")),
-                },
+                Some(acceptor) => {
+                    match tokio::time::timeout(TLS_TIMEOUT, acceptor.accept(tcp)).await {
+                        Ok(Ok(stream)) => handle_ws_client(stream, &token, legacy, peer.ip()).await,
+                        Ok(Err(error)) => Err(anyhow::Error::from(error).context("tls handshake")),
+                        Err(_) => Err(anyhow::anyhow!("tls handshake timed out")),
+                    }
+                }
                 None => handle_ws_client(tcp, &token, legacy, peer.ip()).await,
             };
             if let Err(error) = result {
@@ -327,7 +348,10 @@ fn reject(status: u16, body: &str) -> ErrorResponse {
 
 /// Bearer header preferred; `?token=` accepted for clients that cannot set
 /// headers (browsers). Path must be `/api`.
-fn authorize(request: &Request, token: &str) -> Result<Option<String>, ErrorResponse> {
+/// Returns `(identity, is_owner)`. The owner presents the owner api-ws-token
+/// (or connects over the local 0600 unix socket); members present a
+/// team-tokens.json bearer. Team-management verbs are owner-gated downstream.
+fn authorize(request: &Request, token: &str) -> Result<(Option<String>, bool), ErrorResponse> {
     if request.uri().path() != "/api" {
         return Err(reject(404, "unknown path; the harness API lives at /api"));
     }
@@ -349,11 +373,11 @@ fn authorize(request: &Request, token: &str) -> Result<Option<String>, ErrorResp
         return Err(reject(401, "missing Authorization: Bearer <token>"));
     };
     if constant_time_eq(presented.as_bytes(), token.as_bytes()) {
-        return Ok(std::env::var("USER").ok());
+        return Ok((std::env::var("USER").ok(), true));
     }
     for (email, member_token) in team_tokens() {
         if constant_time_eq(presented.as_bytes(), member_token.as_bytes()) {
-            return Ok(Some(email));
+            return Ok((Some(email), false));
         }
     }
     Err(reject(401, "bad token"))
@@ -434,8 +458,14 @@ where
     // embedded phone client instead of a refusal. (TLS streams cannot peek.)
     let mut head = Vec::with_capacity(1024);
     let mut chunk = [0u8; 1024];
+    // Bound the whole head read: a peer that opens a socket and sends bytes
+    // one-per-second (or never completes the \r\n\r\n) must not hold this task.
+    const HEAD_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(15);
     while !head.windows(4).any(|w| w == b"\r\n\r\n") && head.len() < 8192 {
-        let n = tcp.read(&mut chunk).await.context("read request head")?;
+        let n = tokio::time::timeout(HEAD_TIMEOUT, tcp.read(&mut chunk))
+            .await
+            .map_err(|_| anyhow::anyhow!("request head timed out"))?
+            .context("read request head")?;
         if n == 0 {
             break;
         }
@@ -450,27 +480,29 @@ where
         // responder only writes.
         return serve_http(tcp, &head_text).await;
     }
-    let identity = std::sync::Arc::new(std::sync::Mutex::new(None::<Option<String>>));
-    let identity_cb = std::sync::Arc::clone(&identity);
+    let auth = std::sync::Arc::new(std::sync::Mutex::new(None::<(Option<String>, bool)>));
+    let auth_cb = std::sync::Arc::clone(&auth);
     let ws = tokio_tungstenite::accept_hdr_async(tcp, |request: &Request, response: Response| {
         let who = authorize(request, token).inspect_err(|_| note_auth_failure(peer))?;
-        *identity_cb.lock().unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(who);
+        *auth_cb.lock().unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(who);
         Ok(response)
     })
     .await
     .context("websocket handshake")?;
-    let identity = identity
+    let (identity, is_owner) = auth
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner())
         .take()
-        .flatten();
+        .map(|(who, owner)| (who, owner))
+        .unwrap_or((None, false));
+
     let (mut ws_write, mut ws_read) = ws.split();
 
     // The relay: WS text frames <-> an in-memory duplex carrying NDJSON, with
     // the standard bridge loop on the other end. One frame = one line.
     let (client_side, bridge_side) = tokio::io::duplex(1024 * 1024);
     let (bridge_read, bridge_write) = tokio::io::split(bridge_side);
-    let core = tokio::spawn(handle_api_io(BufReader::new(bridge_read), bridge_write, legacy_socket, identity));
+    let core = tokio::spawn(handle_api_io(BufReader::new(bridge_read), bridge_write, legacy_socket, identity, is_owner));
 
     let (relay_read, mut relay_write) = tokio::io::split(client_side);
     let mut lines = BufReader::new(relay_read).lines();

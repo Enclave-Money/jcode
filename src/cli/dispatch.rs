@@ -167,15 +167,27 @@ pub(crate) async fn run_main(mut args: Args) -> Result<()> {
             // over a daemon that was fine, so report and listen anyway. If the
             // daemon really is absent, per-client dials fail with a message
             // naming the socket, which is the smaller and more accurate error.
-            if let Err(error) = spawn_server(
-                &args.provider,
-                args.model.as_deref(),
-                args.provider_profile.as_deref(),
-            )
-            .await
-            {
-                eprintln!("api-bridge: could not start the blaude server: {error:#}");
-                eprintln!("api-bridge: continuing; an already-running server will still be used");
+            //
+            // A managed team server sets JCODE_BRIDGE_NO_SPAWN=1: there,
+            // systemd owns the daemon as its own unit, and a bridge-spawned
+            // child would (a) live in the BRIDGE's cgroup and die on every
+            // bridge restart, and (b) miss the unit's idle-timeout override.
+            let self_spawn = std::env::var("JCODE_BRIDGE_NO_SPAWN")
+                .map(|v| v != "1" && !v.eq_ignore_ascii_case("true"))
+                .unwrap_or(true);
+            if self_spawn {
+                if let Err(error) = spawn_server(
+                    &args.provider,
+                    args.model.as_deref(),
+                    args.provider_profile.as_deref(),
+                )
+                .await
+                {
+                    eprintln!("api-bridge: could not start the blaude server: {error:#}");
+                    eprintln!("api-bridge: continuing; an already-running server will still be used");
+                }
+            } else {
+                eprintln!("api-bridge: JCODE_BRIDGE_NO_SPAWN set — relying on an externally managed daemon");
             }
             let api_socket = api_socket
                 .map(std::path::PathBuf::from)
