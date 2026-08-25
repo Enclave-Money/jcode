@@ -106,6 +106,7 @@ impl Agent {
         let turn_started_at = Instant::now();
         let start_message_index = self.message_count();
         self.fire_turn_start_hook("chat");
+        self.ensure_gitnexus_fresh();
         let result = self.run_turn_streaming_mpsc(event_tx).await;
         self.current_turn_system_reminder = None;
         self.fire_turn_end_hook(&result, turn_started_at, start_message_index);
@@ -163,6 +164,19 @@ impl Agent {
     /// is actively working during the otherwise-invisible window between prompt
     /// submission and the first tool call. No-op (without building the payload)
     /// when the hook is not configured.
+    /// Register (idempotently) a debounced gitnexus re-index watcher for this
+    /// session's repo, so the code graph stays fresh as the agent writes code.
+    /// The first call for a repo starts the watcher and baseline-indexes if
+    /// stale; later calls are a cheap no-op. Off when the feature is disabled.
+    fn ensure_gitnexus_fresh(&self) {
+        if !crate::config::config().features.gitnexus_watch {
+            return;
+        }
+        if let Some(cwd) = self.working_dir() {
+            super::gitnexus_watch::ensure_watching(cwd);
+        }
+    }
+
     fn fire_turn_start_hook(&self, source: &str) {
         if !crate::hooks::hook_configured("turn_start") {
             return;

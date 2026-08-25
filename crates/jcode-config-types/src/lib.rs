@@ -1100,6 +1100,11 @@ pub struct FeatureConfig {
     pub kv_cache_miss_notices: bool,
     /// Update channel: "stable" (releases only) or "main" (latest commits)
     pub update_channel: UpdateChannel,
+    /// Auto-reindex the GitNexus code graph via a debounced filesystem watcher
+    /// while a session is active, so the model's codebase briefing stays fresh
+    /// as agents write code (default: true).
+    #[serde(default = "default_true")]
+    pub gitnexus_watch: bool,
 }
 
 impl Default for FeatureConfig {
@@ -1114,6 +1119,7 @@ impl Default for FeatureConfig {
             persist_memory_injections: false,
             kv_cache_miss_notices: true,
             update_channel: UpdateChannel::default(),
+            gitnexus_watch: true,
         }
     }
 }
