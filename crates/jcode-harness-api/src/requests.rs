@@ -69,18 +69,24 @@ pub enum ApiRequest {
     /// into each turn — clients carry no reminder wording.
     SetWorkMode { session_id: String, mode: String },
 
-    /// Start a Claude OAuth sign-in as a bridge job. Replies with
-    /// `login_started { job_id }`; the record gains `url` the moment the
-    /// authorize link exists, and approval in the browser completes the
-    /// exchange automatically (localhost callback, bridge-owned).
-    StartClaudeLogin,
+    /// Start a Claude OAuth sign-in as a bridge job (loopback-relay flow).
+    /// `redirect_uri` is the CLIENT's own loopback listener
+    /// (`http://localhost:<port>/callback`); the bridge mints the authorize URL
+    /// pointing there and keeps the PKCE verifier server-side. Replies with
+    /// `login_started { job_id }`; the record gains `url` immediately, and the
+    /// client relays the code via `complete_login`. Works for a remote server.
+    StartClaudeLogin { redirect_uri: String },
 
-    /// Start a Codex/OpenAI (ChatGPT) OAuth sign-in as a bridge job — the
-    /// same job lifecycle, records, and events as `start_claude_login`.
-    StartCodexLogin,
+    /// Start a Codex/OpenAI (ChatGPT) OAuth sign-in — same loopback-relay
+    /// lifecycle as `start_claude_login`.
+    StartCodexLogin { redirect_uri: String },
+
+    /// Complete a waiting login with the code/callback the client's loopback
+    /// listener caught. The bridge exchanges it for tokens server-side.
+    CompleteLogin { job_id: String, code: String },
 
     /// One login job's record: `{ job_id, provider, state, url?, error? }`
-    /// with state starting | waiting_for_browser | done | failed | cancelled.
+    /// with state waiting_for_code | completing | done | failed | cancelled.
     LoginStatus { job_id: String },
 
     /// Block until the login job reaches a terminal state.

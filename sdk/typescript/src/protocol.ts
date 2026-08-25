@@ -68,8 +68,9 @@ export type ApiRequest =
   | { req: "cancel_council"; job_id: string }
   | { req: "list_council_runs"; tag?: string }
   | { req: "set_work_mode"; session_id: string; mode: string }
-  | { req: "start_claude_login" }
-  | { req: "start_codex_login" }
+  | { req: "start_claude_login"; redirect_uri: string }
+  | { req: "start_codex_login"; redirect_uri: string }
+  | { req: "complete_login"; job_id: string; code: string }
   | { req: "login_status"; job_id: string }
   | { req: "await_login"; job_id: string }
   | { req: "cancel_login"; job_id: string }
@@ -361,6 +362,7 @@ export const KNOWN_REQUEST_KINDS = [
   "set_work_mode",
   "start_claude_login",
   "start_codex_login",
+  "complete_login",
   "login_status",
   "await_login",
   "cancel_login",

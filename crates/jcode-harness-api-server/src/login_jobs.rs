@@ -1,27 +1,39 @@
 //! Bridge-global provider login jobs (Claude and Codex/OpenAI).
 //!
-//! The desktop app used to shell the login CLI itself — a non-wire path
-//! (process spawning + stdout scraping in the frontend). Login is now a
-//! bridge job like council runs: `start_claude_login` / `start_codex_login`
-//! replies with a job id, the authorize URL lands on the job record as soon
-//! as the flow prints it, and any connection can await/status/cancel. The
-//! child is the same `blaude login <provider> --no-browser --callback`
-//! flow, so approval in the browser completes the exchange automatically.
+//! Sign-in is a loopback-relay OAuth flow that works whether the daemon is on
+//! the user's Mac or on a remote team server, WITHOUT the daemon binding a
+//! callback listener:
+//!   1. The app opens a tiny loopback listener on ITS OWN machine and calls
+//!      `start_*_login { redirect_uri: "http://localhost:<port>/callback" }`.
+//!   2. The bridge (here) generates PKCE + the provider authorize URL pointing
+//!      at that redirect, keeps the verifier IN MEMORY (never on the wire), and
+//!      returns the URL.
+//!   3. The user approves; the browser redirects to the app's loopback listener
+//!      (reachable — it's the user's machine, not the server), which relays the
+//!      code back via `complete_login { job_id, code }`.
+//!   4. The bridge exchanges the code for tokens IN PROCESS and saves them into
+//!      the daemon's own account store (so a team server's own agents use them).
+//! No localhost dependency on the server, no CLI subprocess, no code-paste.
 
 use std::collections::HashMap;
-use std::path::PathBuf;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use jcode_base::auth::{claude, codex, oauth};
 use serde_json::{Value, json};
-use tokio::io::AsyncReadExt;
 use tokio::sync::watch;
 
-const LOGIN_TIMEOUT_SECS: u64 = 330;
+/// A pending sign-in never completed by the user is dropped after this long.
+const LOGIN_TIMEOUT_SECS: u64 = 600;
 
-#[derive(Clone)]
 struct Job {
     record: Value,
+    // In-memory only — the PKCE verifier and CSRF state MUST NOT cross the wire.
+    verifier: String,
+    state_param: String,
+    redirect_uri: String,
+    provider: String,
     state_tx: watch::Sender<String>,
     cancel: Arc<tokio::sync::Notify>,
 }
@@ -39,17 +51,19 @@ fn now_secs() -> u64 {
 }
 
 fn new_job_id() -> String {
-    let nanos = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.subsec_nanos())
-        .unwrap_or(0);
-    format!("lg-{:x}{:04x}", now_secs(), nanos & 0xffff)
+    // A process-global counter guarantees uniqueness even when two logins start
+    // in the same nanosecond window (quick provider switch, a retry, or a test
+    // suite sharing this global table).
+    static COUNTER: AtomicU64 = AtomicU64::new(0);
+    let seq = COUNTER.fetch_add(1, Ordering::Relaxed);
+    format!("lg-{:x}-{:x}", now_secs(), seq)
 }
 
-fn set_field(job_id: &str, key: &str, value: Value) {
+fn set_state(job_id: &str, state: &str) {
     let mut table = jobs().lock().unwrap();
     if let Some(job) = table.get_mut(job_id) {
-        job.record[key] = value;
+        job.record["state"] = json!(state);
+        let _ = job.state_tx.send(state.to_string());
     }
 }
 
@@ -65,116 +79,108 @@ fn finish(job_id: &str, state: &str, error: Option<String>) {
     }
 }
 
-/// Start a login; returns the job id immediately. The `url` field appears
-/// on the record as soon as the flow prints the authorize link (typically
-/// well under a second). `provider` is the CLI login target: "claude" or
-/// "codex" (the OpenAI/ChatGPT flow).
-pub fn start(provider: &str) -> String {
-    let provider = if provider == "codex" { "codex" } else { "claude" };
+fn normalize(provider: &str) -> &'static str {
+    if provider == "codex" || provider == "openai" { "codex" } else { "claude" }
+}
+
+/// Start a loopback-relay login. `redirect_uri` is the app's own loopback
+/// listener (e.g. `http://localhost:49xxx/callback`). Returns the job id; the
+/// `url` field is on the record immediately (the authorize link).
+pub fn start(provider: &str, redirect_uri: &str) -> String {
+    let provider = normalize(provider).to_string();
+    let (verifier, challenge) = oauth::generate_pkce_public();
+    let state = oauth::generate_state_public();
+    let auth_url = if provider == "codex" {
+        oauth::openai_auth_url_with_prompt(redirect_uri, &challenge, &state, Some("login"))
+    } else {
+        oauth::claude_auth_url(redirect_uri, &challenge, &state)
+    };
+
     let job_id = new_job_id();
     let record = json!({
         "job_id": job_id,
         "provider": provider,
-        "state": "starting",
+        "state": "waiting_for_code",
+        "url": auth_url,
         "started_at": now_secs(),
     });
-    let (state_tx, _) = watch::channel("starting".to_string());
+    let (state_tx, _) = watch::channel("waiting_for_code".to_string());
     let cancel = Arc::new(tokio::sync::Notify::new());
     jobs().lock().unwrap().insert(
         job_id.clone(),
-        Job { record, state_tx, cancel: cancel.clone() },
+        Job {
+            record,
+            verifier,
+            state_param: state,
+            redirect_uri: redirect_uri.to_string(),
+            provider,
+            state_tx,
+            cancel: cancel.clone(),
+        },
     );
 
-    let id = job_id.clone();
-    // Job records say "codex" (the product name); the CLI's login target
-    // for that flow is "openai" (ChatGPT OAuth + Codex account store).
-    let login_target = if provider == "codex" { "openai".to_string() } else { provider.to_string() };
+    // Drop a never-completed pending sign-in so secrets don't linger forever.
+    let expire_id = job_id.clone();
     tokio::spawn(async move {
-        let exe = std::env::current_exe().unwrap_or_else(|_| PathBuf::from("blaude"));
-        let mut command = tokio::process::Command::new(exe);
-        command
-            .arg("login")
-            .arg(&login_target)
-            .arg("--no-browser")
-            .arg("--callback")
-            .stdin(std::process::Stdio::null())
-            .stdout(std::process::Stdio::null())
-            .stderr(std::process::Stdio::piped());
-        command.kill_on_drop(true);
-
-        let mut child = match command.spawn() {
-            Ok(child) => child,
-            Err(error) => {
-                finish(&id, "failed", Some(format!("couldn't launch login: {error}")));
-                return;
-            }
-        };
-
-        // Scrape the authorize URL out of the flow's stderr as it streams.
-        let mut stderr = child.stderr.take();
-        let url_id = id.clone();
-        let reader = tokio::spawn(async move {
-            let Some(mut stderr) = stderr.take() else { return String::new() };
-            let mut buffer: Vec<u8> = Vec::new();
-            let mut url_sent = false;
-            let mut chunk = [0u8; 4096];
-            loop {
-                match stderr.read(&mut chunk).await {
-                    Ok(0) | Err(_) => break,
-                    Ok(n) => {
-                        buffer.extend_from_slice(&chunk[..n]);
-                        if !url_sent
-                            && let Ok(text) = std::str::from_utf8(&buffer)
-                            && let Some(start) = text.find("https://")
-                        {
-                            let url: String = text[start..]
-                                .chars()
-                                .take_while(|c| !c.is_whitespace())
-                                .collect();
-                            if url.len() > 40 {
-                                set_field(&url_id, "url", json!(url));
-                                set_field(&url_id, "state", json!("waiting_for_browser"));
-                                url_sent = true;
-                            }
-                        }
-                    }
+        tokio::select! {
+            _ = cancel.notified() => {}
+            _ = tokio::time::sleep(std::time::Duration::from_secs(LOGIN_TIMEOUT_SECS)) => {
+                let mut table = jobs().lock().unwrap();
+                let still_waiting = table
+                    .get(&expire_id)
+                    .is_some_and(|job| job.record["state"] == "waiting_for_code");
+                if still_waiting {
+                    table.remove(&expire_id);
                 }
             }
-            String::from_utf8_lossy(&buffer)
-                .lines()
-                .rev()
-                .find(|line| !line.trim().is_empty())
-                .unwrap_or_default()
-                .to_string()
-        });
-
-        let outcome = tokio::select! {
-            _ = cancel.notified() => {
-                let _ = child.start_kill();
-                let _ = child.wait().await;
-                ("cancelled", None)
-            }
-            status = child.wait() => match status {
-                Ok(s) if s.success() => ("done", None),
-                Ok(_) => ("failed", Some(String::new())),
-                Err(error) => ("failed", Some(error.to_string())),
-            },
-            _ = tokio::time::sleep(std::time::Duration::from_secs(LOGIN_TIMEOUT_SECS)) => {
-                let _ = child.start_kill();
-                let _ = child.wait().await;
-                ("failed", Some(format!("sign-in not completed within {LOGIN_TIMEOUT_SECS}s")))
-            }
-        };
-        let last_line = reader.await.unwrap_or_default();
-        let error = match outcome {
-            ("failed", Some(detail)) if detail.is_empty() => Some(last_line),
-            ("failed", detail) => detail,
-            _ => None,
-        };
-        finish(&id, outcome.0, error);
+        }
     });
 
     job_id
+}
+
+/// Complete a waiting login: exchange the code/callback the app relayed for
+/// tokens, in process, and save them to the daemon's account store.
+pub async fn complete(job_id: &str, input: &str) {
+    let (verifier, state_param, redirect_uri, provider) = {
+        let table = jobs().lock().unwrap();
+        match table.get(job_id) {
+            Some(job) if job.record["state"] == "waiting_for_code" => (
+                job.verifier.clone(),
+                job.state_param.clone(),
+                job.redirect_uri.clone(),
+                job.provider.clone(),
+            ),
+            _ => return,
+        }
+    };
+    let input = input.trim().to_string();
+    if input.is_empty() {
+        finish(job_id, "failed", Some("no authorization code received".into()));
+        return;
+    }
+    set_state(job_id, "completing");
+
+    let result: anyhow::Result<()> = async {
+        if provider == "codex" {
+            let tokens =
+                oauth::exchange_openai_callback_input(&verifier, &input, &state_param, &redirect_uri)
+                    .await?;
+            let label = codex::login_target_label(None)?;
+            oauth::save_openai_tokens_for_account(&tokens, &label)?;
+        } else {
+            let tokens = oauth::exchange_claude_code(&verifier, &input, &redirect_uri).await?;
+            let label = claude::login_target_label(None)?;
+            oauth::save_claude_tokens_for_account(&tokens, &label)?;
+        }
+        Ok(())
+    }
+    .await;
+
+    match result {
+        Ok(()) => finish(job_id, "done", None),
+        Err(error) => finish(job_id, "failed", Some(format!("{error:#}"))),
+    }
 }
 
 pub fn status(job_id: &str) -> Option<Value> {
@@ -182,13 +188,16 @@ pub fn status(job_id: &str) -> Option<Value> {
 }
 
 pub fn cancel(job_id: &str) -> bool {
-    let table = jobs().lock().unwrap();
+    let mut table = jobs().lock().unwrap();
     match table.get(job_id) {
         Some(job)
-            if job.record["state"] == "starting"
-                || job.record["state"] == "waiting_for_browser" =>
+            if matches!(
+                job.record["state"].as_str(),
+                Some("starting") | Some("waiting_for_code")
+            ) =>
         {
             job.cancel.notify_one();
+            table.remove(job_id);
             true
         }
         _ => false,

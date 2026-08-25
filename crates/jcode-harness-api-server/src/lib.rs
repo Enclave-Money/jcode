@@ -507,15 +507,32 @@ where
                 }
                 if request["req"].as_str() == Some("start_claude_login") {
                     let api_id = request["id"].as_u64().unwrap_or(0);
-                    let job_id = login_jobs::start("claude");
+                    let redirect = request["redirect_uri"].as_str().unwrap_or_default();
+                    let job_id = login_jobs::start("claude", redirect);
                     let frame = ServerFrame::reply(api_id, ApiEvent::LoginStarted { job_id });
                     write_json_line(&mut write_half, &frame).await?;
                     continue;
                 }
                 if request["req"].as_str() == Some("start_codex_login") {
                     let api_id = request["id"].as_u64().unwrap_or(0);
-                    let job_id = login_jobs::start("codex");
+                    let redirect = request["redirect_uri"].as_str().unwrap_or_default();
+                    let job_id = login_jobs::start("codex", redirect);
                     let frame = ServerFrame::reply(api_id, ApiEvent::LoginStarted { job_id });
+                    write_json_line(&mut write_half, &frame).await?;
+                    continue;
+                }
+                if request["req"].as_str() == Some("complete_login") {
+                    let api_id = request["id"].as_u64().unwrap_or(0);
+                    let job_id = request["job_id"].as_str().unwrap_or_default().to_string();
+                    let code = request["code"].as_str().unwrap_or_default().to_string();
+                    login_jobs::complete(&job_id, &code).await;
+                    let frame = match login_jobs::status(&job_id) {
+                        Some(run) => ServerFrame::reply(api_id, ApiEvent::LoginRun { run }),
+                        None => ServerFrame::reply(api_id, ApiEvent::Error {
+                            code: ErrorCode::UnknownRequest,
+                            message: format!("no login job `{job_id}`"),
+                        }),
+                    };
                     write_json_line(&mut write_half, &frame).await?;
                     continue;
                 }
@@ -767,6 +784,10 @@ where
 #[cfg(test)]
 #[path = "framing_tests.rs"]
 mod framing_tests;
+
+#[cfg(test)]
+#[path = "login_jobs_tests.rs"]
+mod login_jobs_tests;
 
 #[cfg(all(test, unix))]
 mod single_instance_tests {
