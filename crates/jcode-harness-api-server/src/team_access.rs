@@ -136,19 +136,36 @@ async fn send_clerk_invitation(email: &str, redirect_url: &str) -> Result<(), St
     Err(format!("Clerk invitation failed (HTTP {status})"))
 }
 
+/// True when the WS door terminates TLS — the scheme handed to members must
+/// match, or a wss listener rejects a ws:// URL and (worse) a bearer token
+/// would travel in cleartext.
+fn tls_enabled() -> bool {
+    std::env::var("JCODE_API_WS_TLS_CERT").is_ok_and(|v| !v.is_empty())
+        && std::env::var("JCODE_API_WS_TLS_KEY").is_ok_and(|v| !v.is_empty())
+}
+
+fn ws_scheme() -> &'static str {
+    if tls_enabled() { "wss" } else { "ws" }
+}
+
+fn http_scheme() -> &'static str {
+    if tls_enabled() { "https" } else { "http" }
+}
+
 fn ws_endpoint(host: &str) -> String {
     let port = std::env::var("JCODE_API_WS_PORT").unwrap_or_else(|_| "7644".into());
-    format!("ws://{host}:{port}/api")
+    format!("{}://{host}:{port}/api", ws_scheme())
 }
 
 /// The whole invite operation: token + ticket + (optionally) the Clerk
 /// email. `host` is the address members should dial (the app passes its
-/// LAN address; loopback for same-machine testing).
+/// LAN address; loopback for same-machine testing). The scheme is derived
+/// from whether the door terminates TLS, so a token never rides cleartext.
 pub async fn invite(email: &str, host: &str, send_email: bool) -> Result<Value> {
     let token = issue_token(email)?;
     let ticket = mint_join_ticket(email)?;
     let port = std::env::var("JCODE_API_WS_PORT").unwrap_or_else(|_| "7644".into());
-    let join_url = format!("http://{host}:{port}/join?ticket={ticket}");
+    let join_url = format!("{}://{host}:{port}/join?ticket={ticket}", http_scheme());
     let mut emailed = false;
     let mut email_error: Option<String> = None;
     if send_email {

@@ -53,10 +53,15 @@ use jcode_transport::{Listener, Stream, WriteHalf};
 /// contrast, IS cancel-safe, so the loop can await it freely.
 async fn dial_legacy(
     legacy_socket: &std::path::Path,
-) -> Option<(tokio::sync::mpsc::UnboundedReceiver<String>, WriteHalf)> {
+) -> Option<(tokio::sync::mpsc::Receiver<String>, WriteHalf)> {
     let stream = Stream::connect(legacy_socket).await.ok()?;
     let (read, write) = stream.into_split();
-    let (tx, rx) = tokio::sync::mpsc::unbounded_channel::<String>();
+    // BOUNDED, not unbounded: if the client stops draining (a slow or stalled
+    // WebSocket peer), a full channel makes the reader task park on send,
+    // which stops pulling from THIS client's daemon socket — per-connection
+    // backpressure. An unbounded channel instead buffers the daemon's output
+    // without limit and one slow client can OOM the shared bridge.
+    let (tx, rx) = tokio::sync::mpsc::channel::<String>(1024);
     tokio::spawn(async move {
         let mut reader = BufReader::new(read);
         let mut line = String::new();
@@ -65,7 +70,7 @@ async fn dial_legacy(
             match reader.read_line(&mut line).await {
                 Ok(0) | Err(_) => break, // EOF / error: dropping tx signals close
                 Ok(_) => {
-                    if tx.send(std::mem::take(&mut line)).is_err() {
+                    if tx.send(std::mem::take(&mut line)).await.is_err() {
                         break;
                     }
                 }

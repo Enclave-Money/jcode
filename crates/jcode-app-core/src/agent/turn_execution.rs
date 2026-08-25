@@ -173,7 +173,12 @@ impl Agent {
             return;
         }
         if let Some(cwd) = self.working_dir() {
-            super::gitnexus_watch::ensure_watching(cwd);
+            // ensure_watching runs blocking git + filesystem-watcher setup;
+            // never do that on the async turn path. Fire-and-forget on a
+            // dedicated thread — it's idempotent and returns fast once the
+            // repo is already watched.
+            let cwd = cwd.to_string();
+            std::thread::spawn(move || super::gitnexus_watch::ensure_watching(&cwd));
         }
     }
 

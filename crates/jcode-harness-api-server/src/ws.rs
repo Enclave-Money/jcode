@@ -35,18 +35,31 @@ pub async fn spawn_from_env(legacy_socket: PathBuf) -> Result<Option<std::net::S
     }
     let port: u16 = if raw.is_empty() { DEFAULT_WS_PORT } else { raw.parse().context("JCODE_API_WS_PORT")? };
     // Loopback by default; JCODE_API_WS_BIND=0.0.0.0 opens the door for team
-    // clients on a trusted network (tailnet/LAN) — still token-guarded per
-    // member. Public internet exposure needs TLS in front; refuse is not
-    // possible to detect here, so the operator owns that call.
+    // clients. A non-loopback bind carries bearer tokens over the network, so
+    // it is REFUSED unless TLS terminates here (or the operator explicitly
+    // accepts plaintext with JCODE_API_WS_ALLOW_INSECURE=1 — e.g. a trusted
+    // tailnet with its own encryption). Refusing by default is the only safe
+    // production posture: a token in cleartext on 0.0.0.0 is a credential leak.
     let bind = std::env::var("JCODE_API_WS_BIND").unwrap_or_else(|_| "127.0.0.1".into());
+    let tls = tls_acceptor_from_env()?;
+    let is_loopback = bind == "127.0.0.1" || bind == "::1" || bind.eq_ignore_ascii_case("localhost");
+    let allow_insecure = std::env::var("JCODE_API_WS_ALLOW_INSECURE").is_ok_and(|v| v == "1");
+    if !is_loopback && tls.is_none() && !allow_insecure {
+        anyhow::bail!(
+            "refusing to bind the harness WS door on {bind} without TLS — bearer tokens would \
+             travel in cleartext. Set JCODE_API_WS_TLS_CERT/KEY, or (only on a network you \
+             trust to encrypt, e.g. a tailnet) JCODE_API_WS_ALLOW_INSECURE=1."
+        );
+    }
     let listener = TcpListener::bind((bind.as_str(), port))
         .await
         .with_context(|| format!("bind websocket {bind}:{port}"))?;
     let addr = listener.local_addr()?;
     let token = load_or_create_token()?;
-    let tls = tls_acceptor_from_env()?;
     if tls.is_some() {
         eprintln!("harness API bridge: TLS enabled — clients connect with wss://");
+    } else if !is_loopback {
+        eprintln!("harness API bridge: WARNING — plaintext ws:// on {bind} (JCODE_API_WS_ALLOW_INSECURE)");
     }
     tokio::spawn(async move {
         if let Err(error) = run_ws_listener_with_tls(listener, token, legacy_socket, tls).await {
@@ -223,7 +236,20 @@ pub async fn run_ws_listener_with_tls(
     tls: Option<tokio_rustls::TlsAcceptor>,
 ) -> Result<()> {
     loop {
-        let (tcp, peer) = listener.accept().await?;
+        // A transient per-accept error (a client reset mid-handshake ->
+        // ECONNABORTED, fd pressure -> EMFILE/ENFILE) must NOT take down the
+        // whole door for every other client. Log and keep serving; back off
+        // briefly on fd exhaustion so we don't spin.
+        let (tcp, peer) = match listener.accept().await {
+            Ok(pair) => pair,
+            Err(error) => {
+                eprintln!("harness API bridge: accept error (continuing): {error}");
+                if matches!(error.raw_os_error(), Some(libc::EMFILE) | Some(libc::ENFILE)) {
+                    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+                }
+                continue;
+            }
+        };
         if auth_throttled(peer.ip()) {
             // Too many bad tokens from this peer: drop before any handshake
             // work — cheapest possible refusal.
