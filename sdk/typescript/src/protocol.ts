@@ -135,7 +135,6 @@ export type ApiEvent =
   | { ev: "ok" }
   | { ev: "accounts"; provider: string; accounts: Array<{ label: string; email: string; active: boolean }> }
   | { ev: "councils"; councils: Array<{ name: string; members: string[] }> }
-  | { ev: "council_result"; name: string; output: string }
   | { ev: "council_started"; job_id: string }
   | { ev: "council_run"; run: unknown }
   | { ev: "council_runs"; runs: unknown[] }
@@ -302,7 +301,6 @@ export const KNOWN_EVENT_KINDS = [
   "ok",
   "accounts",
   "councils",
-  "council_result",
   "council_started",
   "council_run",
   "council_runs",
