@@ -228,6 +228,33 @@ pub async fn run_bridge(api_socket: PathBuf, legacy_socket: PathBuf) -> Result<(
         std::fs::set_permissions(&api_socket, std::fs::Permissions::from_mode(0o600))
             .with_context(|| format!("restrict API socket {}", api_socket.display()))?;
     }
+    // Identify this bridge to launchers: pid + which binary (path AND its
+    // mtime at spawn). An orphaned bridge from an old build used to squat on
+    // the socket forever — dead daemon, missing verbs — and every new app
+    // trusted whatever answered. A launcher reads this file, compares the
+    // exe identity against its own embedded binary, and replaces a bridge
+    // that is not its own, current build (RuntimeLauncher.staleBridge).
+    {
+        let ident_path = api_socket.with_extension("ident.json");
+        let exe = std::env::current_exe().unwrap_or_default();
+        let exe_mtime_ms = std::fs::metadata(&exe)
+            .and_then(|m| m.modified())
+            .ok()
+            .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+            .map(|d| d.as_millis() as u64)
+            .unwrap_or(0);
+        let started_ms = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_millis() as u64)
+            .unwrap_or(0);
+        let ident = serde_json::json!({
+            "pid": std::process::id(),
+            "exe": exe.to_string_lossy(),
+            "exe_mtime_ms": exe_mtime_ms,
+            "started_ms": started_ms,
+        });
+        let _ = std::fs::write(&ident_path, ident.to_string());
+    }
     eprintln!(
         "harness API bridge: listening on {} -> {}",
         api_socket.display(),
@@ -251,6 +278,45 @@ pub async fn run_bridge(api_socket: PathBuf, legacy_socket: PathBuf) -> Result<(
             }
         });
     }
+}
+
+/// Best-effort revival of a dead daemon under a live bridge: run our own
+/// binary's `server start` (the exact daemonize `api-bridge` does at startup),
+/// at most once per 15s process-wide. Managed team servers own the daemon via
+/// systemd (JCODE_BRIDGE_NO_SPAWN) — never self-heal there.
+fn respawn_daemon_throttled() {
+    use std::sync::{Mutex, OnceLock};
+    use std::time::{Duration, Instant};
+    let no_spawn = std::env::var("JCODE_BRIDGE_NO_SPAWN")
+        .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+        .unwrap_or(false);
+    if no_spawn {
+        return;
+    }
+    static LAST: OnceLock<Mutex<Option<Instant>>> = OnceLock::new();
+    let last = LAST.get_or_init(|| Mutex::new(None));
+    {
+        let mut guard = match last.lock() {
+            Ok(guard) => guard,
+            Err(_) => return,
+        };
+        if let Some(at) = *guard {
+            if at.elapsed() < Duration::from_secs(15) {
+                return;
+            }
+        }
+        *guard = Some(Instant::now());
+    }
+    let Ok(exe) = std::env::current_exe() else {
+        return;
+    };
+    eprintln!("harness API bridge: attempting daemon respawn");
+    let _ = std::process::Command::new(exe)
+        .args(["server", "start"])
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn();
 }
 
 async fn handle_api_client(stream: Stream, legacy_socket: PathBuf) -> Result<()> {
@@ -359,6 +425,12 @@ where
             eprintln!(
                 "harness API bridge: daemon unreachable; serving bridge-only verbs until it comes up"
             );
+            // "Until it comes up" needs a mechanism: the daemon is spawned once
+            // at bridge startup, so a daemon that dies later (crash, wedged
+            // token refresh) stayed dead forever and every client saw an
+            // eternal reconnect loop. Re-run our own binary's daemonize,
+            // throttled so reconnect storms don't fork-bomb.
+            respawn_daemon_throttled();
             (None, None)
         }
     };
