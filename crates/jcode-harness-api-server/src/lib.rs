@@ -621,28 +621,6 @@ where
                     }
                     continue;
                 }
-                // Everything past here needs the daemon. If it was down when
-                // this connection opened, try ONE re-dial now — credentials
-                // may have just landed via the login job and systemd brought
-                // it up — so the same connection upgrades in place.
-                if legacy_write.is_none() {
-                    if let Ok(stream) = Stream::connect(&legacy_socket).await {
-                        let (read, write) = stream.into_split();
-                        legacy_reader = Some(BufReader::new(read));
-                        legacy_write = Some(write);
-                        eprintln!("harness API bridge: daemon is up — connection upgraded");
-                    }
-                }
-                if legacy_write.is_none() {
-                    let api_id = request["id"].as_u64().unwrap_or(0);
-                    let frame = ServerFrame::reply(api_id, ApiEvent::Error {
-                        code: ErrorCode::Internal,
-                        message: "the agent daemon is not running (usually: no AI account yet). \
-                                  Add an account — sign-in works right now — and retry.".into(),
-                    });
-                    write_json_line(&mut write_half, &frame).await?;
-                    continue;
-                }
                 // Translation may inspect persisted session/archive files. Tell
                 // Tokio before entering that synchronous region so it can keep
                 // the accept loop and fresh-client handshakes scheduled.
@@ -652,7 +630,35 @@ where
                 for out in outbound {
                     match out {
                         translate::Outbound::Legacy(value) => {
-                            write_json_line(legacy_write.as_mut().expect("guarded above"), &value).await?;
+                            // Only frames bound for the daemon need it up.
+                            // File-backed verbs (councils, accounts listings)
+                            // reply directly and must keep working while the
+                            // daemon waits for its first AI account. If it was
+                            // down when this connection opened, try ONE
+                            // re-dial — credentials may have just landed via
+                            // the login job and systemd brought it up — so
+                            // the same connection upgrades in place.
+                            if legacy_write.is_none() {
+                                if let Ok(stream) = Stream::connect(&legacy_socket).await {
+                                    let (read, write) = stream.into_split();
+                                    legacy_reader = Some(BufReader::new(read));
+                                    legacy_write = Some(write);
+                                    eprintln!("harness API bridge: daemon is up — connection upgraded");
+                                }
+                            }
+                            match legacy_write.as_mut() {
+                                Some(legacy) => write_json_line(legacy, &value).await?,
+                                None => {
+                                    let api_id = request["id"].as_u64().unwrap_or(0);
+                                    let frame = ServerFrame::reply(api_id, ApiEvent::Error {
+                                        code: ErrorCode::Internal,
+                                        message: "the agent daemon is not running (usually: no AI \
+                                                  account yet). Add an account — sign-in works \
+                                                  right now — and retry.".into(),
+                                    });
+                                    write_json_line(&mut write_half, &frame).await?;
+                                }
+                            }
                         }
                         translate::Outbound::Reply(frame) => {
                             write_json_line(&mut write_half, &frame).await?;

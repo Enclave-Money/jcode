@@ -24,6 +24,13 @@ pub enum ApiRequest {
     /// List saved councils (cross-model panels) and their member model ids.
     ListCouncils,
 
+    /// Create a council (2–3 unique model ids, unique name). Replies with
+    /// the updated `councils` list.
+    CreateCouncil { name: String, models: Vec<String> },
+
+    /// Delete a council by name. Replies with the updated `councils` list.
+    DeleteCouncil { name: String },
+
     /// Start a council run: fan `prompt` out to every member of the named
     /// council in `working_dir`. Replies immediately with `council_started`
     /// carrying a job id — the run itself is a bridge-global job that

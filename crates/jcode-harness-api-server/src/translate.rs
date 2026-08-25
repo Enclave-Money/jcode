@@ -356,6 +356,54 @@ impl BridgeState {
                     ApiEvent::Councils { councils },
                 ))]
             }
+            // Council CRUD over the wire: the app must never tell people to
+            // run a terminal command. Both reply with the updated list so the
+            // picker refreshes from the reply alone.
+            "create_council" | "delete_council" => {
+                let name = request["name"].as_str().unwrap_or_default().to_string();
+                let path = match jcode_storage::councils::Councils::path() {
+                    Ok(path) => path,
+                    Err(error) => {
+                        return Self::error_reply(api_id, ErrorCode::Internal, &error.to_string())
+                    }
+                };
+                let mut councils = match jcode_storage::councils::Councils::load_from(&path) {
+                    Ok(councils) => councils,
+                    Err(error) => {
+                        return Self::error_reply(api_id, ErrorCode::Internal, &error.to_string())
+                    }
+                };
+                let result = if req == "create_council" {
+                    let members: Vec<String> = request["models"]
+                        .as_array()
+                        .map(|models| {
+                            models
+                                .iter()
+                                .filter_map(|m| m.as_str().map(str::to_string))
+                                .collect()
+                        })
+                        .unwrap_or_default();
+                    councils.create(name, members).map(|_| ()).err()
+                } else if councils.delete(&name) {
+                    None
+                } else {
+                    Some(anyhow::anyhow!("no council named “{name}”"))
+                };
+                if let Some(error) = result {
+                    return Self::error_reply(api_id, ErrorCode::InvalidRequest, &error.to_string());
+                }
+                if let Err(error) = councils.save_to(&path) {
+                    return Self::error_reply(api_id, ErrorCode::Internal, &error.to_string());
+                }
+                let listed = serde_json::to_value(&councils)
+                    .ok()
+                    .and_then(|value| value["councils"].as_array().cloned())
+                    .unwrap_or_default();
+                vec![Outbound::Reply(ServerFrame::reply(
+                    api_id,
+                    ApiEvent::Councils { councils: listed },
+                ))]
+            }
             "list_accounts" => {
                 let provider = request["provider"].as_str().unwrap_or_default();
                 if provider == "openai" {

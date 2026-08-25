@@ -60,6 +60,8 @@ export type ApiRequest =
   | { req: "add_dir"; session_id: string; path: string }
   | { req: "install_skill"; url: string }
   | { req: "list_councils" }
+  | { req: "create_council"; name: string; models: string[] }
+  | { req: "delete_council"; name: string }
   | { req: "run_council"; name: string; prompt: string; working_dir?: string; tag?: string }
   | { req: "await_council"; job_id: string }
   | { req: "council_status"; job_id: string }
@@ -351,6 +353,8 @@ export const KNOWN_REQUEST_KINDS = [
   "add_dir",
   "install_skill",
   "list_councils",
+  "create_council",
+  "delete_council",
   "run_council",
   "await_council",
   "council_status",
