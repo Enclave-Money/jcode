@@ -89,12 +89,21 @@ fn normalize(provider: &str) -> &'static str {
 pub fn start(provider: &str, redirect_uri: &str) -> String {
     let provider = normalize(provider).to_string();
     let (verifier, challenge) = oauth::generate_pkce_public();
+    // Claude and OpenAI differ in what the authorize `state` must carry:
+    //   - Claude's CSRF convention makes the `state` the PKCE verifier itself;
+    //     `exchange_claude_code` validates `callback_state == verifier`. A
+    //     separate random state fails every exchange with "state mismatch".
+    //   - OpenAI uses an independent random state, validated by
+    //     `exchange_openai_callback_input(_, _, expected_state, _)`.
     let state = oauth::generate_state_public();
     let auth_url = if provider == "codex" {
         oauth::openai_auth_url_with_prompt(redirect_uri, &challenge, &state, Some("login"))
     } else {
-        oauth::claude_auth_url(redirect_uri, &challenge, &state)
+        oauth::claude_auth_url(redirect_uri, &challenge, &verifier)
     };
+    // Record the state the exchange will actually check against, so the stored
+    // value matches the authorize URL for each provider.
+    let state = if provider == "codex" { state } else { verifier.clone() };
 
     let job_id = new_job_id();
     let record = json!({
