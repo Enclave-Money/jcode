@@ -818,13 +818,27 @@ where
                     .await
             }, if legacy_rx.is_some() => {
                 let Some(legacy_line) = received else {
-                    // The reader task ended: daemon closed the socket.
+                    // The daemon closed its socket mid-connection (crash,
+                    // restart, credential-less boot loop). This used to close
+                    // the CLIENT connection too — every app saw "transport
+                    // failed: stream closed", INCLUDING the login sheet whose
+                    // bridge-local verbs never needed the daemon at all. That
+                    // deadlocked recovery: a crash-looping daemon killed the
+                    // very sign-in that would fix it. Degrade to bridge-only
+                    // (exactly like a failed dial at connection setup), keep
+                    // serving, and let the next daemon-bound request re-dial
+                    // via the upgrade-in-place path above.
+                    legacy_rx = None;
+                    legacy_write = None;
+                    respawn_daemon_throttled();
                     let frame = ServerFrame::event(ApiEvent::Error {
                         code: ErrorCode::Internal,
-                        message: "daemon connection closed".into(),
+                        message: "daemon connection closed; reconnecting — sign-in and other \
+                                  bridge verbs still work"
+                            .into(),
                     });
                     write_json_line(&mut write_half, &frame).await?;
-                    return Ok(());
+                    continue;
                 };
                 if legacy_line.trim().is_empty() { continue; }
                 let event: Value = match serde_json::from_str(legacy_line.trim()) {
