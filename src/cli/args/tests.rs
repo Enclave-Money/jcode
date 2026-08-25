@@ -401,11 +401,13 @@ fn login_no_browser_flag_parses() {
             api_key,
             api_key_env,
             no_validate,
+            callback,
         }) => {
             assert!(provider.is_none());
             assert!(account.is_none());
             assert!(no_browser);
             assert!(!print_auth_url);
+            assert!(!callback);
             assert!(callback_url.is_none());
             assert!(auth_code.is_none());
             assert!(!json);
@@ -567,7 +569,7 @@ fn account_subcommands_parse() {
     assert!(matches!(
         login.command,
         Some(Command::Account {
-            action: AccountCommand::Login { no_browser: true }
+            action: AccountCommand::Login { no_browser: true, .. }
         })
     ));
 

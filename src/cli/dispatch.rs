@@ -322,6 +322,16 @@ pub(crate) async fn run_main(mut args: Args) -> Result<()> {
         }
         Some(Command::Brief { check }) => {
             delegate_to_tools("brief", if check { &["--check"] } else { &[] })?;
+            // Building a fresh graph supersedes the previous generation's
+            // content-hashed cache entries, and a re-index killed mid-write
+            // (the daemon's file watcher spawns `blaude brief` with
+            // kill_on_drop) leaves partial ones. GitNexus never removes either,
+            // so they accumulate — hundreds of MB per repo. Sweep them now that
+            // the new index is in place. `--check` only reports, so nothing was
+            // rebuilt and there's nothing to prune.
+            if !check {
+                prune_stale_graph_cache(&std::env::current_dir().unwrap_or_default());
+            }
         }
         Some(Command::Prune { json }) => {
             delegate_to_tools("prune", if json { &["--json"] } else { &[] })?;
@@ -1518,6 +1528,76 @@ async fn run_server_keepalive(
 #[cfg(test)]
 #[path = "dispatch_tests.rs"]
 mod dispatch_tests;
+
+/// Delete stale GitNexus cache generations so a workspace's code graph keeps
+/// only its current generation on disk. GitNexus stores parsed-file and parse
+/// results under `.gitnexus/{parse-cache,parsedfile-cache}/`, each entry named
+/// by a content hash and tracked in that dir's `index.json` (`{"keys":[…]}`).
+/// A new index leaves the prior generation's entries behind, and a re-index
+/// killed mid-write leaves partial ones; neither is referenced by `index.json`,
+/// and GitNexus never sweeps them, so they pile up. This removes every entry
+/// the current index no longer references, keeping the live cache intact.
+///
+/// `start` is the directory `blaude brief` ran in; the graph lives in the
+/// nearest ancestor `.gitnexus/`.
+fn prune_stale_graph_cache(start: &std::path::Path) {
+    let Some(gitnexus) = nearest_gitnexus_dir(start) else {
+        return;
+    };
+    for cache in ["parse-cache", "parsedfile-cache"] {
+        prune_cache_dir(&gitnexus.join(cache));
+    }
+}
+
+/// Walk up from `start` to the nearest directory containing a `.gitnexus/`.
+fn nearest_gitnexus_dir(start: &std::path::Path) -> Option<std::path::PathBuf> {
+    let mut dir = Some(start);
+    while let Some(d) = dir {
+        let candidate = d.join(".gitnexus");
+        if candidate.is_dir() {
+            return Some(candidate);
+        }
+        dir = d.parent();
+    }
+    None
+}
+
+/// Remove every entry in one hash-keyed cache dir that its `index.json` no
+/// longer lists. Conservative: if the index is missing or has no `keys` array
+/// (fresh, mid-write, or corrupt), nothing is pruned — a slow re-parse next
+/// time beats deleting a live cache.
+fn prune_cache_dir(dir: &std::path::Path) {
+    let Ok(raw) = std::fs::read_to_string(dir.join("index.json")) else {
+        return;
+    };
+    let Ok(value) = serde_json::from_str::<serde_json::Value>(&raw) else {
+        return;
+    };
+    let Some(keys) = value.get("keys").and_then(|k| k.as_array()) else {
+        return;
+    };
+    let live: std::collections::HashSet<&str> = keys.iter().filter_map(|v| v.as_str()).collect();
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let name = entry.file_name();
+        let name = name.to_string_lossy();
+        if name == "index.json" {
+            continue;
+        }
+        // Files are "<hash>.json"; parsedfile-cache entries are "<hash>" dirs.
+        let hash = name.strip_suffix(".json").unwrap_or(&name);
+        if !live.contains(hash) {
+            let path = entry.path();
+            if path.is_dir() {
+                let _ = std::fs::remove_dir_all(&path);
+            } else {
+                let _ = std::fs::remove_file(&path);
+            }
+        }
+    }
+}
 
 /// Run the bundled `blaude-tools` with a subcommand, forwarding its exit code.
 /// `blaude-tools` sits next to this binary (both live in the app bundle's

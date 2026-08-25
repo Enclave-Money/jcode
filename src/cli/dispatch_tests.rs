@@ -314,3 +314,69 @@ async fn server_is_running_at_treats_live_listener_as_running_without_pong() {
         "a live listener should prevent duplicate server spawns even if ping is slow or absent"
     );
 }
+
+#[test]
+fn prune_drops_orphaned_graph_cache_generations() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    let root = temp.path();
+    let gitnexus = root.join(".gitnexus");
+
+    // parse-cache: files named "<hash>.json"; index lists only "aaa".
+    let parse = gitnexus.join("parse-cache");
+    std::fs::create_dir_all(&parse).unwrap();
+    std::fs::write(parse.join("index.json"), r#"{"version":"x","keys":["aaa"]}"#).unwrap();
+    std::fs::write(parse.join("aaa.json"), b"live").unwrap();
+    std::fs::write(parse.join("bbb.json"), b"orphan-superseded").unwrap();
+    std::fs::write(parse.join("ccc.json"), b"orphan-partial-from-killed-run").unwrap();
+
+    // parsedfile-cache: entries are "<hash>" dirs; index lists only "aaa".
+    let parsed = gitnexus.join("parsedfile-cache");
+    std::fs::create_dir_all(parsed.join("aaa")).unwrap();
+    std::fs::create_dir_all(parsed.join("bbb")).unwrap();
+    std::fs::write(parsed.join("aaa/f"), b"live").unwrap();
+    std::fs::write(parsed.join("bbb/f"), b"orphan").unwrap();
+    std::fs::write(parsed.join("index.json"), r#"{"version":"x","keys":["aaa"]}"#).unwrap();
+
+    prune_stale_graph_cache(root);
+
+    // Live generation + the index survive; every orphan is gone.
+    assert!(parse.join("aaa.json").exists(), "live parse entry deleted");
+    assert!(parse.join("index.json").exists(), "index.json deleted");
+    assert!(!parse.join("bbb.json").exists(), "superseded orphan kept");
+    assert!(!parse.join("ccc.json").exists(), "partial orphan kept");
+    assert!(parsed.join("aaa").is_dir(), "live parsedfile entry deleted");
+    assert!(!parsed.join("bbb").exists(), "orphan parsedfile dir kept");
+}
+
+#[test]
+fn prune_is_a_noop_without_a_readable_index() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    let parse = temp.path().join(".gitnexus/parse-cache");
+    std::fs::create_dir_all(&parse).unwrap();
+    // No index.json at all → keep everything (a mid-write or corrupt state must
+    // never trigger a wipe of the live cache).
+    std::fs::write(parse.join("aaa.json"), b"data").unwrap();
+    // A malformed index with no `keys` array → also keep everything.
+    let parsed = temp.path().join(".gitnexus/parsedfile-cache");
+    std::fs::create_dir_all(parsed.join("aaa")).unwrap();
+    std::fs::write(parsed.join("index.json"), r#"{"version":"x"}"#).unwrap();
+
+    prune_stale_graph_cache(temp.path());
+
+    assert!(parse.join("aaa.json").exists(), "pruned without an index present");
+    assert!(parsed.join("aaa").is_dir(), "pruned with a keyless index");
+}
+
+#[test]
+fn nearest_gitnexus_dir_walks_up_from_a_subdir() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    let gitnexus = temp.path().join(".gitnexus");
+    std::fs::create_dir_all(&gitnexus).unwrap();
+    let deep = temp.path().join("crates/foo/src");
+    std::fs::create_dir_all(&deep).unwrap();
+
+    assert_eq!(nearest_gitnexus_dir(&deep), Some(gitnexus));
+    // A tree with no .gitnexus anywhere above → None.
+    let other = tempfile::tempdir().expect("tempdir");
+    assert_eq!(nearest_gitnexus_dir(other.path()), None);
+}
