@@ -70,6 +70,11 @@ pub struct AnthropicAccount {
     pub subscription_type: Option<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub scopes: Vec<String>,
+    /// On a team server, the member (email/identity) who signed this pooled
+    /// account in — so the team can see whose subscription each pooled account
+    /// is. `None` for a solo/local account. Backward-compatible (optional).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub added_by: Option<String>,
 }
 
 /// Multi-account blaude auth.json format.
@@ -320,6 +325,7 @@ pub fn load_auth_file() -> Result<JcodeAuthFile> {
             email: None,
             subscription_type: Some("max".to_string()),
             scopes: Vec::new(),
+            added_by: None,
         });
         auth.active_anthropic_account = Some("default".to_string());
         let _ = save_auth_file(&auth);
@@ -469,6 +475,23 @@ pub fn update_account_profile(label: &str, email: Option<String>) -> Result<()> 
         Ok(())
     } else {
         anyhow::bail!("No account with label '{}' found for profile update", label);
+    }
+}
+
+/// Record which team member signed in this pooled account (their email/identity).
+/// Set once at sign-in; a later refresh of the same account preserves it.
+pub fn set_account_added_by(label: &str, member: &str) -> Result<()> {
+    let mut auth = load_auth_file()?;
+    if let Some(account) = auth
+        .anthropic_accounts
+        .iter_mut()
+        .find(|a| a.label == label)
+    {
+        account.added_by = Some(member.to_string());
+        save_auth_file(&auth)?;
+        Ok(())
+    } else {
+        anyhow::bail!("No account with label '{}' found for added_by update", label);
     }
 }
 
@@ -953,6 +976,7 @@ pub fn import_native_credentials_into_account_labeled(requested: Option<&str>) -
         email: None,
         subscription_type: creds.subscription_type.or_else(|| Some("max".to_string())),
         scopes: creds.scopes,
+        added_by: None,
     })
 }
 

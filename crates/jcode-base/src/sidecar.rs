@@ -1176,6 +1176,7 @@ mod tests {
             email: None,
             scopes: Vec::new(),
             subscription_type: None,
+            added_by: None,
         })
         .expect("write Claude test auth");
 

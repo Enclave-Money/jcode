@@ -1317,7 +1317,7 @@ fn test_initial_openai_provider_can_switch_to_anthropic_auth_routes() {
             email: None,
             subscription_type: Some("max".to_string()),
             scopes: vec!["user:inference".to_string()],
-        })
+            added_by: None,        })
         .expect("save Claude OAuth account");
 
         let anthropic = test_anthropic_runtime();
@@ -1393,7 +1393,7 @@ fn test_config_default_provider_anthropic_api_pins_api_credential() {
                 email: None,
                 subscription_type: Some("max".to_string()),
                 scopes: vec!["user:inference".to_string()],
-            })
+                added_by: None,            })
             .expect("save Claude OAuth account");
 
             let anthropic = test_anthropic_runtime();
@@ -1472,7 +1472,7 @@ fn test_config_default_model_with_credential_prefix_applies_model_and_pin() {
                 email: None,
                 subscription_type: Some("max".to_string()),
                 scopes: vec!["user:inference".to_string()],
-            })
+                added_by: None,            })
             .expect("save Claude OAuth account");
 
             let anthropic = test_anthropic_runtime();
@@ -1620,7 +1620,7 @@ fn test_multi_provider_fork_switch_request_preserves_route_identity_state_space(
             email: None,
             subscription_type: Some("max".to_string()),
             scopes: vec!["user:inference".to_string()],
-        })
+            added_by: None,        })
         .expect("save Claude OAuth account");
         let anthropic = test_anthropic_runtime();
         let provider = MultiProvider {

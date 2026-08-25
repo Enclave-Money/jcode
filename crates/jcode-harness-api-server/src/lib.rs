@@ -508,7 +508,7 @@ where
                 if request["req"].as_str() == Some("start_claude_login") {
                     let api_id = request["id"].as_u64().unwrap_or(0);
                     let redirect = request["redirect_uri"].as_str().unwrap_or_default();
-                    let job_id = login_jobs::start("claude", redirect);
+                    let job_id = login_jobs::start("claude", redirect, state.identity.as_deref());
                     let frame = ServerFrame::reply(api_id, ApiEvent::LoginStarted { job_id });
                     write_json_line(&mut write_half, &frame).await?;
                     continue;
@@ -516,7 +516,7 @@ where
                 if request["req"].as_str() == Some("start_codex_login") {
                     let api_id = request["id"].as_u64().unwrap_or(0);
                     let redirect = request["redirect_uri"].as_str().unwrap_or_default();
-                    let job_id = login_jobs::start("codex", redirect);
+                    let job_id = login_jobs::start("codex", redirect, state.identity.as_deref());
                     let frame = ServerFrame::reply(api_id, ApiEvent::LoginStarted { job_id });
                     write_json_line(&mut write_half, &frame).await?;
                     continue;

@@ -1677,7 +1677,7 @@ async fn auto_mode_falls_back_to_api_key_when_oauth_is_expired() {
         email: None,
         subscription_type: Some("max".to_string()),
         scopes: vec!["user:inference".to_string()],
-    })
+        added_by: None,    })
     .unwrap();
 
     let provider = AnthropicProvider::new();
@@ -1710,7 +1710,7 @@ async fn explicit_oauth_mode_does_not_silently_fall_back_to_api_key() {
         email: None,
         subscription_type: Some("max".to_string()),
         scopes: vec!["user:inference".to_string()],
-    })
+        added_by: None,    })
     .unwrap();
 
     let provider = AnthropicProvider::new();

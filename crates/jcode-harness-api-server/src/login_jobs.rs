@@ -34,6 +34,10 @@ struct Job {
     state_param: String,
     redirect_uri: String,
     provider: String,
+    // The authenticated identity completing this login (a team member's email,
+    // or the owner's username). Stamped onto the pooled account as `added_by` so
+    // a team can see which member each pooled subscription belongs to.
+    member: Option<String>,
     state_tx: watch::Sender<String>,
     cancel: Arc<tokio::sync::Notify>,
 }
@@ -86,8 +90,9 @@ fn normalize(provider: &str) -> &'static str {
 /// Start a loopback-relay login. `redirect_uri` is the app's own loopback
 /// listener (e.g. `http://localhost:49xxx/callback`). Returns the job id; the
 /// `url` field is on the record immediately (the authorize link).
-pub fn start(provider: &str, redirect_uri: &str) -> String {
+pub fn start(provider: &str, redirect_uri: &str, member: Option<&str>) -> String {
     let provider = normalize(provider).to_string();
+    let member = member.map(str::to_string);
     let (verifier, challenge) = oauth::generate_pkce_public();
     // Claude and OpenAI differ in what the authorize `state` must carry:
     //   - Claude's CSRF convention makes the `state` the PKCE verifier itself;
@@ -123,6 +128,7 @@ pub fn start(provider: &str, redirect_uri: &str) -> String {
             state_param: state,
             redirect_uri: redirect_uri.to_string(),
             provider,
+            member,
             state_tx,
             cancel: cancel.clone(),
         },
@@ -151,7 +157,7 @@ pub fn start(provider: &str, redirect_uri: &str) -> String {
 /// Complete a waiting login: exchange the code/callback the app relayed for
 /// tokens, in process, and save them to the daemon's account store.
 pub async fn complete(job_id: &str, input: &str) {
-    let (verifier, state_param, redirect_uri, provider) = {
+    let (verifier, state_param, redirect_uri, provider, member) = {
         let table = jobs().lock().unwrap();
         match table.get(job_id) {
             Some(job) if job.record["state"] == "waiting_for_code" => (
@@ -159,6 +165,7 @@ pub async fn complete(job_id: &str, input: &str) {
                 job.state_param.clone(),
                 job.redirect_uri.clone(),
                 job.provider.clone(),
+                job.member.clone(),
             ),
             _ => return,
         }
@@ -175,12 +182,23 @@ pub async fn complete(job_id: &str, input: &str) {
             let tokens =
                 oauth::exchange_openai_callback_input(&verifier, &input, &state_param, &redirect_uri)
                     .await?;
-            let label = codex::login_target_label(None)?;
-            oauth::save_openai_tokens_for_account(&tokens, &label)?;
+            // Identity-aware append (pooling), mirroring the Claude path.
+            let requested = codex::login_target_label(None)?;
+            let _ = oauth::save_openai_login(&tokens, &requested).await?;
         } else {
             let tokens = oauth::exchange_claude_code(&verifier, &input, &redirect_uri).await?;
-            let label = claude::login_target_label(None)?;
-            oauth::save_claude_tokens_for_account(&tokens, &label)?;
+            // Identity-aware save: fetch the account's profile email and, when it
+            // names a DIFFERENT Anthropic account than the active one, APPEND it
+            // as a new pooled account instead of overwriting. This is what lets a
+            // team pool every member's Claude subscription on the server — the
+            // daemon's same-provider failover then rotates across the pool. Using
+            // login_target_label + save_*_tokens_for_account (the old path) made
+            // each member's sign-in clobber the previous one.
+            let requested = claude::login_target_label(None)?;
+            let (label, _email) = oauth::save_claude_login(&tokens, &requested).await?;
+            if let Some(member) = member.as_deref() {
+                let _ = claude::set_account_added_by(&label, member);
+            }
         }
         Ok(())
     }

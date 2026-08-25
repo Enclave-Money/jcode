@@ -125,6 +125,7 @@ fn save_claude_tokens_preserves_existing_account_metadata() -> Result<()> {
         email: Some("user@example.com".to_string()),
         subscription_type: Some("pro".to_string()),
         scopes: vec!["user:inference".to_string()],
+        added_by: None,
     })?;
 
     let refreshed = OAuthTokens {
@@ -413,6 +414,7 @@ fn acct(label: &str, email: Option<&str>) -> crate::auth::claude::AnthropicAccou
         email: email.map(str::to_string),
         subscription_type: None,
         scopes: vec![],
+        added_by: None,
     }
 }
 

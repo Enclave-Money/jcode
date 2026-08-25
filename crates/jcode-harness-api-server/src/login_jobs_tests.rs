@@ -9,7 +9,7 @@ use super::login_jobs;
 #[tokio::test]
 async fn claude_start_mints_url_with_app_redirect_and_pkce() {
     let redirect = "http://localhost:49231/callback";
-    let job_id = login_jobs::start("claude", redirect);
+    let job_id = login_jobs::start("claude", redirect, None);
     let record = login_jobs::status(&job_id).expect("job exists");
     let url = record["url"].as_str().expect("url present");
 
@@ -29,7 +29,7 @@ async fn claude_start_mints_url_with_app_redirect_and_pkce() {
 #[tokio::test]
 async fn codex_start_mints_openai_url_with_app_redirect() {
     let redirect = "http://localhost:50122/callback";
-    let job_id = login_jobs::start("codex", redirect);
+    let job_id = login_jobs::start("codex", redirect, None);
     let record = login_jobs::status(&job_id).expect("job exists");
     let url = record["url"].as_str().expect("url present");
 
@@ -47,7 +47,7 @@ async fn codex_start_mints_openai_url_with_app_redirect() {
 /// appear in the record the app can read over the wire.
 #[tokio::test]
 async fn status_record_never_leaks_the_verifier() {
-    let job_id = login_jobs::start("claude", "http://localhost:49232/callback");
+    let job_id = login_jobs::start("claude", "http://localhost:49232/callback", None);
     let record = login_jobs::status(&job_id).expect("job exists");
     let serialized = serde_json::to_string(&record).unwrap();
 
@@ -62,7 +62,7 @@ async fn status_record_never_leaks_the_verifier() {
 /// Completing with an empty relay is a clean failure, not a hang or panic.
 #[tokio::test]
 async fn complete_with_empty_code_fails_cleanly() {
-    let job_id = login_jobs::start("claude", "http://localhost:49233/callback");
+    let job_id = login_jobs::start("claude", "http://localhost:49233/callback", None);
     login_jobs::complete(&job_id, "   ").await;
     let record = login_jobs::status(&job_id).expect("job exists");
     assert_eq!(record["state"], "failed");
@@ -82,7 +82,7 @@ async fn complete_unknown_job_is_noop() {
 /// A pending job can be cancelled, which drops its in-memory secrets.
 #[tokio::test]
 async fn cancel_removes_the_pending_job() {
-    let job_id = login_jobs::start("claude", "http://localhost:49234/callback");
+    let job_id = login_jobs::start("claude", "http://localhost:49234/callback", None);
     assert!(login_jobs::status(&job_id).is_some());
     assert!(login_jobs::cancel(&job_id));
     assert!(login_jobs::status(&job_id).is_none());

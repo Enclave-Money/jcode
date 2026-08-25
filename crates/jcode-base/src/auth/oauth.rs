@@ -967,8 +967,12 @@ pub fn save_claude_tokens_for_account(tokens: &OAuthTokens, label: &str) -> Resu
         refresh: tokens.refresh_token.clone(),
         expires: tokens.expires_at,
         email: existing.as_ref().and_then(|account| account.email.clone()),
-        subscription_type: existing.and_then(|account| account.subscription_type),
+        subscription_type: existing
+            .as_ref()
+            .and_then(|account| account.subscription_type.clone()),
         scopes,
+        // Preserve the team member who owns this pooled account across refreshes.
+        added_by: existing.as_ref().and_then(|account| account.added_by.clone()),
     };
     claude_auth::upsert_account(account)?;
     Ok(())
@@ -1304,6 +1308,40 @@ pub fn save_openai_tokens_for_account(tokens: &OAuthTokens, label: &str) -> Resu
         Some(tokens.expires_at),
     )?;
     Ok(())
+}
+
+/// Save a fresh *interactive* OpenAI/Codex login, appending a distinct account
+/// rather than overwriting the active one when the id_token names a different
+/// identity. The pooling counterpart to [`save_claude_login`]: it is what lets
+/// a team pool multiple OpenAI accounts on one server. Returns the final label
+/// and the email (decoded from the id_token).
+pub async fn save_openai_login(
+    tokens: &OAuthTokens,
+    requested_label: &str,
+) -> Result<(String, Option<String>)> {
+    let email = tokens
+        .id_token
+        .as_deref()
+        .and_then(crate::auth::codex::extract_email);
+    let accounts = crate::auth::codex::list_accounts().unwrap_or_default();
+    let label = match email.as_deref() {
+        Some(email) => {
+            if let Some(existing) = accounts.iter().find(|a| a.email.as_deref() == Some(email)) {
+                existing.label.clone()
+            } else if accounts.iter().any(|a| a.label == requested_label) {
+                crate::auth::codex::next_account_label()?
+            } else {
+                requested_label.to_string()
+            }
+        }
+        None => requested_label.to_string(),
+    };
+    save_openai_tokens_for_account(tokens, &label)?;
+    if email.is_some() {
+        crate::auth::codex::update_account_profile(&label, email.clone())?;
+    }
+    crate::auth::codex::set_active_account(&label)?;
+    Ok((label, email))
 }
 
 /// Refresh OpenAI/Codex OAuth tokens

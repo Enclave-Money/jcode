@@ -138,7 +138,7 @@ fn test_show_accounts_includes_masked_email_column() {
         expires: now_ms + 60000,
         email: Some("user@example.com".to_string()),
         scopes: Vec::new(),
-        subscription_type: Some("max".to_string()),
+        added_by: None,        subscription_type: Some("max".to_string()),
     }];
 
     let mut lines = vec!["**Anthropic Accounts:**\n".to_string()];
@@ -236,7 +236,7 @@ fn test_account_command_opens_account_picker() {
             expires: now_ms + 60_000,
             email: Some("claude@example.com".to_string()),
             scopes: Vec::new(),
-            subscription_type: Some("pro".to_string()),
+            added_by: None,            subscription_type: Some("pro".to_string()),
         })
         .unwrap();
 
@@ -428,7 +428,7 @@ fn test_account_command_combines_claude_and_openai_accounts() {
             expires: now_ms + 60_000,
             email: Some("claude@example.com".to_string()),
             scopes: Vec::new(),
-            subscription_type: Some("pro".to_string()),
+            added_by: None,            subscription_type: Some("pro".to_string()),
         })
         .unwrap();
         crate::auth::codex::upsert_account(crate::auth::codex::OpenAiAccount {

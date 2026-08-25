@@ -41,7 +41,7 @@ fn jcode_auth_file_roundtrip() {
             expires: 9999999999999,
             email: None,
             scopes: Vec::new(),
-            subscription_type: Some("max".to_string()),
+            added_by: None,            subscription_type: Some("max".to_string()),
         }],
         active_anthropic_account: Some("work".to_string()),
         anthropic: None,
@@ -132,7 +132,7 @@ fn jcode_auth_file_multi_account() {
                 refresh: "ref_personal".to_string(),
                 expires: 1000,
                 scopes: Vec::new(),
-                subscription_type: Some("pro".to_string()),
+                added_by: None,                subscription_type: Some("pro".to_string()),
                 email: None,
             },
             AnthropicAccount {
@@ -142,7 +142,7 @@ fn jcode_auth_file_multi_account() {
                 expires: 2000,
                 email: None,
                 scopes: Vec::new(),
-                subscription_type: Some("max".to_string()),
+                added_by: None,                subscription_type: Some("max".to_string()),
             },
         ],
         active_anthropic_account: Some("work".to_string()),
@@ -192,7 +192,7 @@ fn anthropic_account_email_serialized_when_present() {
         expires: 0,
         email: Some("user@example.com".to_string()),
         scopes: Vec::new(),
-        subscription_type: Some("max".to_string()),
+        added_by: None,        subscription_type: Some("max".to_string()),
     };
     let json = serde_json::to_string(&account).unwrap();
     assert!(json.contains("email"));
@@ -208,7 +208,7 @@ fn anthropic_account_email_omitted_when_none() {
         expires: 0,
         email: None,
         scopes: Vec::new(),
-        subscription_type: Some("max".to_string()),
+        added_by: None,        subscription_type: Some("max".to_string()),
     };
     let json = serde_json::to_string(&account).unwrap();
     assert!(!json.contains("\"email\""));
@@ -223,7 +223,7 @@ fn anthropic_account_subscription_type_serialized_when_present() {
         expires: 0,
         email: None,
         scopes: Vec::new(),
-        subscription_type: Some("max".to_string()),
+        added_by: None,        subscription_type: Some("max".to_string()),
     };
     let json = serde_json::to_string(&account).unwrap();
     assert!(json.contains("subscription_type"));
@@ -238,7 +238,7 @@ fn anthropic_account_subscription_type_omitted_when_none() {
         refresh: "ref".to_string(),
         expires: 0,
         scopes: Vec::new(),
-        subscription_type: None,
+        added_by: None,        subscription_type: None,
         email: None,
     };
     let json = serde_json::to_string(&account).unwrap();
@@ -255,7 +255,7 @@ fn update_account_profile_sets_email() {
         expires: 1,
         email: None,
         scopes: Vec::new(),
-        subscription_type: None,
+        added_by: None,        subscription_type: None,
     });
 
     if let Some(account) = auth

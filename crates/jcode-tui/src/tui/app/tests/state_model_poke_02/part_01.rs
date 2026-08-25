@@ -956,7 +956,7 @@ fn test_logout_clear_anthropic_accounts_removes_all_accounts_once() {
                 email: None,
                 subscription_type: None,
                 scopes: Vec::new(),
-            })
+                added_by: None,            })
             .unwrap();
         }
         crate::auth::claude::set_active_account("claude-panda").unwrap();
