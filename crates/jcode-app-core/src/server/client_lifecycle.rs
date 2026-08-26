@@ -1976,25 +1976,27 @@ pub(super) async fn handle_client(
                 handle_set_work_mode(id, mode, &agent, &client_event_tx).await;
             }
             Request::RenameSession { id, title } => {
-                if reject_if_agent_busy_for_request(
-                    id,
-                    "rename_session",
-                    &client_session_id,
-                    client_is_processing,
-                    &agent,
-                    &client_event_tx,
-                ) {
-                    continue;
-                }
-                handle_rename_session(
-                    id,
-                    title,
-                    &agent,
-                    &client_session_id,
-                    &swarm_members,
-                    &client_event_tx,
-                )
-                .await;
+                // A rename racing a running turn used to be REJECTED — and the
+                // app pushes its generated title seconds after send, which is
+                // always mid-turn, so stored sessions stayed "Untitled" forever
+                // and shared session lists showed nothing recognizable. Apply
+                // it when the agent lock frees instead; spawned so this loop
+                // never blocks behind the turn.
+                let agent = Arc::clone(&agent);
+                let session_id = client_session_id.clone();
+                let swarm_members = Arc::clone(&swarm_members);
+                let client_event_tx = client_event_tx.clone();
+                tokio::spawn(async move {
+                    handle_rename_session(
+                        id,
+                        title,
+                        &agent,
+                        &session_id,
+                        &swarm_members,
+                        &client_event_tx,
+                    )
+                    .await;
+                });
             }
 
             Request::NotifyAuthChanged {
