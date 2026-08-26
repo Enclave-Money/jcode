@@ -14,6 +14,7 @@ fn detects_reload_interrupted_generation_text() {
         timestamp: None,
         tool_duration_ms: None,
         token_usage: None,
+        by_user: None,
     }]);
 
     assert!(session_was_interrupted_by_reload(&agent));
@@ -33,6 +34,7 @@ fn detects_reload_interrupted_tool_result() {
         timestamp: None,
         tool_duration_ms: None,
         token_usage: None,
+        by_user: None,
     }]);
 
     assert!(session_was_interrupted_by_reload(&agent));
@@ -52,6 +54,7 @@ fn detects_reload_skipped_tool_result() {
         timestamp: None,
         tool_duration_ms: None,
         token_usage: None,
+        by_user: None,
     }]);
 
     assert!(session_was_interrupted_by_reload(&agent));
@@ -71,6 +74,7 @@ fn detects_selfdev_reload_tool_result_even_when_not_marked_error() {
         timestamp: None,
         tool_duration_ms: None,
         token_usage: None,
+        by_user: None,
     }]);
 
     assert!(session_was_interrupted_by_reload(&agent));
@@ -90,6 +94,7 @@ fn ignores_normal_tool_errors() {
         timestamp: None,
         tool_duration_ms: None,
         token_usage: None,
+        by_user: None,
     }]);
 
     assert!(!session_was_interrupted_by_reload(&agent));
@@ -108,6 +113,7 @@ fn restored_closed_session_with_reload_marker_still_counts_as_interrupted() {
         timestamp: None,
         tool_duration_ms: None,
         token_usage: None,
+        by_user: None,
     }]);
 
     assert!(restored_session_was_interrupted(
@@ -142,6 +148,7 @@ fn restored_closed_session_with_pending_user_message_during_reload_should_count_
         timestamp: None,
         tool_duration_ms: None,
         token_usage: None,
+        by_user: None,
     }]);
 
     let interrupted = restored_session_was_interrupted(
@@ -189,6 +196,7 @@ fn restored_closed_session_with_pending_user_message_during_socket_ready_handoff
         timestamp: None,
         tool_duration_ms: None,
         token_usage: None,
+        by_user: None,
     }]);
 
     let interrupted = restored_session_was_interrupted(
@@ -230,6 +238,7 @@ fn restored_closed_session_with_pending_user_message_without_reload_marker_is_no
         timestamp: None,
         tool_duration_ms: None,
         token_usage: None,
+        by_user: None,
     }]);
 
     let interrupted = restored_session_was_interrupted(
@@ -260,6 +269,7 @@ fn restored_closed_session_without_reload_marker_is_not_interrupted() {
         timestamp: None,
         tool_duration_ms: None,
         token_usage: None,
+        by_user: None,
     }]);
 
     assert!(!restored_session_was_interrupted(

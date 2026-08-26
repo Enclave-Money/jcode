@@ -56,6 +56,9 @@ pub struct HistoryMessage {
     pub tool_calls: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tool_data: Option<ToolCall>,
+    /// Team identity that authored this message (multiplayer attribution).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub by_user: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]

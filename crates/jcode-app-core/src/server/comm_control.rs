@@ -893,6 +893,7 @@ fn spawn_assigned_task_run(
             &assignment_text,
             vec![],
             None,
+            None,
             event_tx,
         )
         .await;

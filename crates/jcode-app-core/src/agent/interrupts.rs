@@ -136,6 +136,7 @@ impl Agent {
                 images,
                 urgent,
                 source,
+                by_user: None,
             });
             logging::info(&format!(
                 "AGENT_SOFT_INTERRUPT_QUEUE_PUSH session={} source={:?} urgent={} content_bytes={} content_chars={} image_count={} pending_before={} pending_after={}",
@@ -356,13 +357,16 @@ impl Agent {
         };
 
         let mut injected = Vec::new();
-        let mut current_source: Option<SoftInterruptSource> = None;
+        // Group key includes the author: back-to-back follow-ups from two
+        // teammates must land as two attributed messages, never merged.
+        let mut current_key: Option<(SoftInterruptSource, Option<String>)> = None;
         let mut current_parts: Vec<String> = Vec::new();
         let mut current_images: Vec<(String, String)> = Vec::new();
 
         let flush_group = |agent: &mut Self,
                            injected: &mut Vec<InjectedSoftInterrupt>,
                            source: SoftInterruptSource,
+                           by_user: Option<String>,
                            parts: &mut Vec<String>,
                            images: &mut Vec<(String, String)>| {
             if parts.is_empty() && images.is_empty() {
@@ -380,38 +384,43 @@ impl Agent {
                     cache_control: None,
                 });
             }
-            agent.add_message_with_display_role(
+            agent.add_message_authored(
                 Role::User,
                 blocks,
                 soft_interrupt_session_display_role(source),
+                by_user,
             );
             injected.push(InjectedSoftInterrupt { content, source });
         };
 
         for message in messages {
-            match current_source {
-                Some(source) if source != message.source => {
+            let key = (message.source, message.by_user.clone());
+            match current_key {
+                Some(ref current) if *current != key => {
+                    let (source, by_user) = current.clone();
                     flush_group(
                         self,
                         &mut injected,
                         source,
+                        by_user,
                         &mut current_parts,
                         &mut current_images,
                     );
-                    current_source = Some(message.source);
+                    current_key = Some(key);
                 }
-                None => current_source = Some(message.source),
+                None => current_key = Some(key),
                 _ => {}
             }
             current_parts.push(message.content);
             current_images.extend(message.images);
         }
 
-        if let Some(source) = current_source {
+        if let Some((source, by_user)) = current_key {
             flush_group(
                 self,
                 &mut injected,
                 source,
+                by_user,
                 &mut current_parts,
                 &mut current_images,
             );

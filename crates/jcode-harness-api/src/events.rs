@@ -393,4 +393,7 @@ pub struct HistoryMessage {
     /// "user" | "assistant" | "tool".
     pub role: String,
     pub content: String,
+    /// Team identity that authored this message (multiplayer attribution).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub by_user: Option<String>,
 }

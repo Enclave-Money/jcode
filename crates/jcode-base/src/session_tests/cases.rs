@@ -483,6 +483,7 @@ fn load_startup_stub_preserves_metadata_but_skips_heavy_vectors() -> Result<()> 
         timestamp: Some(Utc::now()),
         tool_duration_ms: None,
         token_usage: None,
+        by_user: None,
     });
     session.record_env_snapshot(EnvSnapshot {
         captured_at: Utc::now(),
@@ -557,6 +558,7 @@ fn load_for_remote_startup_preserves_messages_and_replay_but_skips_heavy_vectors
         timestamp: Some(Utc::now()),
         tool_duration_ms: None,
         token_usage: None,
+        by_user: None,
     });
     session.record_env_snapshot(EnvSnapshot {
         captured_at: Utc::now(),
@@ -2056,6 +2058,7 @@ fn reasoning_trace_survives_session_save_and_load() -> Result<()> {
         timestamp: Some(Utc::now()),
         tool_duration_ms: None,
         token_usage: None,
+        by_user: None,
     });
     session.save()?;
 

@@ -58,6 +58,9 @@ pub struct RenderedMessage {
     /// transcript (issue #432).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub stored_index: Option<usize>,
+    /// Author identity carried through from the stored message (multiplayer).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub by_user: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -300,6 +303,11 @@ pub struct StoredMessage {
     pub tool_duration_ms: Option<u64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub token_usage: Option<StoredTokenUsage>,
+    /// Team identity that authored this message (multiplayer). `None` for the
+    /// session owner's own machine and for machine-generated messages —
+    /// attribution must survive rehydration, not just live fanout.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub by_user: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]

@@ -44,6 +44,7 @@ async fn session_control_handle_does_not_wait_for_busy_agent_lock() {
             Vec::new(),
             true,
             SoftInterruptSource::User,
+            None,
         ));
         control.request_cancel();
         assert!(control.request_background_current_tool());
@@ -217,6 +218,7 @@ async fn context_message_persists_without_starting_turn() {
         vec![("image/png".to_string(), "AAA".to_string())],
         session_id,
         false,
+        Some("teammate@example.com".to_string()),
         &agent,
         &client_event_tx,
     )
@@ -261,6 +263,7 @@ async fn context_message_rejects_while_busy_without_waiting_for_agent_lock() {
             Vec::new(),
             "session_context_busy",
             true,
+            None,
             &agent,
             &client_event_tx,
         )
@@ -513,8 +516,15 @@ fn cancel_aborts_detached_streaming_turn_with_stale_stop_signal() -> anyhow::Res
         // connection's processing-task map.
         let turn_agent = Arc::clone(&agent);
         let turn = tokio::spawn(async move {
-            process_message_streaming_mpsc(turn_agent, "stream forever", Vec::new(), None, event_tx)
-                .await
+            process_message_streaming_mpsc(
+                turn_agent,
+                "stream forever",
+                Vec::new(),
+                None,
+                None,
+                event_tx,
+            )
+            .await
         });
 
         // Wait until the provider stream is actively producing output.
@@ -911,6 +921,7 @@ fn reload_starting_rejects_new_turn_without_spawning_processing_task() {
                 images: Vec::new(),
                 system_reminder: None,
                 active_skill: None,
+                by_user: None,
             },
             "session_guard",
             &mut ProcessingState {
@@ -1012,6 +1023,7 @@ async fn client_initiated_turn_fans_out_stream_and_terminal_events_to_live_attac
             images: Vec::new(),
             system_reminder: None,
             active_skill: None,
+            by_user: None,
         },
         session_id,
         &mut ProcessingState {
@@ -1137,6 +1149,7 @@ fn accepted_reload_recovery_continuation_marks_intent_delivered() -> anyhow::Res
                 images: Vec::new(),
                 system_reminder: Some(continuation.to_string()),
                 active_skill: None,
+                by_user: None,
             },
             session_id,
             &mut ProcessingState {
@@ -1237,6 +1250,7 @@ fn reload_starting_rejects_new_turns_for_multiple_sessions() {
                     images: Vec::new(),
                     system_reminder: None,
                     active_skill: None,
+                    by_user: None,
                 },
                 session_id,
                 &mut ProcessingState {

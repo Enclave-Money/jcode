@@ -573,6 +573,7 @@ fn normalize_imported_history(session: &mut Session, apply_limits: bool) -> bool
                     timestamp: None,
                     tool_duration_ms: None,
                     token_usage: None,
+                    by_user: None,
                 },
             );
         }
@@ -842,6 +843,7 @@ fn import_session_from_file_with_target(
                 timestamp: None,
                 tool_duration_ms: None,
                 token_usage: None,
+                by_user: None,
             });
         }
     }
@@ -995,6 +997,7 @@ fn append_text_message(
         timestamp,
         tool_duration_ms: None,
         token_usage: None,
+        by_user: None,
     });
 }
 

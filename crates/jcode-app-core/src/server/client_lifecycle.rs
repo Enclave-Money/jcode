@@ -113,6 +113,8 @@ struct ProcessingMessage {
     images: Vec<(String, String)>,
     system_reminder: Option<String>,
     active_skill: Option<String>,
+    /// Team identity that sent this message (multiplayer attribution).
+    by_user: Option<String>,
 }
 
 struct ProcessingState<'a> {
@@ -1136,6 +1138,7 @@ pub(super) async fn handle_client(
                         images,
                         &client_session_id,
                         client_is_processing,
+                        connection_user.clone(),
                         &agent,
                         &client_event_tx,
                     )
@@ -1156,6 +1159,7 @@ pub(super) async fn handle_client(
                         images,
                         system_reminder,
                         active_skill,
+                        by_user: connection_user.clone(),
                     },
                     &client_session_id,
                     &mut ProcessingState {
@@ -1191,6 +1195,7 @@ pub(super) async fn handle_client(
                 // the lock frees.
                 match agent.try_lock() {
                     Ok(mut agent_guard) => {
+                        agent_guard.set_turn_author(connection_user.clone());
                         if let Err(error) = agent_guard.append_team_note(&content) {
                             let _ = client_event_tx.send(ServerEvent::Error {
                                 id,
@@ -1204,8 +1209,10 @@ pub(super) async fn handle_client(
                         let agent = Arc::clone(&agent);
                         let deferred = content.clone();
                         let session = client_session_id.clone();
+                        let deferred_author = connection_user.clone();
                         tokio::spawn(async move {
                             let mut agent_guard = agent.lock().await;
+                            agent_guard.set_turn_author(deferred_author);
                             if let Err(error) = agent_guard.append_team_note(&deferred) {
                                 crate::logging::warn(&format!(
                                     "deferred team note failed to persist for {session}: {error:#}"
@@ -1284,6 +1291,7 @@ pub(super) async fn handle_client(
                     images,
                     urgent,
                     SoftInterruptSource::User,
+                    connection_user.clone(),
                     &session_control,
                     &client_event_tx,
                 );
@@ -2949,6 +2957,7 @@ async fn append_context_message(
     images: Vec<(String, String)>,
     client_session_id: &str,
     client_is_processing: bool,
+    by_user: Option<String>,
     agent: &Arc<Mutex<Agent>>,
     client_event_tx: &mpsc::UnboundedSender<ServerEvent>,
 ) {
@@ -2962,6 +2971,7 @@ async fn append_context_message(
         );
         return;
     };
+    agent.set_turn_author(by_user);
     let result = agent.append_user_context_message(content, images);
     let event = match result {
         Ok(()) => ServerEvent::ContextMessageAdded { id },
@@ -2991,6 +3001,7 @@ async fn start_processing_message(
         images,
         system_reminder,
         active_skill,
+        by_user,
     } = message;
     if server_reload_starting() {
         crate::logging::info(&format!(
@@ -3070,7 +3081,7 @@ async fn start_processing_message(
         let event_tx = tx.clone();
         let result = match std::panic::AssertUnwindSafe(crate::hooks::with_client_terminal_env(
             client_terminal_env,
-            process_message_streaming_mpsc(agent, &content, images, system_reminder, event_tx),
+            process_message_streaming_mpsc(agent, &content, images, system_reminder, by_user, event_tx),
         ))
         .catch_unwind()
         .await
@@ -3340,6 +3351,7 @@ fn queue_soft_interrupt(
     images: Vec<(String, String)>,
     urgent: bool,
     source: SoftInterruptSource,
+    by_user: Option<String>,
     session_control: &SessionControlHandle,
     client_event_tx: &mpsc::UnboundedSender<ServerEvent>,
 ) {
@@ -3349,7 +3361,7 @@ fn queue_soft_interrupt(
         "SERVER_SOFT_INTERRUPT_QUEUE_REQUEST id={} session={} source={:?} urgent={} content_bytes={} content_chars={}",
         id, session_control.session_id, source, urgent, content_bytes, content_chars
     ));
-    let queued = session_control.queue_soft_interrupt(content, images, urgent, source);
+    let queued = session_control.queue_soft_interrupt(content, images, urgent, source, by_user);
     let ack_queued = client_event_tx.send(ServerEvent::Ack { id }).is_ok();
     crate::logging::info(&format!(
         "SERVER_SOFT_INTERRUPT_QUEUE_RESULT id={} session={} queued={} ack_queued={}",
@@ -3408,9 +3420,11 @@ pub(super) async fn process_message_streaming_mpsc(
     content: &str,
     images: Vec<(String, String)>,
     system_reminder: Option<String>,
+    by_user: Option<String>,
     event_tx: tokio::sync::mpsc::UnboundedSender<ServerEvent>,
 ) -> Result<()> {
     let mut agent = agent.lock().await;
+    agent.set_turn_author(by_user);
     let session_id = agent.session_id().to_string();
     let result = agent
         .run_once_streaming_mpsc(content, images, system_reminder, event_tx)

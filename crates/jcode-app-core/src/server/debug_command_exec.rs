@@ -345,6 +345,7 @@ pub(super) async fn execute_debug_command(
                 Vec::new(),
                 true,
                 SoftInterruptSource::User,
+                None,
             );
             control.request_cancel();
             delivered_without_agent_lock = true;

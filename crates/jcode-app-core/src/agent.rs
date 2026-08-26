@@ -200,6 +200,10 @@ pub struct Agent {
     /// Transient reminder injected into provider requests for the current turn only.
     /// Not persisted to session history.
     current_turn_system_reminder: Option<String>,
+    /// Team identity that authored the next appended user message (multiplayer).
+    /// Set by the server per-request under the agent lock; consumed (take) by
+    /// the next user-message append so it can never leak onto a later turn.
+    pub(crate) turn_author: Option<String>,
     /// Tool call ids observed in the current session transcript.
     tool_call_ids: HashSet<String>,
     /// Tool result ids observed in the current session transcript.
@@ -303,6 +307,7 @@ impl Agent {
             last_status_detail: None,
             pending_alerts: Vec::new(),
             current_turn_system_reminder: None,
+            turn_author: None,
             tool_call_ids: HashSet::new(),
             tool_result_ids: HashSet::new(),
             tool_output_scan_index: 0,
@@ -874,6 +879,7 @@ impl Agent {
                     timestamp: Some(chrono::Utc::now()),
                     tool_duration_ms: None,
                     token_usage: None,
+                    by_user: None,
                 };
                 self.session
                     .insert_message(index + 1 + inserted + offset, stored_message);

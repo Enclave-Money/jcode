@@ -1296,6 +1296,20 @@ request in this new forked session, using the inherited conversation only as con
         token_usage: Option<StoredTokenUsage>,
         display_role: Option<StoredDisplayRole>,
     ) -> String {
+        self.add_message_authored(role, content, tool_duration_ms, token_usage, display_role, None)
+    }
+
+    /// Append a message carrying its author's team identity, so multiplayer
+    /// attribution survives in the stored transcript (not just live events).
+    pub fn add_message_authored(
+        &mut self,
+        role: Role,
+        content: Vec<ContentBlock>,
+        tool_duration_ms: Option<u64>,
+        token_usage: Option<StoredTokenUsage>,
+        display_role: Option<StoredDisplayRole>,
+        by_user: Option<String>,
+    ) -> String {
         let id = new_id("message");
         self.append_stored_message(StoredMessage {
             id: id.clone(),
@@ -1305,6 +1319,7 @@ request in this new forked session, using the inherited conversation only as con
             timestamp: Some(Utc::now()),
             tool_duration_ms,
             token_usage,
+            by_user,
         });
         id
     }

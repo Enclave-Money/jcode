@@ -783,6 +783,7 @@ impl App {
                     timestamp: Some(chrono::Utc::now()),
                     tool_duration_ms: None,
                     token_usage: None,
+                    by_user: None,
                 };
                 if self.is_remote || !self.messages.is_empty() {
                     self.messages

@@ -1202,6 +1202,7 @@ async fn env_snapshot_detail_is_minimal_for_empty_sessions_and_full_after_histor
             timestamp: None,
             tool_duration_ms: None,
             token_usage: None,
+            by_user: None,
         });
 
     assert_eq!(agent.env_snapshot_detail(), EnvSnapshotDetail::Full);

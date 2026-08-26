@@ -143,6 +143,7 @@ fn imported_history_is_bounded_for_fast_initial_render() {
             timestamp: None,
             tool_duration_ms: None,
             token_usage: None,
+            by_user: None,
         });
     }
 
@@ -478,6 +479,7 @@ fn cached_imported_session_preserves_existing_history_verbatim() {
         timestamp: None,
         tool_duration_ms: None,
         token_usage: None,
+        by_user: None,
     });
     legacy.append_stored_message(StoredMessage {
         id: "user-result".to_string(),
@@ -491,6 +493,7 @@ fn cached_imported_session_preserves_existing_history_verbatim() {
         timestamp: None,
         tool_duration_ms: None,
         token_usage: None,
+        by_user: None,
     });
     legacy.append_stored_message(StoredMessage {
         id: "jcode-continuation".to_string(),
@@ -503,6 +506,7 @@ fn cached_imported_session_preserves_existing_history_verbatim() {
         timestamp: None,
         tool_duration_ms: None,
         token_usage: None,
+        by_user: None,
     });
     legacy.save().unwrap();
 
@@ -1047,6 +1051,7 @@ fn test_reimporting_claude_session_preserves_jcode_continuation() {
         timestamp: None,
         tool_duration_ms: None,
         token_usage: None,
+        by_user: None,
     });
     session.save().unwrap();
     assert_eq!(Session::load(&imported_id).unwrap().messages.len(), 3);

@@ -17,6 +17,7 @@ async fn handle_resume_session_allows_live_attach_when_existing_agent_is_busy() 
         timestamp: None,
         tool_duration_ms: None,
         token_usage: None,
+        by_user: None,
     };
 
     let provider: Arc<dyn Provider> = Arc::new(MockProvider);

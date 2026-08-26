@@ -154,8 +154,15 @@ impl Agent {
             ));
         }
 
-        self.add_message_with_display_role(Role::User, blocks, display_role);
+        let by_user = self.turn_author.take();
+        self.add_message_authored(Role::User, blocks, display_role, by_user);
         self.session.save()
+    }
+
+    /// Name the author of the next appended user message (team identity).
+    /// Consumed by the append; harmless to set for local single-user turns.
+    pub fn set_turn_author(&mut self, author: Option<String>) {
+        self.turn_author = author;
     }
 
     /// Fire the `turn_start` observer hook when a turn begins, before the model
@@ -769,6 +776,7 @@ impl Agent {
                     Some(msg.tool_calls)
                 },
                 tool_data: msg.tool_data,
+                by_user: msg.by_user,
             })
             .collect()
     }
@@ -788,6 +796,7 @@ impl Agent {
                     Some(msg.tool_calls)
                 },
                 tool_data: msg.tool_data,
+                by_user: msg.by_user,
             })
             .collect();
         (history, images)
@@ -817,6 +826,7 @@ impl Agent {
                     Some(msg.tool_calls)
                 },
                 tool_data: msg.tool_data,
+                by_user: msg.by_user,
             })
             .collect();
         (history, images, compacted_info)

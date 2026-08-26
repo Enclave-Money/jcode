@@ -10,6 +10,8 @@ struct PersistedSoftInterrupt {
     images: Vec<(String, String)>,
     urgent: bool,
     source: PersistedSoftInterruptSource,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    by_user: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize)]
@@ -47,6 +49,7 @@ impl From<SoftInterruptMessage> for PersistedSoftInterrupt {
             images: value.images,
             urgent: value.urgent,
             source: value.source.into(),
+            by_user: value.by_user,
         }
     }
 }
@@ -58,6 +61,7 @@ impl From<PersistedSoftInterrupt> for SoftInterruptMessage {
             images: value.images,
             urgent: value.urgent,
             source: value.source.into(),
+            by_user: value.by_user,
         }
     }
 }

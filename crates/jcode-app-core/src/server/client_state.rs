@@ -365,6 +365,7 @@ fn rendered_to_history_message(msg: crate::session::RenderedMessage) -> HistoryM
             Some(msg.tool_calls)
         },
         tool_data: msg.tool_data,
+        by_user: msg.by_user,
     }
 }
 

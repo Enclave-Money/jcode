@@ -8,6 +8,8 @@ pub struct SoftInterruptMessage {
     /// If true, can skip remaining tools when injected at point C.
     pub urgent: bool,
     pub source: SoftInterruptSource,
+    /// Team identity that queued this follow-up (multiplayer attribution).
+    pub by_user: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

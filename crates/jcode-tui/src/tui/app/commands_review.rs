@@ -73,6 +73,7 @@ fn judge_transcript_text_message(role: Role, text: String) -> StoredMessage {
         timestamp: None,
         tool_duration_ms: None,
         token_usage: None,
+        by_user: None,
     }
 }
 

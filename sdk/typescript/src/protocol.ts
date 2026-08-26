@@ -49,6 +49,8 @@ export interface HistoryMessage {
   /** "user" | "assistant" | "tool" */
   role: string;
   content: string;
+  /** Team identity that authored this message (multiplayer attribution). */
+  by_user?: string;
 }
 
 /** Base64 image attachment: [mediaType, base64Data]. */

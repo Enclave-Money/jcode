@@ -1369,6 +1369,7 @@ impl BridgeState {
                             .map(|m| HistoryMessage {
                                 role: m["role"].as_str().unwrap_or("").to_string(),
                                 content: m["content"].as_str().unwrap_or("").to_string(),
+                                by_user: m["by_user"].as_str().map(str::to_string),
                             })
                             .collect()
                     })
@@ -2459,6 +2460,7 @@ impl BridgeState {
                 (!content.trim().is_empty()).then(|| HistoryMessage {
                     role: role.to_string(),
                     content,
+                    by_user: message["by_user"].as_str().map(str::to_string),
                 })
             })
             .take(limit)

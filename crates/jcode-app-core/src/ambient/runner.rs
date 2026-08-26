@@ -109,6 +109,7 @@ impl AmbientRunnerHandle {
                 images: Vec::new(),
                 urgent: false,
                 source: SoftInterruptSource::User,
+                by_user: None,
             });
             logging::info(&format!(
                 "{} message injected into active ambient cycle: {}",

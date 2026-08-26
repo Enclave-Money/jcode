@@ -543,6 +543,7 @@ pub(super) fn enqueue_soft_interrupt(
     images: Vec<(String, String)>,
     urgent: bool,
     source: SoftInterruptSource,
+    by_user: Option<String>,
 ) -> bool {
     let content_bytes = content.len();
     let content_chars = content.chars().count();
@@ -553,6 +554,7 @@ pub(super) fn enqueue_soft_interrupt(
             images,
             urgent,
             source,
+            by_user,
         });
         crate::logging::info(&format!(
             "SOFT_INTERRUPT_QUEUE_PUSH source={:?} urgent={} content_bytes={} content_chars={} pending_before={} pending_after={}",
@@ -627,8 +629,16 @@ impl SessionControlHandle {
         images: Vec<(String, String)>,
         urgent: bool,
         source: SoftInterruptSource,
+        by_user: Option<String>,
     ) -> bool {
-        enqueue_soft_interrupt(&self.soft_interrupt_queue, content, images, urgent, source)
+        enqueue_soft_interrupt(
+            &self.soft_interrupt_queue,
+            content,
+            images,
+            urgent,
+            source,
+            by_user,
+        )
     }
 
     pub fn clear_soft_interrupts(&self) {
@@ -774,7 +784,7 @@ pub(super) async fn queue_soft_interrupt_for_session(
     sessions: &super::SessionAgents,
 ) -> bool {
     if let Some(queue) = queues.read().await.get(session_id).cloned() {
-        return enqueue_soft_interrupt(&queue, content, Vec::new(), urgent, source);
+        return enqueue_soft_interrupt(&queue, content, Vec::new(), urgent, source, None);
     }
 
     let queue = {
@@ -789,7 +799,7 @@ pub(super) async fn queue_soft_interrupt_for_session(
 
     if let Some(queue) = queue {
         register_session_interrupt_queue(queues, session_id, queue.clone()).await;
-        enqueue_soft_interrupt(&queue, content, Vec::new(), urgent, source)
+        enqueue_soft_interrupt(&queue, content, Vec::new(), urgent, source, None)
     } else {
         let session_exists = {
             let guard = sessions.read().await;
@@ -807,6 +817,7 @@ pub(super) async fn queue_soft_interrupt_for_session(
                 images: Vec::new(),
                 urgent,
                 source,
+                by_user: None,
             },
         )
         .map(|_| true)

@@ -34,6 +34,29 @@ impl Agent {
         id
     }
 
+    /// Append a user-authored message carrying the team identity that wrote it,
+    /// so multiplayer attribution survives in the stored transcript.
+    pub(crate) fn add_message_authored(
+        &mut self,
+        role: Role,
+        content: Vec<ContentBlock>,
+        display_role: Option<StoredDisplayRole>,
+        by_user: Option<String>,
+    ) -> String {
+        let id = self
+            .session
+            .add_message_authored(role, content, None, None, display_role, by_user);
+        let compaction = self.registry.compaction();
+        if let Ok(mut manager) = compaction.try_write() {
+            if let Some(message) = self.session.messages.last() {
+                manager.notify_message_added_blocks(&message.content);
+            } else {
+                manager.notify_message_added();
+            }
+        }
+        id
+    }
+
     pub(crate) fn add_message_with_duration(
         &mut self,
         role: Role,

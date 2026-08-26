@@ -1149,6 +1149,7 @@ pub(super) async fn handle_agent_task(
         &task,
         vec![],
         None,
+        None,
         ctx.client_event_tx.clone(),
     )
     .await;

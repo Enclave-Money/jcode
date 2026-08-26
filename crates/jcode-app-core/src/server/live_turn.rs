@@ -135,6 +135,7 @@ pub(super) async fn spawn_tracked_live_turn(
                 &message,
                 vec![],
                 system_reminder,
+                None,
                 event_tx.clone(),
             )
             .await
