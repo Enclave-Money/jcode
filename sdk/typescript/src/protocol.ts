@@ -75,6 +75,8 @@ export type ApiRequest =
   | { req: "await_login"; job_id: string }
   | { req: "cancel_login"; job_id: string }
   | { req: "invite_member"; email: string; host: string; send_email?: boolean }
+  | { req: "create_team"; name: string }
+  | { req: "team_create_status"; job_id: string }
   | { req: "list_team_members" }
   | { req: "revoke_member"; email: string }
   | { req: "list_accounts"; provider: string }
@@ -142,6 +144,7 @@ export type ApiEvent =
   | { ev: "login_started"; job_id: string }
   | { ev: "login_run"; run: unknown }
   | { ev: "member_invited"; invite: unknown }
+  | { ev: "team_create_status"; status: unknown }
   | { ev: "team_members"; emails: string[] }
   | { ev: "error"; code: ErrorCode; message: string }
   | { ev: "sessions"; sessions: SessionInfo[] }
@@ -308,6 +311,7 @@ export const KNOWN_EVENT_KINDS = [
   "login_started",
   "login_run",
   "member_invited",
+  "team_create_status",
   "team_members",
   "error",
   "sessions",
@@ -367,6 +371,8 @@ export const KNOWN_REQUEST_KINDS = [
   "await_login",
   "cancel_login",
   "invite_member",
+  "create_team",
+  "team_create_status",
   "list_team_members",
   "revoke_member",
   "list_accounts",

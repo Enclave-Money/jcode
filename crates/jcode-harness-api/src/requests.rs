@@ -113,6 +113,14 @@ pub enum ApiRequest {
     /// Revoke a member's access; immediate (the WS door reloads per handshake).
     RevokeMember { email: String },
 
+    /// Provision a team server in the owner's cloud as an async job — the
+    /// reply and every poll carry a `TeamCreateStatus` record. Owner-only:
+    /// it creates billed infrastructure.
+    CreateTeam { name: String },
+
+    /// Poll a create-team provisioning job.
+    TeamCreateStatus { job_id: String },
+
     /// List the stored provider accounts (labels and emails only — token
     /// material never crosses the wire). `provider` currently: "claude".
     ListAccounts { provider: String },

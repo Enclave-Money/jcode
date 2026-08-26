@@ -47,6 +47,11 @@ pub enum ApiEvent {
     /// Invite result: `{ email, ws_url, token, join_url, emailed, email_error? }`.
     MemberInvited { invite: serde_json::Value },
 
+    /// One create-team provisioning record: `{ job_id, stage, done, error?,
+    /// name?, ws_url?, token?, ca_pem? }`. `stage` is a plain-words progress
+    /// line; the endpoint fields are set when `done` without `error`.
+    TeamCreateStatus { status: serde_json::Value },
+
     /// Team member emails.
     TeamMembers { emails: Vec<String> },
 

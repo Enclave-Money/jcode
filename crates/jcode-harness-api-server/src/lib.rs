@@ -25,6 +25,7 @@ pub(crate) fn jcode_home_test_lock() -> std::sync::MutexGuard<'static, ()> {
 
 pub mod background_progress;
 pub mod council_jobs;
+pub mod team_create_jobs;
 pub mod login_jobs;
 pub mod team_access;
 pub mod permissions;
@@ -693,6 +694,7 @@ where
                 if matches!(
                     request["req"].as_str(),
                     Some("invite_member") | Some("list_team_members") | Some("revoke_member")
+                        | Some("create_team") | Some("team_create_status")
                 ) && !is_owner
                 {
                     let api_id = request["id"].as_u64().unwrap_or(0);
@@ -700,6 +702,36 @@ where
                         code: ErrorCode::InvalidRequest,
                         message: "team management is owner-only".into(),
                     });
+                    write_json_line(&mut write_half, &frame).await?;
+                    continue;
+                }
+                if request["req"].as_str() == Some("create_team") {
+                    let api_id = request["id"].as_u64().unwrap_or(0);
+                    let name = request["name"].as_str().unwrap_or_default().trim();
+                    let frame = if name.is_empty() {
+                        ServerFrame::reply(api_id, ApiEvent::Error {
+                            code: ErrorCode::InvalidRequest,
+                            message: "create_team needs a name".into(),
+                        })
+                    } else {
+                        let status = team_create_jobs::start(name);
+                        ServerFrame::reply(api_id, ApiEvent::TeamCreateStatus { status })
+                    };
+                    write_json_line(&mut write_half, &frame).await?;
+                    continue;
+                }
+                if request["req"].as_str() == Some("team_create_status") {
+                    let api_id = request["id"].as_u64().unwrap_or(0);
+                    let job_id = request["job_id"].as_str().unwrap_or_default();
+                    let frame = match team_create_jobs::status(job_id) {
+                        Some(status) => {
+                            ServerFrame::reply(api_id, ApiEvent::TeamCreateStatus { status })
+                        }
+                        None => ServerFrame::reply(api_id, ApiEvent::Error {
+                            code: ErrorCode::UnknownRequest,
+                            message: format!("no create-team job `{job_id}`"),
+                        }),
+                    };
                     write_json_line(&mut write_half, &frame).await?;
                     continue;
                 }
