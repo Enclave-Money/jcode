@@ -302,6 +302,12 @@ impl Session {
         Self::load_from_path(&path)
     }
 
+    /// True when this session id has a snapshot on disk (i.e. `load` can
+    /// succeed). Used to decide whether a fresh session needs a stub save.
+    pub fn is_persisted(session_id: &str) -> bool {
+        session_path(session_id).map(|p| p.exists()).unwrap_or(false)
+    }
+
     /// Load only the metadata needed for remote-client startup.
     ///
     /// This intentionally skips heavyweight transcript vectors so the remote

@@ -646,6 +646,13 @@ pub(super) async fn handle_subscribe(
 
     if let Some(ref dir) = subscribe_working_dir {
         apply_or_defer_subscribe_working_dir(agent, dir, client_session_id);
+        // A brand-new session has no snapshot until its first message; if the
+        // daemon restarts before then, the client's resume fails with a scary
+        // error. Persist a stub now (skip when busy — a busy session already
+        // has content on disk).
+        if let Ok(mut agent_guard) = agent.try_lock() {
+            agent_guard.persist_session_if_unsaved();
+        }
 
         // Swarm grouping must use the *bound* directory, not the raw report, or
         // a home-dir subscribe would still re-key the session's swarm even

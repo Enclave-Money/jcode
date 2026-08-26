@@ -57,6 +57,17 @@ impl Agent {
         id
     }
 
+    /// Persist this session if it has never been written to disk. An empty
+    /// session that never took a turn has no snapshot, so a daemon restart
+    /// makes its id unresumable — clients then fail over with a scary
+    /// "session no longer exists". A stub on disk makes every id a client
+    /// holds survive restarts.
+    pub fn persist_session_if_unsaved(&mut self) {
+        if !crate::session::Session::is_persisted(&self.session.id) {
+            let _ = self.session.save();
+        }
+    }
+
     pub(crate) fn add_message_with_duration(
         &mut self,
         role: Role,
