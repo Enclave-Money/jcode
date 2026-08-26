@@ -1263,6 +1263,21 @@ pub(super) async fn handle_client(
                 images,
                 urgent,
             } => {
+                // Multiplayer: a mid-turn follow-up joins the shared transcript
+                // just like a turn-starting prompt, so co-attached clients must
+                // see it — without this, teammates get the agent's continued
+                // output with no visible question. Sender excluded (local echo).
+                let _ = super::state::fanout_session_event_except(
+                    &swarm_members,
+                    &client_session_id,
+                    &client_connection_id,
+                    ServerEvent::UserMessage {
+                        session_id: client_session_id.clone(),
+                        content: content.clone(),
+                        by_user: connection_user.clone(),
+                    },
+                )
+                .await;
                 queue_soft_interrupt(
                     id,
                     content,
