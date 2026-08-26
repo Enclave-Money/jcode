@@ -121,6 +121,19 @@ pub enum ApiRequest {
     /// Poll a create-team provisioning job.
     TeamCreateStatus { job_id: String },
 
+    /// Connect this runtime's GitHub identity via gh's device flow — the
+    /// reply is a `GithubStatus` record carrying the one-time code to enter
+    /// at github.com/login/device. The credential lands on THIS runtime (the
+    /// team VM when connected to a team). Owner-only on team servers.
+    ConnectGithub,
+
+    /// Poll a GitHub sign-in job (`job_id`), or report the runtime's
+    /// current GitHub account when `job_id` is absent.
+    GithubStatus {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        job_id: Option<String>,
+    },
+
     /// List the stored provider accounts (labels and emails only — token
     /// material never crosses the wire). `provider` currently: "claude".
     ListAccounts { provider: String },

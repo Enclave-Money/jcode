@@ -55,6 +55,11 @@ pub enum ApiEvent {
     /// Team member emails.
     TeamMembers { emails: Vec<String> },
 
+    /// One GitHub auth record: `{ job_id?, stage?, user_code?,
+    /// verification_uri?, done, error?, connected?, login? }` — from
+    /// `connect_github` and `github_status`.
+    GithubStatus { status: serde_json::Value },
+
     /// Stored accounts for a provider — labels/emails only, never tokens.
     Accounts {
         provider: String,

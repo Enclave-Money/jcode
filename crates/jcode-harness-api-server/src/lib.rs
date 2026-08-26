@@ -25,6 +25,7 @@ pub(crate) fn jcode_home_test_lock() -> std::sync::MutexGuard<'static, ()> {
 
 pub mod background_progress;
 pub mod council_jobs;
+pub mod github_auth_jobs;
 pub mod team_create_jobs;
 pub mod login_jobs;
 pub mod team_access;
@@ -695,6 +696,7 @@ where
                     request["req"].as_str(),
                     Some("invite_member") | Some("list_team_members") | Some("revoke_member")
                         | Some("create_team") | Some("team_create_status")
+                        | Some("connect_github")
                 ) && !is_owner
                 {
                     let api_id = request["id"].as_u64().unwrap_or(0);
@@ -702,6 +704,30 @@ where
                         code: ErrorCode::InvalidRequest,
                         message: "team management is owner-only".into(),
                     });
+                    write_json_line(&mut write_half, &frame).await?;
+                    continue;
+                }
+                if request["req"].as_str() == Some("connect_github") {
+                    let api_id = request["id"].as_u64().unwrap_or(0);
+                    let status = github_auth_jobs::start().await;
+                    let frame = ServerFrame::reply(api_id, ApiEvent::GithubStatus { status });
+                    write_json_line(&mut write_half, &frame).await?;
+                    continue;
+                }
+                if request["req"].as_str() == Some("github_status") {
+                    let api_id = request["id"].as_u64().unwrap_or(0);
+                    let status = match request["job_id"].as_str() {
+                        Some(job_id) if !job_id.is_empty() => {
+                            github_auth_jobs::status(job_id).unwrap_or_else(|| {
+                                serde_json::json!({
+                                    "done": true,
+                                    "error": format!("no GitHub sign-in job `{job_id}`"),
+                                })
+                            })
+                        }
+                        _ => github_auth_jobs::account_status(),
+                    };
+                    let frame = ServerFrame::reply(api_id, ApiEvent::GithubStatus { status });
                     write_json_line(&mut write_half, &frame).await?;
                     continue;
                 }
