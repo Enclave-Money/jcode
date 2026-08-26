@@ -118,22 +118,76 @@ async fn send_clerk_invitation(email: &str, redirect_url: &str) -> Result<(), St
         return Err("no Clerk key at ~/.jcode/clerk.env — token issued, share the endpoint manually".into());
     };
     let client = reqwest::Client::new();
-    let response = client
-        .post("https://api.clerk.com/v1/invitations")
-        .bearer_auth(secret)
-        .json(&json!({ "email_address": email, "redirect_url": redirect_url }))
-        .send()
-        .await
-        .map_err(|e| format!("Clerk request failed: {e}"))?;
+    let response = create_invitation(&client, &secret, email, redirect_url).await?;
     let status = response.status();
     if status.is_success() {
         return Ok(());
     }
     let body = response.text().await.unwrap_or_default();
     if status.as_u16() == 400 && body.contains("duplicate_record") {
-        return Ok(()); // already invited counts as success
+        // A pending invitation already exists — and its email may carry a
+        // STALE redirect (an old host, a burned ticket). Counting that as
+        // success silently leaves the teammate holding a dead link (it did,
+        // live). A re-invite means "send a working link": revoke the old
+        // invitation and create a fresh one with THIS redirect.
+        revoke_pending_invitations(&client, &secret, email).await;
+        let retry = create_invitation(&client, &secret, email, redirect_url).await?;
+        if retry.status().is_success() {
+            return Ok(());
+        }
+        return Err(format!(
+            "Clerk invitation failed after revoking the old one (HTTP {})",
+            retry.status()
+        ));
     }
     Err(format!("Clerk invitation failed (HTTP {status})"))
+}
+
+async fn create_invitation(
+    client: &reqwest::Client,
+    secret: &str,
+    email: &str,
+    redirect_url: &str,
+) -> Result<reqwest::Response, String> {
+    client
+        .post("https://api.clerk.com/v1/invitations")
+        .bearer_auth(secret)
+        .json(&json!({ "email_address": email, "redirect_url": redirect_url }))
+        .send()
+        .await
+        .map_err(|e| format!("Clerk request failed: {e}"))
+}
+
+/// Best-effort revoke of every pending invitation for `email` — the prelude
+/// to re-inviting with a fresh link.
+async fn revoke_pending_invitations(client: &reqwest::Client, secret: &str, email: &str) {
+    let Ok(response) = client
+        .get("https://api.clerk.com/v1/invitations?status=pending")
+        .bearer_auth(secret)
+        .send()
+        .await
+    else {
+        return;
+    };
+    let Ok(items) = response.json::<serde_json::Value>().await else {
+        return;
+    };
+    let list = items
+        .as_array()
+        .cloned()
+        .or_else(|| items.get("data").and_then(|d| d.as_array()).cloned())
+        .unwrap_or_default();
+    for item in list {
+        if item["email_address"].as_str() == Some(email) {
+            if let Some(id) = item["id"].as_str() {
+                let _ = client
+                    .post(format!("https://api.clerk.com/v1/invitations/{id}/revoke"))
+                    .bearer_auth(secret)
+                    .send()
+                    .await;
+            }
+        }
+    }
 }
 
 /// True when the WS door terminates TLS — the scheme handed to members must
