@@ -430,6 +430,13 @@ H=$HOME
 mkdir -p "$H/.jcode/tls" "$H/.jcode/runtime" "$H/team"
 chmod +x "$H/blaude"
 [ -f "$H/clerk.env" ] && {{ mv "$H/clerk.env" "$H/.jcode/clerk.env"; chmod 600 "$H/.jcode/clerk.env"; }}
+# GitHub CLI: Connect GitHub (device flow) needs gh on the runtime.
+if ! command -v gh >/dev/null; then
+  curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | sudo dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg 2>/dev/null
+  echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" | sudo tee /etc/apt/sources.list.d/github-cli.list >/dev/null
+  sudo apt-get update -q >/dev/null 2>&1 || true
+  sudo apt-get install -y -q gh >/dev/null 2>&1 || true
+fi
 openssl req -x509 -newkey rsa:2048 -keyout "$H/.jcode/tls/key.pem" -out "$H/.jcode/tls/cert.pem" \
   -days 3650 -nodes -subj "/CN=blaude-team" \
   -addext "subjectAltName=IP:{ip}" \
