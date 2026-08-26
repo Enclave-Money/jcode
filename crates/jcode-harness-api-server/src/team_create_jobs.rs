@@ -393,6 +393,31 @@ async fn provision(job_id: String, name: String) -> Result<(), String> {
     .await
     .map_err(|e| format!("Could not copy blaude onto the server: {e}"))?;
 
+    // The email key rides along when the owner has one, so invites from the
+    // new team send real emails from day one (the setup script moves it into
+    // ~/.jcode and locks it down). Best-effort: no key just means invites
+    // fall back to share-the-endpoint.
+    let clerk = PathBuf::from(&home).join(".jcode/clerk.env");
+    if clerk.is_file() {
+        let _ = run_retry(
+            &gcloud,
+            &[
+                "compute",
+                "scp",
+                clerk.to_str().unwrap_or_default(),
+                &format!("{instance}:~/clerk.env"),
+                "--project",
+                &cfg.project,
+                "--zone",
+                &cfg.zone,
+                "--quiet",
+            ],
+            None,
+            3,
+        )
+        .await;
+    }
+
     // TLS, tokens, and the two SYSTEM units — the same known-good layout as
     // the hand-built team server (bridge with native wss + no-spawn; daemon
     // with the forever-retry drop-in so it self-heals once an AI account
@@ -404,6 +429,7 @@ U=$(whoami)
 H=$HOME
 mkdir -p "$H/.jcode/tls" "$H/.jcode/runtime" "$H/team"
 chmod +x "$H/blaude"
+[ -f "$H/clerk.env" ] && {{ mv "$H/clerk.env" "$H/.jcode/clerk.env"; chmod 600 "$H/.jcode/clerk.env"; }}
 openssl req -x509 -newkey rsa:2048 -keyout "$H/.jcode/tls/key.pem" -out "$H/.jcode/tls/cert.pem" \
   -days 3650 -nodes -subj "/CN=blaude-team" \
   -addext "subjectAltName=IP:{ip}" \
