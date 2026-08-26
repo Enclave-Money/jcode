@@ -641,6 +641,52 @@ where
                     write_json_line(&mut write_half, &frame).await?;
                     continue;
                 }
+                // Remove a stored OAuth account. This is bridge-local by design,
+                // symmetric to the login jobs that WROTE the account: the daemon
+                // reads the auth files per request, so deleting from them here is
+                // enough — no notify, no daemon round-trip. `clear_api_key` only
+                // ever touched API-KEY providers, so Sign-out on a Claude/Codex
+                // OAuth account was a silent no-op until this verb existed.
+                // Empty label clears every account for the provider.
+                if request["req"].as_str() == Some("sign_out_account") {
+                    let api_id = request["id"].as_u64().unwrap_or(0);
+                    // Destructive on the shared store — a team member's bearer
+                    // token must never wipe the server's pooled accounts. The
+                    // local app owns its unix socket (is_owner = true).
+                    if !is_owner {
+                        let frame = ServerFrame::reply(api_id, ApiEvent::Error {
+                            code: ErrorCode::InvalidRequest,
+                            message: "removing accounts is owner-only".into(),
+                        });
+                        write_json_line(&mut write_half, &frame).await?;
+                        continue;
+                    }
+                    let provider = request["provider"].as_str().unwrap_or_default();
+                    let label = request["label"].as_str().unwrap_or_default();
+                    let result: anyhow::Result<()> = (|| {
+                        let is_openai =
+                            matches!(provider, "openai" | "codex" | "openai-oauth" | "chatgpt");
+                        match (is_openai, label.is_empty()) {
+                            (true, true) => jcode_base::auth::codex::clear_accounts().map(|_| ()),
+                            (true, false) => jcode_base::auth::codex::remove_account(label),
+                            (false, true) => jcode_base::auth::claude::clear_accounts().map(|_| ()),
+                            (false, false) => jcode_base::auth::claude::remove_account(label),
+                        }
+                    })();
+                    jcode_base::auth::AuthStatus::invalidate_cache();
+                    let frame = match result {
+                        Ok(()) => ServerFrame::reply(api_id, ApiEvent::Ok),
+                        Err(error) => ServerFrame::reply(
+                            api_id,
+                            ApiEvent::Error {
+                                code: ErrorCode::InvalidRequest,
+                                message: format!("{error:#}"),
+                            },
+                        ),
+                    };
+                    write_json_line(&mut write_half, &frame).await?;
+                    continue;
+                }
                 // Team management is owner-only: a member's bearer token must
                 // never invite (and receive a minted credential), enumerate,
                 // or revoke. The three verbs share one gate.
