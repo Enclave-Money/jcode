@@ -47,6 +47,80 @@ fn jobs() -> &'static Mutex<HashMap<String, Job>> {
     JOBS.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
+// A pending login lives only in this process's memory, but the browser round
+// trip takes ~30s — and the bridge can restart in that window (a desktop client
+// replacing a stale build, a systemd bounce, a crash). A restarted bridge then
+// answered `complete_login` with "no login job", stranding every sign-in. So
+// the secret is ALSO written to disk (0600, short-lived) and recovered on a
+// miss, making completion survive a restart.
+#[derive(serde::Serialize, serde::Deserialize)]
+struct PersistedJob {
+    job_id: String,
+    verifier: String,
+    state_param: String,
+    redirect_uri: String,
+    provider: String,
+    member: Option<String>,
+    started_secs: u64,
+}
+
+fn login_jobs_dir() -> Option<std::path::PathBuf> {
+    let dir = jcode_base::storage::jcode_dir().ok()?.join("login-jobs");
+    std::fs::create_dir_all(&dir).ok()?;
+    Some(dir)
+}
+
+fn persist_job(p: &PersistedJob) {
+    let Some(dir) = login_jobs_dir() else { return };
+    let path = dir.join(format!("{}.json", p.job_id));
+    let Ok(json) = serde_json::to_string(p) else { return };
+    if std::fs::write(&path, json).is_ok() {
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let _ = std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600));
+        }
+    }
+}
+
+fn load_persisted(job_id: &str) -> Option<PersistedJob> {
+    let path = login_jobs_dir()?.join(format!("{job_id}.json"));
+    let p: PersistedJob = serde_json::from_str(&std::fs::read_to_string(&path).ok()?).ok()?;
+    if now_secs().saturating_sub(p.started_secs) > LOGIN_TIMEOUT_SECS {
+        let _ = std::fs::remove_file(&path);
+        return None;
+    }
+    Some(p)
+}
+
+fn remove_persisted(job_id: &str) {
+    if let Some(dir) = login_jobs_dir() {
+        let _ = std::fs::remove_file(dir.join(format!("{job_id}.json")));
+    }
+}
+
+/// Rebuild an in-memory Job from a disk record so set_state/finish/status work
+/// after a bridge restart, and a concurrent second complete dedupes as busy.
+fn reregister(p: &PersistedJob) {
+    let record = json!({
+        "job_id": p.job_id,
+        "provider": p.provider,
+        "state": "waiting_for_code",
+        "started_at": p.started_secs,
+    });
+    let (state_tx, _) = watch::channel("waiting_for_code".to_string());
+    jobs().lock().unwrap().entry(p.job_id.clone()).or_insert(Job {
+        record,
+        verifier: p.verifier.clone(),
+        state_param: p.state_param.clone(),
+        redirect_uri: p.redirect_uri.clone(),
+        provider: p.provider.clone(),
+        member: p.member.clone(),
+        state_tx,
+        cancel: Arc::new(tokio::sync::Notify::new()),
+    });
+}
+
 fn now_secs() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -72,15 +146,19 @@ fn set_state(job_id: &str, state: &str) {
 }
 
 fn finish(job_id: &str, state: &str, error: Option<String>) {
-    let mut table = jobs().lock().unwrap();
-    if let Some(job) = table.get_mut(job_id) {
-        job.record["state"] = json!(state);
-        job.record["finished_at"] = json!(now_secs());
-        if let Some(error) = error {
-            job.record["error"] = json!(error);
+    {
+        let mut table = jobs().lock().unwrap();
+        if let Some(job) = table.get_mut(job_id) {
+            job.record["state"] = json!(state);
+            job.record["finished_at"] = json!(now_secs());
+            if let Some(error) = error {
+                job.record["error"] = json!(error);
+            }
+            let _ = job.state_tx.send(state.to_string());
         }
-        let _ = job.state_tx.send(state.to_string());
     }
+    // Terminal: the on-disk secret is no longer needed.
+    remove_persisted(job_id);
 }
 
 fn normalize(provider: &str) -> &'static str {
@@ -120,6 +198,16 @@ pub fn start(provider: &str, redirect_uri: &str, member: Option<&str>) -> String
     });
     let (state_tx, _) = watch::channel("waiting_for_code".to_string());
     let cancel = Arc::new(tokio::sync::Notify::new());
+    // Persist the secret to disk so completion survives a bridge restart.
+    persist_job(&PersistedJob {
+        job_id: job_id.clone(),
+        verifier: verifier.clone(),
+        state_param: state.clone(),
+        redirect_uri: redirect_uri.to_string(),
+        provider: provider.clone(),
+        member: member.clone(),
+        started_secs: now_secs(),
+    });
     jobs().lock().unwrap().insert(
         job_id.clone(),
         Job {
@@ -146,6 +234,8 @@ pub fn start(provider: &str, redirect_uri: &str, member: Option<&str>) -> String
                     .is_some_and(|job| job.record["state"] == "waiting_for_code");
                 if still_waiting {
                     table.remove(&expire_id);
+                    drop(table);
+                    remove_persisted(&expire_id);
                 }
             }
         }
@@ -157,18 +247,37 @@ pub fn start(provider: &str, redirect_uri: &str, member: Option<&str>) -> String
 /// Complete a waiting login: exchange the code/callback the app relayed for
 /// tokens, in process, and save them to the daemon's account store.
 pub async fn complete(job_id: &str, input: &str) {
-    let (verifier, state_param, redirect_uri, provider, member) = {
+    enum Src {
+        Live((String, String, String, String, Option<String>)),
+        Busy,
+        Missing,
+    }
+    let src = {
         let table = jobs().lock().unwrap();
         match table.get(job_id) {
-            Some(job) if job.record["state"] == "waiting_for_code" => (
+            Some(job) if job.record["state"] == "waiting_for_code" => Src::Live((
                 job.verifier.clone(),
                 job.state_param.clone(),
                 job.redirect_uri.clone(),
                 job.provider.clone(),
                 job.member.clone(),
-            ),
-            _ => return,
+            )),
+            Some(_) => Src::Busy, // already completing or terminal — don't re-run
+            None => Src::Missing,
         }
+    };
+    let (verifier, state_param, redirect_uri, provider, member) = match src {
+        Src::Live(v) => v,
+        Src::Busy => return,
+        Src::Missing => match load_persisted(job_id) {
+            // The bridge restarted after the login started; recover the secret
+            // from disk and re-register so the rest of this flow works normally.
+            Some(p) => {
+                reregister(&p);
+                (p.verifier, p.state_param, p.redirect_uri, p.provider, p.member)
+            }
+            None => return,
+        },
     };
     let input = input.trim().to_string();
     if input.is_empty() {
@@ -215,20 +324,26 @@ pub fn status(job_id: &str) -> Option<Value> {
 }
 
 pub fn cancel(job_id: &str) -> bool {
-    let mut table = jobs().lock().unwrap();
-    match table.get(job_id) {
-        Some(job)
-            if matches!(
-                job.record["state"].as_str(),
-                Some("starting") | Some("waiting_for_code")
-            ) =>
-        {
-            job.cancel.notify_one();
-            table.remove(job_id);
-            true
+    let cancelled = {
+        let mut table = jobs().lock().unwrap();
+        match table.get(job_id) {
+            Some(job)
+                if matches!(
+                    job.record["state"].as_str(),
+                    Some("starting") | Some("waiting_for_code")
+                ) =>
+            {
+                job.cancel.notify_one();
+                table.remove(job_id);
+                true
+            }
+            _ => false,
         }
-        _ => false,
-    }
+    };
+    // Clear the on-disk secret whether or not it was still in memory (a
+    // restarted bridge only has the disk copy).
+    remove_persisted(job_id);
+    cancelled
 }
 
 /// Wait until the job reaches a terminal state, then return its record.
