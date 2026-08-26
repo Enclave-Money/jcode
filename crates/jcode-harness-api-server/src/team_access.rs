@@ -15,6 +15,15 @@ use std::collections::HashMap;
 use crate::ws;
 
 fn home() -> Result<std::path::PathBuf> {
+    // Same resolution as the WS door's stores: JCODE_HOME names the .jcode
+    // directory itself (tests point it at a scratch dir; the door and the
+    // access store must agree or claims read a different token file than
+    // invites write).
+    if let Ok(dir) = std::env::var("JCODE_HOME") {
+        if !dir.is_empty() {
+            return Ok(std::path::PathBuf::from(dir));
+        }
+    }
     let home = std::env::var("HOME").context("HOME is not set")?;
     Ok(std::path::PathBuf::from(home).join(".jcode"))
 }

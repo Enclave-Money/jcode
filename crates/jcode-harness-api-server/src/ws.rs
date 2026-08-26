@@ -202,7 +202,11 @@ fn claim_join_ticket(code: &str) -> Option<String> {
         return None;
     }
     let email = entry.get("email")?.as_str()?.to_string();
-    let member_token = team_tokens().get(&email)?.clone();
+    // A valid ticket IS the authorization: the owner minted it for this
+    // email. Issue (or return) the member token at claim time — requiring a
+    // pre-existing token made a revoke-then-rejoin (or any token-store loss)
+    // burn the ticket and then 410, stranding the invitee.
+    let member_token = crate::team_access::issue_token(&email).ok()?;
     let grant = format!(
         r#"{{"email":{},"token":{}}}"#,
         serde_json::to_string(&email).ok()?,
