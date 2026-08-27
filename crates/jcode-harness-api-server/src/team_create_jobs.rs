@@ -24,7 +24,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use serde_json::{Value, json};
 
-const OVERALL_TIMEOUT_SECS: u64 = 900;
+const OVERALL_TIMEOUT_SECS: u64 = 1800;
 const PORT: u16 = 7644;
 
 fn jobs() -> &'static Mutex<HashMap<String, Value>> {
@@ -313,6 +313,49 @@ async fn provision(job_id: String, name: String, region: Option<String>) -> Resu
     {
         if !e.contains("already exists") {
             return Err(format!("Could not open the team ports: {e}"));
+        }
+        // The rule pre-existing is only success if it actually covers OUR
+        // tag — a same-named rule targeting other tags leaves the new VM
+        // firewalled shut while every step after reports success (it did,
+        // live: the first created team built fully but was unreachable).
+        let tags = run(
+            &gcloud,
+            &[
+                "compute",
+                "firewall-rules",
+                "describe",
+                "blaude-team-web",
+                "--project",
+                &cfg.project,
+                "--format",
+                "value(targetTags.list())",
+            ],
+            None,
+        )
+        .await
+        .unwrap_or_default();
+        if !tags.split([',', ';', ' ']).any(|t| t.trim() == "blaude-team") {
+            let merged = if tags.trim().is_empty() {
+                "blaude-team".to_string()
+            } else {
+                format!("{},blaude-team", tags.trim().replace(';', ","))
+            };
+            run(
+                &gcloud,
+                &[
+                    "compute",
+                    "firewall-rules",
+                    "update",
+                    "blaude-team-web",
+                    "--project",
+                    &cfg.project,
+                    "--target-tags",
+                    &merged,
+                ],
+                None,
+            )
+            .await
+            .map_err(|e| format!("The team firewall rule exists but does not cover team servers, and updating it failed: {e}"))?;
         }
     }
 
