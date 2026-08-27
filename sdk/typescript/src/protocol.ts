@@ -158,7 +158,7 @@ export type ApiEvent =
   | { ev: "blaude_account"; account?: unknown }
   | { ev: "signin_pending"; pending_id: string }
   | { ev: "dirs"; path: string; entries: unknown }
-  | { ev: "team_members"; emails: string[] }
+  | { ev: "team_members"; emails: string[]; pending?: string[] }
   | { ev: "error"; code: ErrorCode; message: string }
   | { ev: "sessions"; sessions: SessionInfo[] }
   | { ev: "attached"; session: SessionInfo }

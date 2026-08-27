@@ -69,19 +69,50 @@ pub fn issue_token(email: &str) -> Result<String> {
     Ok(token)
 }
 
-/// Remove a member's bearer token; the WS door reloads per handshake, so
-/// revocation is immediate.
+/// Remove a member's bearer token AND any unredeemed join tickets; the WS
+/// door reloads per handshake, so revocation is immediate. Works on full
+/// members and pending invitations alike.
 pub fn revoke(email: &str) -> Result<bool> {
     let path = home()?.join("team-tokens.json");
     let mut tokens: HashMap<String, String> = std::fs::read_to_string(&path)
         .ok()
         .and_then(|raw| serde_json::from_str(&raw).ok())
         .unwrap_or_default();
-    let removed = tokens.remove(email).is_some();
-    if removed {
+    let removed_token = tokens.remove(email).is_some();
+    if removed_token {
         write_owner_only(&path, &serde_json::to_vec(&tokens)?)?;
     }
-    Ok(removed)
+    let tickets_path = home()?.join("join-tickets.json");
+    let mut tickets: HashMap<String, Value> = std::fs::read_to_string(&tickets_path)
+        .ok()
+        .and_then(|raw| serde_json::from_str(&raw).ok())
+        .unwrap_or_default();
+    let before = tickets.len();
+    tickets.retain(|_, v| v.get("email").and_then(|e| e.as_str()) != Some(email));
+    let removed_tickets = tickets.len() != before;
+    if removed_tickets {
+        write_owner_only(&tickets_path, &serde_json::to_vec(&tickets)?)?;
+    }
+    Ok(removed_token || removed_tickets)
+}
+
+/// Emails invited but not yet joined: an unredeemed ticket and no token.
+pub fn pending_invites() -> Vec<String> {
+    let members: std::collections::HashSet<String> =
+        ws::team_tokens().keys().cloned().collect();
+    let Ok(home) = home() else { return Vec::new() };
+    let tickets: HashMap<String, Value> = std::fs::read_to_string(home.join("join-tickets.json"))
+        .ok()
+        .and_then(|raw| serde_json::from_str(&raw).ok())
+        .unwrap_or_default();
+    let mut pending: Vec<String> = tickets
+        .values()
+        .filter_map(|v| v.get("email").and_then(|e| e.as_str()).map(str::to_string))
+        .filter(|email| !members.contains(email))
+        .collect();
+    pending.sort();
+    pending.dedup();
+    pending
 }
 
 /// Member emails only — never their tokens.
@@ -233,7 +264,9 @@ fn ws_endpoint(host: &str) -> String {
 /// LAN address; loopback for same-machine testing). The scheme is derived
 /// from whether the door terminates TLS, so a token never rides cleartext.
 pub async fn invite(email: &str, host: &str, send_email: bool) -> Result<Value> {
-    let token = issue_token(email)?;
+    // No token yet: an invitation is a TICKET, and membership begins when
+    // it is redeemed (claim mints the bearer). Until then the person shows
+    // as pending, which is what "invited" means.
     let ticket = mint_join_ticket(email)?;
     let port = std::env::var("JCODE_API_WS_PORT").unwrap_or_else(|_| "7644".into());
     let join_url = format!("{}://{host}:{port}/join?ticket={ticket}", http_scheme());
@@ -248,7 +281,8 @@ pub async fn invite(email: &str, host: &str, send_email: bool) -> Result<Value> 
     Ok(json!({
         "email": email,
         "ws_url": ws_endpoint(host),
-        "token": token,
+        // The join link is the credential: redeeming it mints the bearer.
+        "token": "",
         "join_url": join_url,
         "emailed": emailed,
         "email_error": email_error,

@@ -52,8 +52,12 @@ pub enum ApiEvent {
     /// line; the endpoint fields are set when `done` without `error`.
     TeamCreateStatus { status: serde_json::Value },
 
-    /// Team member emails.
-    TeamMembers { emails: Vec<String> },
+    /// Team member emails, plus invited-but-not-yet-joined emails.
+    TeamMembers {
+        emails: Vec<String>,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        pending: Vec<String>,
+    },
 
     /// A directory listing from the runtime's filesystem: `entries` =
     /// `[{ name, is_repo }...]`, sorted, hidden entries omitted.

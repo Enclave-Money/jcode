@@ -884,6 +884,7 @@ where
                     let api_id = request["id"].as_u64().unwrap_or(0);
                     let frame = ServerFrame::reply(api_id, ApiEvent::TeamMembers {
                         emails: team_access::member_emails(),
+                        pending: team_access::pending_invites(),
                     });
                     write_json_line(&mut write_half, &frame).await?;
                     continue;
