@@ -133,6 +133,14 @@ async fn send_clerk_invitation(email: &str, redirect_url: &str) -> Result<(), St
         return Ok(());
     }
     let body = response.text().await.unwrap_or_default();
+    if status.as_u16() == 422 {
+        // Clerk refuses invitations for already-registered addresses; access
+        // is still issued — the join link is the path for existing users.
+        return Err(
+            "that address already has an account, so no email was sent — share the join link instead"
+                .into(),
+        );
+    }
     if status.as_u16() == 400 && body.contains("duplicate_record") {
         // A pending invitation already exists — and its email may carry a
         // STALE redirect (an old host, a burned ticket). Counting that as

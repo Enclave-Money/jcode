@@ -116,10 +116,24 @@ pub enum ApiRequest {
     /// Provision a team server in the owner's cloud as an async job — the
     /// reply and every poll carry a `TeamCreateStatus` record. Owner-only:
     /// it creates billed infrastructure.
-    CreateTeam { name: String },
+    CreateTeam {
+        name: String,
+        /// Region shortcut ("india", "singapore", "europe", "us"); the
+        /// server maps it to a concrete zone, defaulting when absent.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        region: Option<String>,
+    },
 
     /// Poll a create-team provisioning job.
     TeamCreateStatus { job_id: String },
+
+    /// List directories on THIS runtime's filesystem (scoped under $HOME) —
+    /// the server-side folder picker behind team workspaces. `path` absent
+    /// = $HOME.
+    ListDirs {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        path: Option<String>,
+    },
 
     /// Connect this runtime's GitHub identity via gh's device flow — the
     /// reply is a `GithubStatus` record carrying the one-time code to enter

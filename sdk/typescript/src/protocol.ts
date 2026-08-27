@@ -77,10 +77,11 @@ export type ApiRequest =
   | { req: "await_login"; job_id: string }
   | { req: "cancel_login"; job_id: string }
   | { req: "invite_member"; email: string; host: string; send_email?: boolean }
-  | { req: "create_team"; name: string }
+  | { req: "create_team"; name: string; region?: string }
   | { req: "team_create_status"; job_id: string }
   | { req: "connect_github" }
   | { req: "github_status"; job_id?: string }
+  | { req: "list_dirs"; path?: string }
   | { req: "list_team_members" }
   | { req: "revoke_member"; email: string }
   | { req: "list_accounts"; provider: string }
@@ -150,6 +151,7 @@ export type ApiEvent =
   | { ev: "member_invited"; invite: unknown }
   | { ev: "team_create_status"; status: unknown }
   | { ev: "github_status"; status: unknown }
+  | { ev: "dirs"; path: string; entries: unknown }
   | { ev: "team_members"; emails: string[] }
   | { ev: "error"; code: ErrorCode; message: string }
   | { ev: "sessions"; sessions: SessionInfo[] }
@@ -318,6 +320,7 @@ export const KNOWN_EVENT_KINDS = [
   "member_invited",
   "team_create_status",
   "github_status",
+  "dirs",
   "team_members",
   "error",
   "sessions",
@@ -381,6 +384,7 @@ export const KNOWN_REQUEST_KINDS = [
   "team_create_status",
   "connect_github",
   "github_status",
+  "list_dirs",
   "list_team_members",
   "revoke_member",
   "list_accounts",

@@ -707,6 +707,48 @@ where
                     write_json_line(&mut write_half, &frame).await?;
                     continue;
                 }
+                if request["req"].as_str() == Some("list_dirs") {
+                    let api_id = request["id"].as_u64().unwrap_or(0);
+                    let home = std::env::var("HOME").unwrap_or_else(|_| "/".into());
+                    let home_canon = std::path::Path::new(&home)
+                        .canonicalize()
+                        .unwrap_or_else(|_| std::path::PathBuf::from(&home));
+                    let requested = request["path"].as_str().unwrap_or(&home);
+                    let canon = std::path::Path::new(requested)
+                        .canonicalize()
+                        .unwrap_or_else(|_| home_canon.clone());
+                    // Stay under HOME: the picker browses the runtime's work
+                    // area, not the whole machine.
+                    let base = if canon.starts_with(&home_canon) { canon } else { home_canon };
+                    let mut entries: Vec<serde_json::Value> = Vec::new();
+                    if let Ok(read) = std::fs::read_dir(&base) {
+                        for entry in read.flatten() {
+                            let file_name = entry.file_name();
+                            let entry_name = file_name.to_string_lossy();
+                            if entry_name.starts_with('.') {
+                                continue;
+                            }
+                            let p = entry.path();
+                            if p.is_dir() {
+                                entries.push(serde_json::json!({
+                                    "name": entry_name,
+                                    "is_repo": p.join(".git").exists(),
+                                }));
+                            }
+                            if entries.len() >= 400 { break; }
+                        }
+                    }
+                    entries.sort_by(|a, b| {
+                        b["is_repo"].as_bool().cmp(&a["is_repo"].as_bool()).then(
+                            a["name"].as_str().unwrap_or("").cmp(b["name"].as_str().unwrap_or("")))
+                    });
+                    let frame = ServerFrame::reply(api_id, ApiEvent::Dirs {
+                        path: base.display().to_string(),
+                        entries: serde_json::Value::Array(entries),
+                    });
+                    write_json_line(&mut write_half, &frame).await?;
+                    continue;
+                }
                 if request["req"].as_str() == Some("connect_github") {
                     let api_id = request["id"].as_u64().unwrap_or(0);
                     let status = github_auth_jobs::start().await;
@@ -740,7 +782,8 @@ where
                             message: "create_team needs a name".into(),
                         })
                     } else {
-                        let status = team_create_jobs::start(name);
+                        let region = request["region"].as_str();
+                        let status = team_create_jobs::start(name, region);
                         ServerFrame::reply(api_id, ApiEvent::TeamCreateStatus { status })
                     };
                     write_json_line(&mut write_half, &frame).await?;

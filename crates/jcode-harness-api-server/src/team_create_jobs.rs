@@ -82,7 +82,19 @@ pub fn status(job_id: &str) -> Option<Value> {
 }
 
 /// Start provisioning; returns the initial record immediately.
-pub fn start(name: &str) -> Value {
+/// Region shortcuts the app offers; anything else falls back to the
+/// configured default zone.
+fn zone_for_region(region: Option<&str>, default_zone: &str) -> String {
+    match region.map(|r| r.to_ascii_lowercase()) {
+        Some(r) if r.contains("india") => "asia-south1-a".into(),
+        Some(r) if r.contains("singapore") => "asia-southeast1-a".into(),
+        Some(r) if r.contains("europe") => "europe-west3-a".into(),
+        Some(r) if r.contains("us") => "us-central1-a".into(),
+        _ => default_zone.into(),
+    }
+}
+
+pub fn start(name: &str, region: Option<&str>) -> Value {
     let job_id = new_job_id();
     let record = json!({
         "job_id": job_id,
@@ -94,9 +106,10 @@ pub fn start(name: &str) -> Value {
         map.insert(job_id.clone(), record.clone());
     }
     let name = name.to_string();
+    let region = region.map(str::to_string);
     tokio::spawn(async move {
         let id = job_id.clone();
-        let work = provision(job_id.clone(), name);
+        let work = provision(job_id.clone(), name, region);
         match tokio::time::timeout(Duration::from_secs(OVERALL_TIMEOUT_SECS), work).await {
             Ok(Ok(())) => {}
             Ok(Err(message)) => finish_err(&id, message),
@@ -237,7 +250,7 @@ fn slugify(name: &str) -> String {
 // ---------------------------------------------------------------------------
 // the provisioning sequence
 
-async fn provision(job_id: String, name: String) -> Result<(), String> {
+async fn provision(job_id: String, name: String, region: Option<String>) -> Result<(), String> {
     let Some(gcloud) = gcloud_bin() else {
         return Err(
             "Google Cloud isn't set up on this Mac. Install the gcloud CLI and run \
@@ -246,6 +259,10 @@ async fn provision(job_id: String, name: String) -> Result<(), String> {
         );
     };
     let cfg = cloud_cfg();
+    // The template (binary source) stays in ITS zone; the new server goes to
+    // the zone the user chose.
+    let template_zone = cfg.zone.clone();
+    let zone = zone_for_region(region.as_deref(), &cfg.zone);
 
     // Authed at all? A cheap read that fails fast when logged out.
     run(
@@ -277,11 +294,11 @@ async fn provision(job_id: String, name: String) -> Result<(), String> {
             "compute",
             "firewall-rules",
             "create",
-            "blaude-team-7644",
+            "blaude-team-web",
             "--project",
             &cfg.project,
             "--allow",
-            &format!("tcp:{PORT}"),
+            "tcp:80,tcp:443",
             "--target-tags",
             "blaude-team",
             "--source-ranges",
@@ -295,7 +312,7 @@ async fn provision(job_id: String, name: String) -> Result<(), String> {
     .await
     {
         if !e.contains("already exists") {
-            return Err(format!("Could not open the team port: {e}"));
+            return Err(format!("Could not open the team ports: {e}"));
         }
     }
 
@@ -309,7 +326,7 @@ async fn provision(job_id: String, name: String) -> Result<(), String> {
             "--project",
             &cfg.project,
             "--zone",
-            &cfg.zone,
+            &zone,
             "--machine-type",
             &cfg.machine_type,
             "--image-family",
@@ -335,7 +352,7 @@ async fn provision(job_id: String, name: String) -> Result<(), String> {
             "--project",
             &cfg.project,
             "--zone",
-            &cfg.zone,
+            &zone,
             "--format",
             "value(networkInterfaces[0].accessConfigs[0].natIP)",
         ],
@@ -353,7 +370,14 @@ async fn provision(job_id: String, name: String) -> Result<(), String> {
     let home = std::env::var("HOME").map_err(|_| "no HOME".to_string())?;
     let cache_dir = PathBuf::from(&home).join(".jcode/team-server-cache");
     let cache = cache_dir.join("blaude-linux-x86_64");
-    if !cache.is_file() {
+    // A stale cache ships an old server build to brand-new teams forever;
+    // re-pull daily.
+    let cache_stale = cache
+        .metadata()
+        .and_then(|m| m.modified())
+        .map(|t| t.elapsed().map(|e| e.as_secs() > 86_400).unwrap_or(true))
+        .unwrap_or(true);
+    if cache_stale {
         std::fs::create_dir_all(&cache_dir)
             .map_err(|e| format!("could not create the local cache: {e}"))?;
         run(
@@ -366,7 +390,7 @@ async fn provision(job_id: String, name: String) -> Result<(), String> {
                 "--project",
                 &cfg.project,
                 "--zone",
-                &cfg.zone,
+                &template_zone,
                 "--quiet",
             ],
             None,
@@ -384,7 +408,7 @@ async fn provision(job_id: String, name: String) -> Result<(), String> {
             "--project",
             &cfg.project,
             "--zone",
-            &cfg.zone,
+            &zone,
             "--quiet",
         ],
         None,
@@ -409,7 +433,7 @@ async fn provision(job_id: String, name: String) -> Result<(), String> {
                 "--project",
                 &cfg.project,
                 "--zone",
-                &cfg.zone,
+                &zone,
                 "--quiet",
             ],
             None,
@@ -423,6 +447,7 @@ async fn provision(job_id: String, name: String) -> Result<(), String> {
     // with the forever-retry drop-in so it self-heals once an AI account
     // lands). Sent over stdin (`bash -s`) to dodge quoting entirely.
     set_stage(&job_id, "Securing it…");
+    let domain = format!("{}.sslip.io", ip.replace('.', "-"));
     let setup = format!(
         r#"set -e
 U=$(whoami)
@@ -437,11 +462,36 @@ if ! command -v gh >/dev/null; then
   sudo apt-get update -q >/dev/null 2>&1 || true
   sudo apt-get install -y -q gh >/dev/null 2>&1 || true
 fi
-openssl req -x509 -newkey rsa:2048 -keyout "$H/.jcode/tls/key.pem" -out "$H/.jcode/tls/cert.pem" \
-  -days 3650 -nodes -subj "/CN=blaude-team" \
-  -addext "subjectAltName=IP:{ip}" \
-  -addext "extendedKeyUsage=serverAuth" \
-  -addext "keyUsage=digitalSignature,keyEncipherment" 2>/dev/null
+# TLS: a REAL Let's Encrypt cert on the VM's sslip.io name, so members join
+# with zero CA files and zero browser warnings. Self-signed only as fallback
+# (LE outage/rate limit) — the job then returns the CA for pinning.
+DOMAIN="{domain}"
+sudo apt-get update -q >/dev/null 2>&1 || true
+sudo apt-get install -y -q certbot >/dev/null 2>&1 || true
+TLS_MODE=selfsigned
+if sudo certbot certonly --standalone -d "$DOMAIN" --non-interactive --agree-tos --register-unsafely-without-email >/dev/null 2>&1; then
+  sudo install -o "$U" -g "$U" -m 600 "/etc/letsencrypt/live/$DOMAIN/fullchain.pem" "$H/.jcode/tls/cert.pem"
+  sudo install -o "$U" -g "$U" -m 600 "/etc/letsencrypt/live/$DOMAIN/privkey.pem" "$H/.jcode/tls/key.pem"
+  sudo mkdir -p /etc/letsencrypt/renewal-hooks/deploy
+  sudo tee /etc/letsencrypt/renewal-hooks/deploy/blaude.sh >/dev/null <<HOOK
+#!/bin/bash
+install -o $U -g $U -m 600 "/etc/letsencrypt/live/$DOMAIN/fullchain.pem" "$H/.jcode/tls/cert.pem"
+install -o $U -g $U -m 600 "/etc/letsencrypt/live/$DOMAIN/privkey.pem" "$H/.jcode/tls/key.pem"
+systemctl restart blaude-bridge
+HOOK
+  sudo chmod +x /etc/letsencrypt/renewal-hooks/deploy/blaude.sh
+  TLS_MODE=letsencrypt
+else
+  openssl req -x509 -newkey rsa:2048 -keyout "$H/.jcode/tls/key.pem" -out "$H/.jcode/tls/cert.pem" \
+    -days 3650 -nodes -subj "/CN=blaude-team" \
+    -addext "subjectAltName=IP:{ip},DNS:$DOMAIN" \
+    -addext "extendedKeyUsage=serverAuth" \
+    -addext "keyUsage=digitalSignature,keyEncipherment" 2>/dev/null
+fi
+echo "$TLS_MODE" > "$H/.jcode/tls-mode"
+# Commits made by team agents need an identity; the owner can refine later.
+git config --global user.name "blaude ({name})" 2>/dev/null || true
+git config --global user.email "blaude-team@users.noreply.github.com" 2>/dev/null || true
 [ -f "$H/.jcode/api-ws-token" ] || {{ openssl rand -hex 24 > "$H/.jcode/api-ws-token"; chmod 600 "$H/.jcode/api-ws-token"; }}
 [ -f "$H/.jcode/team-tokens.json" ] || echo '{{}}' > "$H/.jcode/team-tokens.json"
 sudo tee /etc/systemd/system/blaude-daemon.service >/dev/null <<UNIT
@@ -482,8 +532,10 @@ Environment=HOME=$H
 Environment=JCODE_RUNTIME_DIR=$H/.jcode/runtime
 Environment=JCODE_BRIDGE_NO_SPAWN=1
 Environment=JCODE_API_WS_BIND=0.0.0.0
+Environment=JCODE_API_WS_PORT=443
 Environment=JCODE_API_WS_TLS_CERT=$H/.jcode/tls/cert.pem
 Environment=JCODE_API_WS_TLS_KEY=$H/.jcode/tls/key.pem
+AmbientCapabilities=CAP_NET_BIND_SERVICE
 ExecStart=$H/blaude api-bridge
 Restart=always
 RestartSec=2
@@ -505,7 +557,7 @@ echo SETUP_OK
             "--project",
             &cfg.project,
             "--zone",
-            &cfg.zone,
+            &zone,
             "--command",
             "bash -s",
             "--quiet",
@@ -525,7 +577,7 @@ echo SETUP_OK
     set_stage(&job_id, "Starting it…");
     let mut up = false;
     for _ in 0..30 {
-        if tokio::net::TcpStream::connect((ip.as_str(), PORT)).await.is_ok() {
+        if tokio::net::TcpStream::connect((ip.as_str(), 443u16)).await.is_ok() {
             up = true;
             break;
         }
@@ -533,7 +585,7 @@ echo SETUP_OK
     }
     if !up {
         return Err(format!(
-            "The server built but port {PORT} never answered at {ip}. Check the VM's logs."
+            "The server built but port 443 never answered at {ip}. Check the VM's logs."
         ));
     }
 
@@ -546,25 +598,34 @@ echo SETUP_OK
             "--project",
             &cfg.project,
             "--zone",
-            &cfg.zone,
+            &zone,
             "--command",
-            "cat ~/.jcode/api-ws-token && echo __CA__ && cat ~/.jcode/tls/cert.pem",
+            "cat ~/.jcode/api-ws-token && echo __MODE__ && cat ~/.jcode/tls-mode && echo __CA__ && cat ~/.jcode/tls/cert.pem",
             "--quiet",
         ],
         None,
     )
     .await
     .map_err(|e| format!("Could not read the server's access token: {e}"))?;
-    let mut parts = creds.splitn(2, "__CA__");
+    let mut parts = creds.splitn(2, "__MODE__");
     let token = parts.next().unwrap_or_default().trim().to_string();
-    let ca_pem = parts.next().unwrap_or_default().trim().to_string();
+    let rest = parts.next().unwrap_or_default();
+    let mut rest = rest.splitn(2, "__CA__");
+    let tls_mode = rest.next().unwrap_or_default().trim().to_string();
+    // A real certificate needs no pinning; return the CA only for the
+    // self-signed fallback so members' transports pin it.
+    let ca_pem = if tls_mode == "letsencrypt" {
+        String::new()
+    } else {
+        rest.next().unwrap_or_default().trim().to_string()
+    };
     if token.is_empty() || !ca_pem.contains("BEGIN CERTIFICATE") {
         return Err("The server is up but its credentials could not be read.".into());
     }
 
     finish_ok(
         &job_id,
-        &format!("wss://{ip}:{PORT}/api"),
+        &format!("wss://{domain}:443/api"),
         &token,
         &ca_pem,
     );

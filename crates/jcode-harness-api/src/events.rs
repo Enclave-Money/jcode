@@ -55,6 +55,13 @@ pub enum ApiEvent {
     /// Team member emails.
     TeamMembers { emails: Vec<String> },
 
+    /// A directory listing from the runtime's filesystem: `entries` =
+    /// `[{ name, is_repo }...]`, sorted, hidden entries omitted.
+    Dirs {
+        path: String,
+        entries: serde_json::Value,
+    },
+
     /// One GitHub auth record: `{ job_id?, stage?, user_code?,
     /// verification_uri?, done, error?, connected?, login? }` — from
     /// `connect_github` and `github_status`.
