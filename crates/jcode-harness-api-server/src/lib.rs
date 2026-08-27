@@ -24,6 +24,7 @@ pub(crate) fn jcode_home_test_lock() -> std::sync::MutexGuard<'static, ()> {
 }
 
 pub mod background_progress;
+pub mod blaude_account;
 pub mod council_jobs;
 pub mod github_auth_jobs;
 pub mod team_create_jobs;
@@ -697,6 +698,8 @@ where
                     Some("invite_member") | Some("list_team_members") | Some("revoke_member")
                         | Some("create_team") | Some("team_create_status")
                         | Some("connect_github")
+                        | Some("account_signin_start") | Some("account_signin_code")
+                        | Some("account_signout")
                 ) && !is_owner
                 {
                     let api_id = request["id"].as_u64().unwrap_or(0);
@@ -770,6 +773,57 @@ where
                         _ => github_auth_jobs::account_status(),
                     };
                     let frame = ServerFrame::reply(api_id, ApiEvent::GithubStatus { status });
+                    write_json_line(&mut write_half, &frame).await?;
+                    continue;
+                }
+                if request["req"].as_str() == Some("me_account") {
+                    let api_id = request["id"].as_u64().unwrap_or(0);
+                    let account = blaude_account::me()
+                        .and_then(|a| serde_json::to_value(a).ok());
+                    let frame = ServerFrame::reply(api_id, ApiEvent::BlaudeAccount { account });
+                    write_json_line(&mut write_half, &frame).await?;
+                    continue;
+                }
+                if request["req"].as_str() == Some("account_signin_start") {
+                    let api_id = request["id"].as_u64().unwrap_or(0);
+                    let email = request["email"].as_str().unwrap_or_default();
+                    let frame = match blaude_account::start(email).await {
+                        Ok(pending_id) => {
+                            ServerFrame::reply(api_id, ApiEvent::SigninPending { pending_id })
+                        }
+                        Err(message) => ServerFrame::reply(api_id, ApiEvent::Error {
+                            code: ErrorCode::InvalidRequest,
+                            message,
+                        }),
+                    };
+                    write_json_line(&mut write_half, &frame).await?;
+                    continue;
+                }
+                if request["req"].as_str() == Some("account_signin_code") {
+                    let api_id = request["id"].as_u64().unwrap_or(0);
+                    let pending = request["pending_id"].as_str().unwrap_or_default();
+                    let code = request["code"].as_str().unwrap_or_default();
+                    let frame = match blaude_account::finish(pending, code).await {
+                        Ok(info) => ServerFrame::reply(api_id, ApiEvent::BlaudeAccount {
+                            account: serde_json::to_value(info).ok(),
+                        }),
+                        Err(message) => ServerFrame::reply(api_id, ApiEvent::Error {
+                            code: ErrorCode::InvalidRequest,
+                            message,
+                        }),
+                    };
+                    write_json_line(&mut write_half, &frame).await?;
+                    continue;
+                }
+                if request["req"].as_str() == Some("account_signout") {
+                    let api_id = request["id"].as_u64().unwrap_or(0);
+                    let frame = match blaude_account::sign_out() {
+                        Ok(()) => ServerFrame::reply(api_id, ApiEvent::BlaudeAccount { account: None }),
+                        Err(message) => ServerFrame::reply(api_id, ApiEvent::Error {
+                            code: ErrorCode::InvalidRequest,
+                            message,
+                        }),
+                    };
                     write_json_line(&mut write_half, &frame).await?;
                     continue;
                 }

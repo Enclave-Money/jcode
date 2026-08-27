@@ -79,6 +79,10 @@ export type ApiRequest =
   | { req: "invite_member"; email: string; host: string; send_email?: boolean }
   | { req: "create_team"; name: string; region?: string }
   | { req: "team_create_status"; job_id: string }
+  | { req: "me_account" }
+  | { req: "account_signin_start"; email: string }
+  | { req: "account_signin_code"; pending_id: string; code: string }
+  | { req: "account_signout" }
   | { req: "connect_github" }
   | { req: "github_status"; job_id?: string }
   | { req: "list_dirs"; path?: string }
@@ -151,6 +155,8 @@ export type ApiEvent =
   | { ev: "member_invited"; invite: unknown }
   | { ev: "team_create_status"; status: unknown }
   | { ev: "github_status"; status: unknown }
+  | { ev: "blaude_account"; account?: unknown }
+  | { ev: "signin_pending"; pending_id: string }
   | { ev: "dirs"; path: string; entries: unknown }
   | { ev: "team_members"; emails: string[] }
   | { ev: "error"; code: ErrorCode; message: string }
@@ -320,6 +326,8 @@ export const KNOWN_EVENT_KINDS = [
   "member_invited",
   "team_create_status",
   "github_status",
+  "blaude_account",
+  "signin_pending",
   "dirs",
   "team_members",
   "error",
@@ -382,6 +390,10 @@ export const KNOWN_REQUEST_KINDS = [
   "invite_member",
   "create_team",
   "team_create_status",
+  "me_account",
+  "account_signin_start",
+  "account_signin_code",
+  "account_signout",
   "connect_github",
   "github_status",
   "list_dirs",

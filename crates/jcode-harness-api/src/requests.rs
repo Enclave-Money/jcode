@@ -148,6 +148,22 @@ pub enum ApiRequest {
         job_id: Option<String>,
     },
 
+    /// The blaude ACCOUNT (who the person is — Clerk-backed), distinct from
+    /// AI provider accounts. Reply is a `BlaudeAccount` event; absent = not
+    /// signed in. Identity lives on the runtime this connection reaches.
+    MeAccount,
+
+    /// Start blaude sign-in for `email`: Clerk emails a one-time code
+    /// (signing UP unknown addresses). Reply: `SigninPending { pending_id }`.
+    AccountSigninStart { email: String },
+
+    /// Redeem the emailed code; on success the identity persists on this
+    /// runtime and the reply is the signed-in `BlaudeAccount`.
+    AccountSigninCode { pending_id: String, code: String },
+
+    /// Forget the stored blaude identity. Reply: empty `BlaudeAccount`.
+    AccountSignout,
+
     /// List the stored provider accounts (labels and emails only — token
     /// material never crosses the wire). `provider` currently: "claude".
     ListAccounts { provider: String },

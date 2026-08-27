@@ -14,7 +14,7 @@ use std::collections::HashMap;
 
 use crate::ws;
 
-fn home() -> Result<std::path::PathBuf> {
+pub(crate) fn home() -> Result<std::path::PathBuf> {
     // Same resolution as the WS door's stores: JCODE_HOME names the .jcode
     // directory itself (tests point it at a scratch dir; the door and the
     // access store must agree or claims read a different token file than
@@ -28,7 +28,7 @@ fn home() -> Result<std::path::PathBuf> {
     Ok(std::path::PathBuf::from(home).join(".jcode"))
 }
 
-fn write_owner_only(path: &std::path::Path, bytes: &[u8]) -> Result<()> {
+pub(crate) fn write_owner_only(path: &std::path::Path, bytes: &[u8]) -> Result<()> {
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent).ok();
     }

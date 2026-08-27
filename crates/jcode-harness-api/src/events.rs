@@ -73,6 +73,16 @@ pub enum ApiEvent {
         accounts: Vec<serde_json::Value>,
     },
 
+    /// The blaude identity on this runtime: `{ email, user_id, name }`,
+    /// or absent when nobody is signed in.
+    BlaudeAccount {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        account: Option<serde_json::Value>,
+    },
+
+    /// A sign-in started; redeem the emailed code with `account_signin_code`.
+    SigninPending { pending_id: String },
+
     /// Request failed.
     Error { code: ErrorCode, message: String },
 
