@@ -129,13 +129,33 @@ fn is_stale(root: &Path) -> bool {
 /// running executable so the bundled binary is used, not whatever is on PATH.
 fn run_reindex(root: &Path) {
     let exe = std::env::current_exe().unwrap_or_else(|_| PathBuf::from("blaude"));
-    let _ = std::process::Command::new(exe)
+    let status = std::process::Command::new(exe)
         .arg("brief")
         .current_dir(root)
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null())
         .status();
+    // A quiet no-op here means the code graph silently never updates (missing
+    // blaude-tools / node on this machine) — say so in the daemon log, once
+    // per attempt, so a stale graph is diagnosable from the log alone.
+    match status {
+        Ok(s) if s.success() => {
+            crate::logging::info(&format!("gitnexus re-index ok: {}", root.display()));
+        }
+        Ok(s) => {
+            crate::logging::warn(&format!(
+                "gitnexus re-index failed ({s}) in {} — is blaude-tools/node available?",
+                root.display()
+            ));
+        }
+        Err(e) => {
+            crate::logging::warn(&format!(
+                "gitnexus re-index could not start in {}: {e}",
+                root.display()
+            ));
+        }
+    }
 }
 
 struct WatchEntry {

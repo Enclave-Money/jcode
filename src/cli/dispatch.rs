@@ -1601,17 +1601,23 @@ fn prune_cache_dir(dir: &std::path::Path) {
 
 /// Run the bundled `blaude-tools` with a subcommand, forwarding its exit code.
 /// `blaude-tools` sits next to this binary (both live in the app bundle's
-/// MacOS dir, and in a dev `target/` dir); fall back to PATH otherwise. This is
+/// Helpers dir, and in a dev `target/` dir); fall back to the widened PATH
+/// otherwise. The child gets that widened PATH too — blaude-tools shells out
+/// to `node`/`npx` for the code graph, and a GUI-launched daemon's minimal
+/// launchd PATH can't find them even when the user's terminal can. This is
 /// what makes `blaude brief` / `blaude prune` work instead of erroring.
 fn delegate_to_tools(sub: &str, extra: &[&str]) -> Result<()> {
+    let widened_path = crate::toolpath::widened_env_path();
     let tools = std::env::current_exe()
         .ok()
         .and_then(|exe| exe.parent().map(|d| d.join("blaude-tools")))
         .filter(|p| p.is_file())
+        .or_else(|| crate::toolpath::find_tool("blaude-tools"))
         .unwrap_or_else(|| std::path::PathBuf::from("blaude-tools"));
     let status = ProcessCommand::new(&tools)
         .arg(sub)
         .args(extra)
+        .env("PATH", &widened_path)
         .status()
         .map_err(|e| anyhow::anyhow!("could not run blaude-tools ({}): {e}", tools.display()))?;
     if !status.success() {

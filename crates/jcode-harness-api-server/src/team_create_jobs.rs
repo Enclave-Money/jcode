@@ -466,6 +466,30 @@ async fn provision(job_id: String, name: String, region: Option<String>) -> Resu
     .await
     .map_err(|e| format!("Could not copy blaude onto the server: {e}"))?;
 
+    // blaude-tools rides along when the developer cache has it — it is what
+    // `blaude brief` (the daemon's code-graph auto-reindex) delegates to.
+    // Best-effort: without it the graph simply never builds on this server.
+    let tools_cache = cache_dir.join("blaude-tools-linux-x86_64");
+    if tools_cache.is_file() {
+        let _ = run_retry(
+            &gcloud,
+            &[
+                "compute",
+                "scp",
+                tools_cache.to_str().unwrap_or_default(),
+                &format!("{instance}:~/blaude-tools"),
+                "--project",
+                &cfg.project,
+                "--zone",
+                &zone,
+                "--quiet",
+            ],
+            None,
+            3,
+        )
+        .await;
+    }
+
     // The email key rides along when the owner has one, so invites from the
     // new team send real emails from day one (the setup script moves it into
     // ~/.jcode and locks it down). Best-effort: no key just means invites
@@ -527,6 +551,7 @@ U=$(whoami)
 H=$HOME
 mkdir -p "$H/.jcode/tls" "$H/.jcode/runtime" "$H/team"
 chmod +x "$H/blaude"
+[ -f "$H/blaude-tools" ] && chmod +x "$H/blaude-tools"
 [ -f "$H/clerk.env" ] && {{ mv "$H/clerk.env" "$H/.jcode/clerk.env"; chmod 600 "$H/.jcode/clerk.env"; }}
 [ -f "$H/blaude-account.json" ] && {{ mv "$H/blaude-account.json" "$H/.jcode/blaude-account.json"; chmod 600 "$H/.jcode/blaude-account.json"; }}
 # GitHub CLI: Connect GitHub (device flow) needs gh on the runtime.
@@ -542,6 +567,9 @@ fi
 DOMAIN="{domain}"
 sudo apt-get update -q >/dev/null 2>&1 || true
 sudo apt-get install -y -q certbot >/dev/null 2>&1 || true
+# node runs the gitnexus code-graph indexer that blaude-tools drives; the
+# graph is optional, so a failed install just means no auto-briefing here.
+command -v node >/dev/null || sudo apt-get install -y -q nodejs npm >/dev/null 2>&1 || true
 TLS_MODE=selfsigned
 if sudo certbot certonly --standalone -d "$DOMAIN" --non-interactive --agree-tos --register-unsafely-without-email >/dev/null 2>&1; then
   sudo install -o "$U" -g "$U" -m 600 "/etc/letsencrypt/live/$DOMAIN/fullchain.pem" "$H/.jcode/tls/cert.pem"

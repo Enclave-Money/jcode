@@ -397,44 +397,10 @@ fn mcp_child_env(
     // widen the inherited one so GUI-launched daemons can find tool runners.
     if !explicit.contains_key("PATH") {
         let current = inherited.get("PATH").cloned().unwrap_or_default();
-        let widened = widen_path(&current, &existing_tool_dirs());
+        let widened = crate::toolpath::widen_path(&current, &crate::toolpath::existing_tool_dirs());
         inherited.insert("PATH".to_string(), widened);
     }
     inherited
-}
-
-/// Directories where user-installed tool runners (npx, uvx, node) commonly
-/// live but which the minimal PATH of a GUI-launched daemon lacks (launchd
-/// hands app bundles `/usr/bin:/bin:/usr/sbin:/sbin`), filtered to the ones
-/// that exist on this machine. Without this, stdio MCP servers configured as
-/// bare `npx …` in a terminal-installed config fail with "No such file or
-/// directory" whenever blaude runs as an app helper instead of from a shell.
-fn existing_tool_dirs() -> Vec<std::path::PathBuf> {
-    let mut candidates = vec![
-        std::path::PathBuf::from("/opt/homebrew/bin"),
-        std::path::PathBuf::from("/usr/local/bin"),
-    ];
-    if let Some(home) = std::env::var_os("HOME") {
-        candidates.push(std::path::Path::new(&home).join(".local").join("bin"));
-    }
-    candidates.retain(|dir| dir.is_dir());
-    candidates
-}
-
-/// Append `extra` directories to a PATH string, skipping ones already present.
-/// Append — never prepend — so a command resolvable on the original PATH keeps
-/// resolving to the same binary.
-fn widen_path(current: &str, extra: &[std::path::PathBuf]) -> String {
-    let mut parts: Vec<std::path::PathBuf> = std::env::split_paths(current).collect();
-    for dir in extra {
-        if !parts.iter().any(|p| p == dir) {
-            parts.push(dir.clone());
-        }
-    }
-    match std::env::join_paths(&parts) {
-        Ok(joined) => joined.to_string_lossy().into_owned(),
-        Err(_) => current.to_string(),
-    }
 }
 
 impl Drop for McpClient {
@@ -464,14 +430,6 @@ mod tests {
         for key in ["PATH", "HOME", "RUST_LOG", "JCODE_OPENROUTER_API_KEY_NAME"] {
             assert!(!is_sensitive_inherited_env_key(key), "must preserve {key}");
         }
-    }
-
-    #[test]
-    fn widen_path_appends_missing_dirs_without_reordering() {
-        use std::path::PathBuf;
-        let extra = [PathBuf::from("/opt/homebrew/bin"), PathBuf::from("/bin")];
-        let widened = super::widen_path("/bin:/usr/bin", &extra);
-        assert_eq!(widened, "/bin:/usr/bin:/opt/homebrew/bin");
     }
 
     #[test]
