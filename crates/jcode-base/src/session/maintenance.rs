@@ -22,6 +22,13 @@ use std::path::Path;
 /// recovery copy.
 const BACKUP_RETENTION_DAYS: i64 = 30;
 
+/// Orphaned backups — a `.bak` whose `.json` primary no longer exists — are
+/// residue of a deliberately deleted session (the atomic writer never leaves
+/// the primary missing), so they recover nothing a user can still open.
+/// Abandoned attach placeholders used to leak thousands of these. A short
+/// grace window is kept purely out of caution.
+const ORPHAN_BACKUP_RETENTION_DAYS: i64 = 1;
+
 /// Minimum interval between prune passes across all blaude processes.
 ///
 /// The prune walks the entire sessions directory (easily 100k+ entries on a
@@ -73,6 +80,7 @@ fn prune_old_session_backups_in(sessions_dir: &Path, now: DateTime<Local>) {
         return;
     };
     let cutoff = now - Duration::days(BACKUP_RETENTION_DAYS);
+    let orphan_cutoff = now - Duration::days(ORPHAN_BACKUP_RETENTION_DAYS);
     for entry in entries.flatten() {
         let path = entry.path();
         // Only prune the atomic-write backup files; never the .json transcripts
@@ -83,6 +91,13 @@ fn prune_old_session_backups_in(sessions_dir: &Path, now: DateTime<Local>) {
             && let Ok(modified) = metadata.modified()
         {
             let modified: DateTime<Local> = modified.into();
+            // A backup with no living primary recovers nothing — its session
+            // was deleted — so it gets the short orphan window instead.
+            let cutoff = if path.with_extension("json").exists() {
+                cutoff
+            } else {
+                orphan_cutoff
+            };
             if modified < cutoff {
                 let _ = std::fs::remove_file(&path);
             }
@@ -167,11 +182,20 @@ mod tests {
         let recent_json = write("session_recent.json", 0);
         // Other artifacts must be left alone.
         let journal = write("session_old.journal.jsonl", 60);
+        // Orphaned backups (primary .json gone = session was deleted) get the
+        // short window: a 2-day-old orphan goes, a fresh one survives.
+        let orphan_bak = write("session_orphan.bak", 2);
+        let fresh_orphan_bak = write("session_fresh_orphan.bak", 0);
 
         prune_old_session_backups_in(&dir, Local::now());
 
         assert!(!old_bak.exists(), "old .bak should be pruned");
         assert!(recent_bak.exists(), "recent .bak must survive");
+        assert!(!orphan_bak.exists(), "orphaned .bak should be pruned");
+        assert!(
+            fresh_orphan_bak.exists(),
+            "fresh orphaned .bak must survive the grace window"
+        );
         assert!(
             old_json.exists(),
             "old .json transcript must never be removed"

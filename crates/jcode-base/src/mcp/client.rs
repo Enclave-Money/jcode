@@ -393,7 +393,48 @@ fn mcp_child_env(
 ) -> HashMap<String, String> {
     inherited.retain(|key, _| !is_sensitive_inherited_env_key(key));
     inherited.extend(explicit.clone());
+    // An explicit PATH in the server's config is authoritative; otherwise
+    // widen the inherited one so GUI-launched daemons can find tool runners.
+    if !explicit.contains_key("PATH") {
+        let current = inherited.get("PATH").cloned().unwrap_or_default();
+        let widened = widen_path(&current, &existing_tool_dirs());
+        inherited.insert("PATH".to_string(), widened);
+    }
     inherited
+}
+
+/// Directories where user-installed tool runners (npx, uvx, node) commonly
+/// live but which the minimal PATH of a GUI-launched daemon lacks (launchd
+/// hands app bundles `/usr/bin:/bin:/usr/sbin:/sbin`), filtered to the ones
+/// that exist on this machine. Without this, stdio MCP servers configured as
+/// bare `npx …` in a terminal-installed config fail with "No such file or
+/// directory" whenever blaude runs as an app helper instead of from a shell.
+fn existing_tool_dirs() -> Vec<std::path::PathBuf> {
+    let mut candidates = vec![
+        std::path::PathBuf::from("/opt/homebrew/bin"),
+        std::path::PathBuf::from("/usr/local/bin"),
+    ];
+    if let Some(home) = std::env::var_os("HOME") {
+        candidates.push(std::path::Path::new(&home).join(".local").join("bin"));
+    }
+    candidates.retain(|dir| dir.is_dir());
+    candidates
+}
+
+/// Append `extra` directories to a PATH string, skipping ones already present.
+/// Append — never prepend — so a command resolvable on the original PATH keeps
+/// resolving to the same binary.
+fn widen_path(current: &str, extra: &[std::path::PathBuf]) -> String {
+    let mut parts: Vec<std::path::PathBuf> = std::env::split_paths(current).collect();
+    for dir in extra {
+        if !parts.iter().any(|p| p == dir) {
+            parts.push(dir.clone());
+        }
+    }
+    match std::env::join_paths(&parts) {
+        Ok(joined) => joined.to_string_lossy().into_owned(),
+        Err(_) => current.to_string(),
+    }
 }
 
 impl Drop for McpClient {
@@ -426,6 +467,22 @@ mod tests {
     }
 
     #[test]
+    fn widen_path_appends_missing_dirs_without_reordering() {
+        use std::path::PathBuf;
+        let extra = [PathBuf::from("/opt/homebrew/bin"), PathBuf::from("/bin")];
+        let widened = super::widen_path("/bin:/usr/bin", &extra);
+        assert_eq!(widened, "/bin:/usr/bin:/opt/homebrew/bin");
+    }
+
+    #[test]
+    fn explicit_path_in_server_config_is_authoritative() {
+        let inherited = HashMap::from([("PATH".to_string(), "/bin".to_string())]);
+        let explicit = HashMap::from([("PATH".to_string(), "/custom/only".to_string())]);
+        let env = mcp_child_env(inherited, &explicit);
+        assert_eq!(env.get("PATH").map(String::as_str), Some("/custom/only"));
+    }
+
+    #[test]
     fn explicit_mcp_env_can_opt_a_credential_back_in() {
         let inherited = HashMap::from([
             ("PATH".to_string(), "/bin".to_string()),
@@ -437,7 +494,13 @@ mod tests {
         )]);
 
         let env = mcp_child_env(inherited, &explicit);
-        assert_eq!(env.get("PATH").map(String::as_str), Some("/bin"));
+        // The inherited PATH may be widened with tool dirs, but its own
+        // entries stay first.
+        assert!(
+            env.get("PATH").is_some_and(|p| p.starts_with("/bin")),
+            "inherited PATH entries must stay first, got {:?}",
+            env.get("PATH")
+        );
         assert_eq!(
             env.get("ANTHROPIC_API_KEY").map(String::as_str),
             Some("server-specific-secret")

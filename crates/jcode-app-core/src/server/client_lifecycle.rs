@@ -1789,6 +1789,10 @@ pub(super) async fn handle_client(
                     let agent_guard = agent.lock().await;
                     agent_guard.working_dir().map(str::to_string)
                 };
+                // The session this connection auto-created at accept time; if
+                // the resume binds elsewhere it becomes an unused ghost.
+                let pre_resume_session_id = client_session_id.clone();
+                let requested_session_id = session_id.clone();
                 current_client_instance_id = client_instance_id.clone();
                 {
                     let mut connections = client_connections.write().await;
@@ -1844,6 +1848,16 @@ pub(super) async fn handle_client(
                 .await;
                 if let Some(snapshot) = try_available_models_snapshot(&agent) {
                     last_available_models_snapshot = Some(snapshot);
+                }
+                // Same ghost-file cleanup the target-aware subscribe does: a
+                // successful resume abandons the accept-time placeholder, and
+                // without this every attach leaked one "Untitled" session
+                // (thousands under an app reconnect storm).
+                if client_session_id == requested_session_id {
+                    remove_abandoned_placeholder_session(
+                        &pre_resume_session_id,
+                        &client_session_id,
+                    );
                 }
             }
 
@@ -3480,6 +3494,11 @@ fn remove_abandoned_placeholder_session(placeholder_id: &str, resumed_id: &str) 
         return;
     }
     let _ = std::fs::remove_file(&path);
+    // The atomic-write layer leaves a rolling `<id>.bak` hard link beside the
+    // snapshot; without removing it too, every abandoned placeholder still
+    // leaks one file per attach (observed: ~7k `.bak` ghosts after an app
+    // reconnect storm).
+    let _ = std::fs::remove_file(path.with_extension("bak"));
     if let Ok(journal) = crate::session::session_journal_path(placeholder_id) {
         let _ = std::fs::remove_file(journal);
     }
