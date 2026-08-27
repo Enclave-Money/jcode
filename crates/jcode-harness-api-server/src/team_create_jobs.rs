@@ -491,6 +491,30 @@ async fn provision(job_id: String, name: String, region: Option<String>) -> Resu
         .await;
     }
 
+    // The owner's blaude identity rides along too, so the team server names
+    // the owner by their EMAIL (attribution, member rows) instead of a unix
+    // username. Best-effort like the email key.
+    let account = PathBuf::from(&home).join(".jcode/blaude-account.json");
+    if account.is_file() {
+        let _ = run_retry(
+            &gcloud,
+            &[
+                "compute",
+                "scp",
+                account.to_str().unwrap_or_default(),
+                &format!("{instance}:~/blaude-account.json"),
+                "--project",
+                &cfg.project,
+                "--zone",
+                &zone,
+                "--quiet",
+            ],
+            None,
+            3,
+        )
+        .await;
+    }
+
     // TLS, tokens, and the two SYSTEM units — the same known-good layout as
     // the hand-built team server (bridge with native wss + no-spawn; daemon
     // with the forever-retry drop-in so it self-heals once an AI account
@@ -504,6 +528,7 @@ H=$HOME
 mkdir -p "$H/.jcode/tls" "$H/.jcode/runtime" "$H/team"
 chmod +x "$H/blaude"
 [ -f "$H/clerk.env" ] && {{ mv "$H/clerk.env" "$H/.jcode/clerk.env"; chmod 600 "$H/.jcode/clerk.env"; }}
+[ -f "$H/blaude-account.json" ] && {{ mv "$H/blaude-account.json" "$H/.jcode/blaude-account.json"; chmod 600 "$H/.jcode/blaude-account.json"; }}
 # GitHub CLI: Connect GitHub (device flow) needs gh on the runtime.
 if ! command -v gh >/dev/null; then
   curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | sudo dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg 2>/dev/null

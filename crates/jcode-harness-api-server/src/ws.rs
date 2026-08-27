@@ -403,7 +403,11 @@ fn authorize(request: &Request, token: &str) -> Result<(Option<String>, bool), E
         return Err(reject(401, "missing Authorization: Bearer <token>"));
     };
     if constant_time_eq(presented.as_bytes(), token.as_bytes()) {
-        return Ok((std::env::var("USER").ok(), true));
+        // The owner's identity is their blaude account email when the
+        // runtime has one (on team servers it rides along at create_team).
+        let identity = crate::blaude_account::identity()
+            .or_else(|| std::env::var("USER").ok());
+        return Ok((identity, true));
     }
     for (email, member_token) in team_tokens() {
         if constant_time_eq(presented.as_bytes(), member_token.as_bytes()) {

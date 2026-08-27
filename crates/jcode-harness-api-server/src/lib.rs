@@ -325,7 +325,7 @@ fn respawn_daemon_throttled() {
 async fn handle_api_client(stream: Stream, legacy_socket: PathBuf) -> Result<()> {
     let (read_half, write_half) = stream.into_split();
     // Local unix-socket clients are the machine owner by definition (0600).
-    let identity = std::env::var("USER").ok();
+    let identity = blaude_account::identity().or_else(|| std::env::var("USER").ok());
     handle_api_io(BufReader::new(read_half), write_half, legacy_socket, identity, true).await
 }
 

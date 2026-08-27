@@ -76,6 +76,12 @@ pub fn me() -> Option<BlaudeAccountInfo> {
     serde_json::from_str(&raw).ok()
 }
 
+/// The email IS the user identifier. Everything that names a person —
+/// hello identity, attribution, member rows — should prefer this.
+pub fn identity() -> Option<String> {
+    me().map(|a| a.email).filter(|e| !e.is_empty())
+}
+
 pub fn sign_out() -> Result<(), String> {
     let path = account_path()?;
     if path.exists() {
