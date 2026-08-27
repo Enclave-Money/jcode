@@ -234,8 +234,13 @@ pub async fn start(email: &str) -> Result<String, String> {
 }
 
 /// Redeem the emailed code; on success the identity is persisted and
-/// returned. The pending entry survives a wrong code (typos get retries).
-pub async fn finish(pending_id: &str, code: &str) -> Result<BlaudeAccountInfo, String> {
+/// returned, along with any team invitation riding on the Clerk user
+/// (invitation public_metadata lands on the signed-up user). The pending
+/// entry survives a wrong code (typos get retries).
+pub async fn finish(
+    pending_id: &str,
+    code: &str,
+) -> Result<(BlaudeAccountInfo, Option<Value>), String> {
     let base = fapi_base()?;
     let (path, jwt, email, is_signup) = {
         let reg = registry().lock().unwrap();
@@ -325,6 +330,11 @@ pub async fn finish(pending_id: &str, code: &str) -> Result<BlaudeAccountInfo, S
             .to_string(),
         name,
     };
+    let team_invite = user
+        .get("public_metadata")
+        .and_then(|m| m.get("blaude_team"))
+        .filter(|t| t.get("ws_url").and_then(|u| u.as_str()).is_some_and(|u| !u.is_empty()))
+        .cloned();
     let path = account_path()?;
     crate::team_access::write_owner_only(
         &path,
@@ -332,5 +342,5 @@ pub async fn finish(pending_id: &str, code: &str) -> Result<BlaudeAccountInfo, S
     )
     .map_err(|e| e.to_string())?;
     registry().lock().unwrap().remove(pending_id);
-    Ok(info)
+    Ok((info, team_invite))
 }

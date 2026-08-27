@@ -105,6 +105,10 @@ pub enum ApiRequest {
         host: String,
         #[serde(default, skip_serializing_if = "std::ops::Not::not")]
         send_email: bool,
+        /// The team's display name, embedded in the invitation so the
+        /// invitee's app can auto-join at sign-in.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        team_name: Option<String>,
     },
 
     /// Member emails from the bridge's authorization store — never tokens.

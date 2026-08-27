@@ -462,6 +462,28 @@ async fn serve_http<S: AsyncRead + AsyncWrite + Unpin>(mut tcp: S, head: &str) -
                 ),
             }
         }
+        // The app's machine-readable claim: same one-time semantics, JSON
+        // body ({"email","token"}) instead of the join page.
+        "/join/claim" => {
+            let ticket = target
+                .split_once('?')
+                .map(|(_, query)| query)
+                .unwrap_or("")
+                .split('&')
+                .find_map(|pair| pair.strip_prefix("ticket="))
+                .unwrap_or("");
+            match claim_join_ticket(ticket) {
+                Some(grant) => {
+                    join_page = grant;
+                    ("200 OK", join_page.as_str(), "application/json")
+                }
+                None => (
+                    "410 Gone",
+                    r#"{"error":"this join link was already used or has expired"}"#,
+                    "application/json",
+                ),
+            }
+        }
         _ => (
             "404 Not Found",
             "not found — the phone client lives at /, the API at /api",

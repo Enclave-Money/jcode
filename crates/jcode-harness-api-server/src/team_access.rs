@@ -153,12 +153,16 @@ fn clerk_secret() -> Option<String> {
     None
 }
 
-async fn send_clerk_invitation(email: &str, redirect_url: &str) -> Result<(), String> {
+async fn send_clerk_invitation(
+    email: &str,
+    redirect_url: &str,
+    metadata: &Value,
+) -> Result<(), String> {
     let Some(secret) = clerk_secret() else {
-        return Err("no Clerk key at ~/.jcode/clerk.env — token issued, share the endpoint manually".into());
+        return Err("no Clerk key at ~/.jcode/clerk.env — share the join link manually".into());
     };
     let client = reqwest::Client::new();
-    let response = create_invitation(&client, &secret, email, redirect_url).await?;
+    let response = create_invitation(&client, &secret, email, redirect_url, metadata).await?;
     let status = response.status();
     if status.is_success() {
         return Ok(());
@@ -179,7 +183,7 @@ async fn send_clerk_invitation(email: &str, redirect_url: &str) -> Result<(), St
         // live). A re-invite means "send a working link": revoke the old
         // invitation and create a fresh one with THIS redirect.
         revoke_pending_invitations(&client, &secret, email).await;
-        let retry = create_invitation(&client, &secret, email, redirect_url).await?;
+        let retry = create_invitation(&client, &secret, email, redirect_url, metadata).await?;
         if retry.status().is_success() {
             return Ok(());
         }
@@ -196,11 +200,18 @@ async fn create_invitation(
     secret: &str,
     email: &str,
     redirect_url: &str,
+    metadata: &Value,
 ) -> Result<reqwest::Response, String> {
     client
         .post("https://api.clerk.com/v1/invitations")
         .bearer_auth(secret)
-        .json(&json!({ "email_address": email, "redirect_url": redirect_url }))
+        // public_metadata lands on the signed-up user, so the app can join
+        // the team the moment sign-in completes — no links, no pasting.
+        .json(&json!({
+            "email_address": email,
+            "redirect_url": redirect_url,
+            "public_metadata": metadata,
+        }))
         .send()
         .await
         .map_err(|e| format!("Clerk request failed: {e}"))
@@ -263,17 +274,27 @@ fn ws_endpoint(host: &str) -> String {
 /// email. `host` is the address members should dial (the app passes its
 /// LAN address; loopback for same-machine testing). The scheme is derived
 /// from whether the door terminates TLS, so a token never rides cleartext.
-pub async fn invite(email: &str, host: &str, send_email: bool) -> Result<Value> {
+pub async fn invite(
+    email: &str,
+    host: &str,
+    send_email: bool,
+    team_name: Option<&str>,
+) -> Result<Value> {
     // No token yet: an invitation is a TICKET, and membership begins when
     // it is redeemed (claim mints the bearer). Until then the person shows
     // as pending, which is what "invited" means.
     let ticket = mint_join_ticket(email)?;
     let port = std::env::var("JCODE_API_WS_PORT").unwrap_or_else(|_| "7644".into());
     let join_url = format!("{}://{host}:{port}/join?ticket={ticket}", http_scheme());
+    let metadata = json!({ "blaude_team": {
+        "name": team_name.unwrap_or(""),
+        "ws_url": ws_endpoint(host),
+        "ticket": ticket,
+    }});
     let mut emailed = false;
     let mut email_error: Option<String> = None;
     if send_email {
-        match send_clerk_invitation(email, &join_url).await {
+        match send_clerk_invitation(email, &join_url, &metadata).await {
             Ok(()) => emailed = true,
             Err(error) => email_error = Some(error),
         }

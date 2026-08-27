@@ -804,9 +804,15 @@ where
                     let pending = request["pending_id"].as_str().unwrap_or_default();
                     let code = request["code"].as_str().unwrap_or_default();
                     let frame = match blaude_account::finish(pending, code).await {
-                        Ok(info) => ServerFrame::reply(api_id, ApiEvent::BlaudeAccount {
-                            account: serde_json::to_value(info).ok(),
-                        }),
+                        Ok((info, team_invite)) => {
+                            let mut account = serde_json::to_value(info).ok();
+                            if let (Some(serde_json::Value::Object(map)), Some(invite)) =
+                                (account.as_mut(), team_invite)
+                            {
+                                map.insert("team_invite".into(), invite);
+                            }
+                            ServerFrame::reply(api_id, ApiEvent::BlaudeAccount { account })
+                        }
                         Err(message) => ServerFrame::reply(api_id, ApiEvent::Error {
                             code: ErrorCode::InvalidRequest,
                             message,
@@ -869,7 +875,7 @@ where
                             message: "invite_member needs `email`".into(),
                         })
                     } else {
-                        match team_access::invite(&email, &host, send_email).await {
+                        match team_access::invite(&email, &host, send_email, request["team_name"].as_str()).await {
                             Ok(invite) => ServerFrame::reply(api_id, ApiEvent::MemberInvited { invite }),
                             Err(error) => ServerFrame::reply(api_id, ApiEvent::Error {
                                 code: ErrorCode::Internal,

@@ -76,7 +76,7 @@ export type ApiRequest =
   | { req: "login_status"; job_id: string }
   | { req: "await_login"; job_id: string }
   | { req: "cancel_login"; job_id: string }
-  | { req: "invite_member"; email: string; host: string; send_email?: boolean }
+  | { req: "invite_member"; email: string; host: string; send_email?: boolean; team_name?: string }
   | { req: "create_team"; name: string; region?: string }
   | { req: "team_create_status"; job_id: string }
   | { req: "me_account" }
