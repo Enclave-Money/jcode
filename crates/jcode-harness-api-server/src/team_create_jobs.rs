@@ -662,7 +662,10 @@ echo SETUP_OK
     } else {
         rest.next().unwrap_or_default().trim().to_string()
     };
-    if token.is_empty() || !ca_pem.contains("BEGIN CERTIFICATE") {
+    // letsencrypt needs no pinning CA, so an empty ca_pem is the SUCCESS
+    // shape there — only the self-signed fallback must hand one back.
+    let ca_missing = tls_mode != "letsencrypt" && !ca_pem.contains("BEGIN CERTIFICATE");
+    if token.is_empty() || ca_missing {
         return Err("The server is up but its credentials could not be read.".into());
     }
 
