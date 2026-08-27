@@ -423,7 +423,7 @@ async fn provision(job_id: String, name: String, region: Option<String>) -> Resu
     if cache_stale {
         std::fs::create_dir_all(&cache_dir)
             .map_err(|e| format!("could not create the local cache: {e}"))?;
-        run(
+        let pulled = run(
             &gcloud,
             &[
                 "compute",
@@ -438,8 +438,14 @@ async fn provision(job_id: String, name: String, region: Option<String>) -> Resu
             ],
             None,
         )
-        .await
-        .map_err(|e| format!("Could not fetch the blaude server build: {e}"))?;
+        .await;
+        // The template VM may no longer exist (teams get deleted); a cached
+        // binary is a fine fallback — only a missing cache is fatal.
+        if let Err(e) = pulled {
+            if !cache.is_file() {
+                return Err(format!("Could not fetch the blaude server build: {e}"));
+            }
+        }
     }
     run_retry(
         &gcloud,

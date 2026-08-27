@@ -56,6 +56,15 @@ fn fapi_base() -> Result<String, String> {
     Err("sign-in isn't configured on this machine (no CLERK_FRONTEND_API)".into())
 }
 
+fn random_password() -> Result<String, String> {
+    use std::io::Read;
+    let mut buf = [0u8; 24];
+    std::fs::File::open("/dev/urandom")
+        .and_then(|mut f| f.read_exact(&mut buf))
+        .map_err(|e| format!("no entropy source: {e}"))?;
+    Ok(buf.iter().map(|b| format!("{b:02x}")).collect())
+}
+
 fn account_path() -> Result<std::path::PathBuf, String> {
     crate::team_access::home()
         .map(|h| h.join("blaude-account.json"))
@@ -91,9 +100,19 @@ async fn fapi_post(
     jwt: Option<&str>,
     form: &[(&str, &str)],
 ) -> Result<(Value, Option<String>), String> {
+    fapi_send(reqwest::Method::POST, base, path, jwt, form).await
+}
+
+async fn fapi_send(
+    method: reqwest::Method,
+    base: &str,
+    path: &str,
+    jwt: Option<&str>,
+    form: &[(&str, &str)],
+) -> Result<(Value, Option<String>), String> {
     let client = reqwest::Client::new();
     let mut req = client
-        .post(format!("{base}/v1/client/{path}?_is_native=1"))
+        .request(method, format!("{base}/v1/client/{path}?_is_native=1"))
         .form(form);
     if let Some(jwt) = jwt {
         req = req.header("Authorization", jwt);
@@ -234,8 +253,37 @@ pub async fn finish(pending_id: &str, code: &str) -> Result<BlaudeAccountInfo, S
     if let Some(msg) = clerk_error(&body) {
         return Err(msg);
     }
-    let attempt = response_obj(&body);
-    let status = attempt.get("status").and_then(|v| v.as_str()).unwrap_or("");
+    let mut body = body;
+    let mut attempt = response_obj(&body);
+    let mut status = attempt.get("status").and_then(|v| v.as_str()).unwrap_or("").to_string();
+    // The Clerk instance may require a password field; a person signing in
+    // by email code neither has nor wants one. Complete the sign-up with a
+    // generated throwaway (never shown, never needed — email codes remain
+    // the sign-in method).
+    if is_signup && status == "missing_requirements" {
+        let needs_password = attempt
+            .get("missing_fields")
+            .and_then(|v| v.as_array())
+            .map(|a| a.iter().any(|f| f.as_str() == Some("password")))
+            .unwrap_or(false);
+        if needs_password {
+            let pw = random_password()?;
+            let (body2, _) = fapi_send(
+                reqwest::Method::PATCH,
+                &base,
+                &format!("sign_ups/{pending_id}"),
+                Some(&jwt),
+                &[("password", pw.as_str())],
+            )
+            .await?;
+            if let Some(msg) = clerk_error(&body2) {
+                return Err(msg);
+            }
+            body = body2;
+            attempt = response_obj(&body);
+            status = attempt.get("status").and_then(|v| v.as_str()).unwrap_or("").to_string();
+        }
+    }
     if status != "complete" {
         return Err("that code didn't finish the sign-in — try again".into());
     }
