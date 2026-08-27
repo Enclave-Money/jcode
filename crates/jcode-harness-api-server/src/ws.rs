@@ -455,10 +455,25 @@ async fn serve_http<S: AsyncRead + AsyncWrite + Unpin>(mut tcp: S, head: &str) -
                     join_page = JOIN_PAGE.replace("/*GRANT*/null", &grant);
                     ("200 OK", join_page.as_str(), "text/html; charset=utf-8")
                 }
+                // No usable ticket — including Clerk's accept redirect,
+                // which strips our query params. Not an error for the
+                // person: the app IS the join flow now.
                 None => (
-                    "410 Gone",
-                    "This join link was already used or has expired. Ask your teammate for a fresh invite.",
-                    "text/plain",
+                    "200 OK",
+                    r#"<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Join your team on blaude</title>
+<body style="margin:0;display:grid;place-items:center;min-height:100vh;background:#111;color:#eee;font:16px/1.6 -apple-system,system-ui,sans-serif">
+<div style="max-width:30rem;padding:2rem">
+<h1 style="font-size:1.4rem">You're invited 🎉</h1>
+<p>You don't need this page. Joining happens in the blaude app:</p>
+<ol style="padding-left:1.2rem">
+<li><a href="https://blaude-website.vercel.app" style="color:#8ab4ff">Download blaude</a> and open it.</li>
+<li>Sign in with the email this invite was sent to.</li>
+<li>That's it — your team attaches itself.</li>
+</ol>
+<p style="color:#999;font-size:.85rem">Already signed in with a different email? Ask your teammate for a fresh invite to the right address.</p>
+</div>"#,
+                    "text/html; charset=utf-8",
                 ),
             }
         }
@@ -740,7 +755,9 @@ mod ws_tests {
     }
 
     /// A join ticket claims exactly once: the first GET gets the member's
-    /// grant, the second gets 410.
+    /// grant; the second gets the sign-in-instead instructions (Clerk's
+    /// accept redirect strips query params, so a ticketless/burned visit is
+    /// a normal landing, not an error).
     #[tokio::test(flavor = "multi_thread")]
     async fn join_ticket_claims_once() {
         let _guard = crate::jcode_home_test_lock();
@@ -778,7 +795,9 @@ mod ws_tests {
         assert!(first.contains("member-jo-token"), "grant embedded");
         assert!(first.contains("jo@example.com"));
         let second = fetch("/join?ticket=ticket-abcdef1234567890".to_string()).await;
-        assert!(second.starts_with("HTTP/1.1 410"), "{}", &second[..60]);
+        assert!(second.starts_with("HTTP/1.1 200"), "{}", &second[..60]);
+        assert!(second.contains("Sign in with the email"), "instructions page");
+        assert!(!second.contains("member-jo-token"), "no grant on a burned ticket");
 
         match previous {
             Some(value) => unsafe { std::env::set_var("JCODE_HOME", value) },
