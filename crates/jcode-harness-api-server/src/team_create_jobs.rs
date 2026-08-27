@@ -570,6 +570,11 @@ sudo apt-get install -y -q certbot >/dev/null 2>&1 || true
 # node runs the gitnexus code-graph indexer that blaude-tools drives; the
 # graph is optional, so a failed install just means no auto-briefing here.
 command -v node >/dev/null || sudo apt-get install -y -q nodejs npm >/dev/null 2>&1 || true
+# 2G swap: gitnexus analyze (node) peaks near an e2-small's entire RAM and
+# the OOM killer takes it without swap (seen live: exit 137). Best-effort.
+if ! grep -q swapfile /etc/fstab 2>/dev/null; then
+  sudo fallocate -l 2G /swapfile 2>/dev/null && sudo chmod 600 /swapfile && sudo /sbin/mkswap /swapfile >/dev/null 2>&1 && sudo /sbin/swapon /swapfile 2>/dev/null && echo "/swapfile none swap sw 0 0" | sudo tee -a /etc/fstab >/dev/null || true
+fi
 TLS_MODE=selfsigned
 if sudo certbot certonly --standalone -d "$DOMAIN" --non-interactive --agree-tos --register-unsafely-without-email >/dev/null 2>&1; then
   sudo install -o "$U" -g "$U" -m 600 "/etc/letsencrypt/live/$DOMAIN/fullchain.pem" "$H/.jcode/tls/cert.pem"
