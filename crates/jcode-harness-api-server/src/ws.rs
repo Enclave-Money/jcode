@@ -172,45 +172,15 @@ pub fn load_tls_acceptor(cert_path: &str, key_path: &str) -> Result<tokio_rustls
     Ok(tokio_rustls::TlsAcceptor::from(std::sync::Arc::new(config)))
 }
 
-/// One-time join tickets: `$JCODE_HOME/join-tickets.json` =
-/// {"code": {"email": ..., "created_ms": ...}}. Minted by the host app at
-/// invite time; the code rides the Clerk invitation's redirect link, so only
-/// the email's recipient has it. Claimed once, then deleted. 7-day expiry.
-fn join_tickets_path() -> PathBuf {
-    token_path().with_file_name("join-tickets.json")
-}
-
+/// Redeem a join ticket into the JSON grant the app claims at /join/claim.
+/// Ticket bookkeeping (burn, renew, token issue, locking) lives in
+/// `team_access` — the single owner of those files.
 fn claim_join_ticket(code: &str) -> Option<String> {
-    if code.len() < 16 {
-        return None;
-    }
-    let path = join_tickets_path();
-    let raw = std::fs::read_to_string(&path).ok()?;
-    let mut tickets: serde_json::Map<String, serde_json::Value> =
-        serde_json::from_str(&raw).ok()?;
-    let entry = tickets.remove(code)?;
-    // Persist the removal FIRST: a ticket that cannot be burned must not be
-    // honored, or it stops being one-time.
-    std::fs::write(&path, serde_json::to_string(&tickets).ok()?).ok()?;
-    let created_ms = entry.get("created_ms").and_then(|v| v.as_u64()).unwrap_or(0);
-    let now_ms = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .ok()?
-        .as_millis() as u64;
-    const SEVEN_DAYS_MS: u64 = 7 * 24 * 60 * 60 * 1000;
-    if created_ms == 0 || now_ms.saturating_sub(created_ms) > SEVEN_DAYS_MS {
-        return None;
-    }
-    let email = entry.get("email")?.as_str()?.to_string();
-    // A valid ticket IS the authorization: the owner minted it for this
-    // email. Issue (or return) the member token at claim time — requiring a
-    // pre-existing token made a revoke-then-rejoin (or any token-store loss)
-    // burn the ticket and then 410, stranding the invitee.
-    let member_token = crate::team_access::issue_token(&email).ok()?;
+    let crate::team_access::Grant { email, token } = crate::team_access::claim_ticket(code)?;
     let grant = format!(
         r#"{{"email":{},"token":{}}}"#,
         serde_json::to_string(&email).ok()?,
-        serde_json::to_string(&member_token).ok()?
+        serde_json::to_string(&token).ok()?
     );
     // This lands inside a <script> literal. JSON escaping alone does NOT
     // stop `</script>` (or U+2028/2029) from terminating the element, so
@@ -781,6 +751,21 @@ mod ws_tests {
         let burned = fetch("/join/claim?ticket=ticket-abcdef1234567890".to_string()).await;
         assert!(burned.starts_with("HTTP/1.1 410"), "one-time: {}", &burned[..60]);
         assert!(!burned.contains("member-jo-token"));
+
+        // …but membership is renewable: the claim left a FRESH ticket for
+        // the same person, so a second Mac / reinstall / interrupted claim
+        // still has something live to redeem. (Burning without replacing
+        // stranded every one of those permanently.)
+        let raw = std::fs::read_to_string(home.join("join-tickets.json")).unwrap();
+        let tickets: serde_json::Map<String, serde_json::Value> =
+            serde_json::from_str(&raw).unwrap();
+        assert_eq!(tickets.len(), 1, "exactly one live ticket: {raw}");
+        let (code, record) = tickets.iter().next().unwrap();
+        assert_ne!(code, "ticket-abcdef1234567890", "the burned code is gone");
+        assert_eq!(record["email"], "jo@example.com");
+        let second = fetch(format!("/join/claim?ticket={code}")).await;
+        assert!(second.starts_with("HTTP/1.1 200"), "renewed ticket redeems: {}", &second[..60]);
+        assert!(second.contains("member-jo-token"), "same membership, not a new one");
 
         match previous {
             Some(value) => unsafe { std::env::set_var("JCODE_HOME", value) },

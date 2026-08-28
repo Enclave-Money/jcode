@@ -53,8 +53,118 @@ fn random_hex(bytes: usize) -> Result<String> {
     Ok(buffer.iter().map(|b| format!("{b:02x}")).collect())
 }
 
+/// Serialises every read-modify-write of the ticket and token stores. A
+/// claim on the WS door, an invite RPC and the reconciler all edit these
+/// files from concurrent tasks; lock-free rewrites can resurrect a redeemed
+/// one-time ticket or silently drop a freshly minted one.
+fn store_lock() -> &'static std::sync::Mutex<()> {
+    static LOCK: std::sync::OnceLock<std::sync::Mutex<()>> = std::sync::OnceLock::new();
+    LOCK.get_or_init(|| std::sync::Mutex::new(()))
+}
+
+fn tickets_path() -> Result<std::path::PathBuf> {
+    Ok(home()?.join("join-tickets.json"))
+}
+
+fn read_tickets() -> HashMap<String, Value> {
+    tickets_path()
+        .ok()
+        .and_then(|p| std::fs::read_to_string(p).ok())
+        .and_then(|raw| serde_json::from_str(&raw).ok())
+        .unwrap_or_default()
+}
+
+/// Email plus the bearer that admits it — what a redeemed ticket buys.
+pub struct Grant {
+    pub email: String,
+    pub token: String,
+}
+
+/// How long an unclaimed ticket stays redeemable.
+const TICKET_TTL_MS: u64 = 7 * 24 * 60 * 60 * 1000;
+
+fn now_ms() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0)
+}
+
+fn is_expired(record: &Value) -> bool {
+    let created = record.get("created_ms").and_then(|v| v.as_u64()).unwrap_or(0);
+    created == 0 || now_ms().saturating_sub(created) > TICKET_TTL_MS
+}
+
+/// Redeem a join ticket for its bearer token.
+///
+/// The ticket is one-time, but MEMBERSHIP IS NOT A ONE-SHOT EVENT: a person
+/// installs on a second Mac, reinstalls, wipes defaults, or quits between
+/// the burn and the app persisting the token. Burning without replacing
+/// stranded every one of those (the stamp kept pointing at a dead ticket
+/// and each later sign-in 410'd), so a successful claim immediately mints a
+/// REPLACEMENT ticket for the same person and re-stamps their account with
+/// it. The credential in their account is therefore always live, and the
+/// TTL restarts on every use.
+pub fn claim_ticket(code: &str) -> Option<Grant> {
+    if code.len() < 16 {
+        return None;
+    }
+    let path = tickets_path().ok()?;
+    let renewal = {
+        let _guard = store_lock().lock().unwrap_or_else(|p| p.into_inner());
+        let mut tickets = read_tickets();
+        let entry = tickets.remove(code)?;
+        // Persist the removal FIRST (atomically): a ticket that cannot be
+        // burned must not be honored, or it stops being one-time.
+        write_owner_only(&path, &serde_json::to_vec(&tickets).ok()?).ok()?;
+        if is_expired(&entry) {
+            return None;
+        }
+        let email = entry.get("email")?.as_str()?.to_string();
+        let ws_url = entry.get("ws_url").and_then(|v| v.as_str()).unwrap_or("").to_string();
+        let name = entry.get("name").and_then(|v| v.as_str()).unwrap_or("").to_string();
+        // Mint the replacement under the SAME lock, so the account is never
+        // left without a live ticket.
+        let mut tickets = read_tickets();
+        let fresh = format!("jt-{}", random_hex(16).ok()?);
+        tickets.insert(
+            fresh.clone(),
+            json!({ "email": &email, "created_ms": now_ms(), "ws_url": &ws_url, "name": &name }),
+        );
+        write_owner_only(&path, &serde_json::to_vec(&tickets).ok()?).ok()?;
+        (email, ws_url, name, fresh)
+    };
+    let (email, ws_url, name, fresh) = renewal;
+    // A valid ticket IS the authorization: the owner minted it for this
+    // email. Issue (or return) the member token at claim time — requiring a
+    // pre-existing token made a revoke-then-rejoin (or any token-store loss)
+    // burn the ticket and then 410, stranding the invitee.
+    let token = issue_token(&email).ok()?;
+    if !ws_url.is_empty() {
+        restamp_with_fresh_ticket(email.clone(), ws_url, name, fresh);
+    }
+    Some(Grant { email, token })
+}
+
+/// Best-effort: point the account's stamp at the replacement ticket.
+fn restamp_with_fresh_ticket(email: String, ws_url: String, name: String, ticket: String) {
+    let Some(secret) = clerk_secret() else { return };
+    let Ok(handle) = tokio::runtime::Handle::try_current() else { return };
+    handle.spawn(async move {
+        let client = reqwest::Client::new();
+        if let Ok(Some(user)) = find_user(&client, &secret, &email).await {
+            if let Some(id) = user["id"].as_str() {
+                let metadata =
+                    json!({ "blaude_team": { "name": name, "ws_url": ws_url, "ticket": ticket } });
+                let _ = stamp_user(&client, &secret, id, &metadata).await;
+            }
+        }
+    });
+}
+
 /// Issue (or return the existing) bearer token for a member email.
 pub fn issue_token(email: &str) -> Result<String> {
+    let _guard = store_lock().lock().unwrap_or_else(|p| p.into_inner());
     let path = home()?.join("team-tokens.json");
     let mut tokens: HashMap<String, String> = std::fs::read_to_string(&path)
         .ok()
@@ -73,6 +183,7 @@ pub fn issue_token(email: &str) -> Result<String> {
 /// door reloads per handshake, so revocation is immediate. Works on full
 /// members and pending invitations alike.
 pub fn revoke(email: &str) -> Result<bool> {
+    let _guard = store_lock().lock().unwrap_or_else(|p| p.into_inner());
     let path = home()?.join("team-tokens.json");
     let mut tokens: HashMap<String, String> = std::fs::read_to_string(&path)
         .ok()
@@ -82,16 +193,13 @@ pub fn revoke(email: &str) -> Result<bool> {
     if removed_token {
         write_owner_only(&path, &serde_json::to_vec(&tokens)?)?;
     }
-    let tickets_path = home()?.join("join-tickets.json");
-    let mut tickets: HashMap<String, Value> = std::fs::read_to_string(&tickets_path)
-        .ok()
-        .and_then(|raw| serde_json::from_str(&raw).ok())
-        .unwrap_or_default();
+    let tickets_file = tickets_path()?;
+    let mut tickets = read_tickets();
     let before = tickets.len();
     tickets.retain(|_, v| v.get("email").and_then(|e| e.as_str()) != Some(email));
     let removed_tickets = tickets.len() != before;
     if removed_tickets {
-        write_owner_only(&tickets_path, &serde_json::to_vec(&tickets)?)?;
+        write_owner_only(&tickets_file, &serde_json::to_vec(&tickets)?)?;
     }
     if removed_token || removed_tickets {
         clear_team_metadata(email.to_string());
@@ -108,8 +216,12 @@ pub fn pending_invites() -> Vec<String> {
         .ok()
         .and_then(|raw| serde_json::from_str(&raw).ok())
         .unwrap_or_default();
+    // An expired ticket is not a pending invitation — it can never be
+    // redeemed, so showing it as "Invited" hides that the person needs a
+    // fresh one.
     let mut pending: Vec<String> = tickets
         .values()
+        .filter(|v| !is_expired(v))
         .filter_map(|v| v.get("email").and_then(|e| e.as_str()).map(str::to_string))
         .filter(|email| !members.contains(email))
         .collect();
@@ -129,19 +241,17 @@ pub fn member_emails() -> Vec<String> {
 /// carries the team's ws_url + name so the invite RECONCILER can rebuild
 /// the account stamp for people who sign up without touching their email.
 fn mint_join_ticket(email: &str, ws_url: &str, team_name: &str) -> Result<String> {
+    let _guard = store_lock().lock().unwrap_or_else(|p| p.into_inner());
     let code = format!("jt-{}", random_hex(16)?);
-    let path = home()?.join("join-tickets.json");
-    let mut tickets: HashMap<String, Value> = std::fs::read_to_string(&path)
-        .ok()
-        .and_then(|raw| serde_json::from_str(&raw).ok())
-        .unwrap_or_default();
-    let now_ms = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_millis() as u64)
-        .unwrap_or(0);
+    let path = tickets_path()?;
+    let mut tickets = read_tickets();
+    // A re-invite supersedes this person's older tickets: leaving them
+    // redeemable means a stale link still works and the pending list keeps
+    // showing dead invitations.
+    tickets.retain(|_, v| v.get("email").and_then(|e| e.as_str()) != Some(email));
     tickets.insert(
         code.clone(),
-        json!({ "email": email, "created_ms": now_ms, "ws_url": ws_url, "name": team_name }),
+        json!({ "email": email, "created_ms": now_ms(), "ws_url": ws_url, "name": team_name }),
     );
     write_owner_only(&path, &serde_json::to_vec(&tickets)?)?;
     Ok(code)
@@ -264,6 +374,11 @@ pub async fn reconcile_invites() {
         .unwrap_or_default();
     let client = reqwest::Client::new();
     for (code, record) in tickets {
+        // Stamping an expired ticket guarantees the invitee a 410 — worse
+        // than not stamping, because it looks like a delivered invite.
+        if is_expired(&record) {
+            continue;
+        }
         let (Some(email), Some(ws_url)) = (
             record.get("email").and_then(|v| v.as_str()),
             record.get("ws_url").and_then(|v| v.as_str()),
