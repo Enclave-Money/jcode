@@ -125,8 +125,10 @@ pub fn member_emails() -> Vec<String> {
     emails
 }
 
-/// Mint a one-time join ticket redeemable at the bridge's /join page.
-fn mint_join_ticket(email: &str) -> Result<String> {
+/// Mint a one-time join ticket redeemable at /join/claim. The record also
+/// carries the team's ws_url + name so the invite RECONCILER can rebuild
+/// the account stamp for people who sign up without touching their email.
+fn mint_join_ticket(email: &str, ws_url: &str, team_name: &str) -> Result<String> {
     let code = format!("jt-{}", random_hex(16)?);
     let path = home()?.join("join-tickets.json");
     let mut tickets: HashMap<String, Value> = std::fs::read_to_string(&path)
@@ -137,7 +139,10 @@ fn mint_join_ticket(email: &str) -> Result<String> {
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_millis() as u64)
         .unwrap_or(0);
-    tickets.insert(code.clone(), json!({ "email": email, "created_ms": now_ms }));
+    tickets.insert(
+        code.clone(),
+        json!({ "email": email, "created_ms": now_ms, "ws_url": ws_url, "name": team_name }),
+    );
     write_owner_only(&path, &serde_json::to_vec(&tickets)?)?;
     Ok(code)
 }
@@ -156,24 +161,12 @@ fn clerk_secret() -> Option<String> {
     None
 }
 
-/// Stamp the team onto the invitee's Clerk USER — creating the user if the
-/// address is new. Their next sign-in (email + code, on ANY machine) then
-/// carries the team in public_metadata and the app attaches it
-/// automatically. This replaced Clerk INVITATIONS: their browser accept
-/// flow burned tickets, stranded people on web pages, and only worked for
-/// addresses without an account. The whole invitee UX is entering a code.
-async fn stamp_team_on_user(email: &str, metadata: &Value) -> Result<(), String> {
-    let Some(secret) = clerk_secret() else {
-        return Err("no Clerk key at ~/.jcode/clerk.env — share the join link manually".into());
-    };
-    let client = reqwest::Client::new();
-    // Retire any legacy pending invitation for this address (best-effort):
-    // its email carries a dead browser flow.
-    revoke_pending_invitations(&client, &secret, email).await;
+/// The signed-up user's Clerk id for an email, if the account exists.
+async fn find_user(client: &reqwest::Client, secret: &str, email: &str) -> Result<Option<Value>, String> {
     let response = client
         .get("https://api.clerk.com/v1/users")
         .query(&[("email_address", email)])
-        .bearer_auth(&secret)
+        .bearer_auth(secret)
         .send()
         .await
         .map_err(|e| format!("Clerk request failed: {e}"))?;
@@ -186,37 +179,115 @@ async fn stamp_team_on_user(email: &str, metadata: &Value) -> Result<(), String>
         .cloned()
         .or_else(|| users.get("data").and_then(|d| d.as_array()).cloned())
         .unwrap_or_default();
-    let response = if let Some(id) = list.first().and_then(|u| u["id"].as_str()) {
-        // PATCH /users/{id}/metadata merges top-level public_metadata keys,
-        // so this sets blaude_team without clobbering anything else.
-        client
-            .patch(format!("https://api.clerk.com/v1/users/{id}/metadata"))
-            .bearer_auth(&secret)
-            .json(&json!({ "public_metadata": metadata }))
-            .send()
-            .await
+    Ok(list.first().cloned())
+}
+
+/// Merge the blaude_team stamp into a user's public_metadata.
+async fn stamp_user(
+    client: &reqwest::Client,
+    secret: &str,
+    user_id: &str,
+    metadata: &Value,
+) -> Result<(), String> {
+    let response = client
+        .patch(format!("https://api.clerk.com/v1/users/{user_id}/metadata"))
+        .bearer_auth(secret)
+        .json(&json!({ "public_metadata": metadata }))
+        .send()
+        .await
+        .map_err(|e| format!("Clerk request failed: {e}"))?;
+    if response.status().is_success() {
+        Ok(())
     } else {
-        client
-            .post("https://api.clerk.com/v1/users")
-            .bearer_auth(&secret)
-            .json(&json!({
-                "email_address": [email],
-                "public_metadata": metadata,
-                "skip_password_requirement": true,
-            }))
-            .send()
-            .await
+        Err(format!("Clerk refused the stamp (HTTP {})", response.status()))
     }
-    .map_err(|e| format!("Clerk request failed: {e}"))?;
+}
+
+/// Deliver an invite. NEW address → a Clerk INVITATION: the person gets an
+/// email, its link creates their account for exactly that address, the
+/// redirect lands on the install/sign-in page, and the team metadata rides
+/// onto the account — signing in in the app finishes the join. EXISTING
+/// account → Clerk refuses invitations, so the team is stamped straight
+/// onto the user and their signed-in app picks it up on its account watch.
+/// Returns Ok(true) when an email went out, Ok(false) for a silent stamp.
+async fn deliver_invite(email: &str, join_url: &str, metadata: &Value) -> Result<bool, String> {
+    let Some(secret) = clerk_secret() else {
+        return Err("no Clerk key at ~/.jcode/clerk.env".into());
+    };
+    let client = reqwest::Client::new();
+    // Retire older invitations first: their emails carry stale tickets.
+    revoke_pending_invitations(&client, &secret, email).await;
+    if let Some(user) = find_user(&client, &secret, email).await? {
+        if let Some(id) = user["id"].as_str() {
+            stamp_user(&client, &secret, id, metadata).await?;
+            return Ok(false);
+        }
+    }
+    let response = client
+        .post("https://api.clerk.com/v1/invitations")
+        .bearer_auth(&secret)
+        .json(&json!({
+            "email_address": email,
+            "redirect_url": join_url,
+            "public_metadata": metadata,
+        }))
+        .send()
+        .await
+        .map_err(|e| format!("Clerk request failed: {e}"))?;
     let status = response.status();
     if status.is_success() {
-        return Ok(());
+        return Ok(true);
     }
-    let body = response.text().await.unwrap_or_default();
-    Err(format!(
-        "Clerk refused the invite (HTTP {status}): {}",
-        body.chars().take(200).collect::<String>()
-    ))
+    if status.as_u16() == 422 {
+        // Raced a signup between lookup and invitation — stamp instead.
+        if let Some(user) = find_user(&client, &secret, email).await? {
+            if let Some(id) = user["id"].as_str() {
+                stamp_user(&client, &secret, id, metadata).await?;
+                return Ok(false);
+            }
+        }
+    }
+    Err(format!("Clerk invitation failed (HTTP {status})"))
+}
+
+/// Closes the invited-but-signed-up-manually hole: someone who never opens
+/// the invite email and just creates the account in the app never redeems
+/// the invitation, so the metadata never lands. Sweep unredeemed tickets;
+/// wherever an account now exists for an invited email without this ticket
+/// stamped, stamp it (and retire the now-pointless invitation email).
+pub async fn reconcile_invites() {
+    let Some(secret) = clerk_secret() else { return };
+    let Ok(home) = home() else { return };
+    let tickets: HashMap<String, Value> = std::fs::read_to_string(home.join("join-tickets.json"))
+        .ok()
+        .and_then(|raw| serde_json::from_str(&raw).ok())
+        .unwrap_or_default();
+    let client = reqwest::Client::new();
+    for (code, record) in tickets {
+        let (Some(email), Some(ws_url)) = (
+            record.get("email").and_then(|v| v.as_str()),
+            record.get("ws_url").and_then(|v| v.as_str()),
+        ) else {
+            continue;
+        };
+        let Ok(Some(user)) = find_user(&client, &secret, email).await else {
+            continue; // no account yet — the invitation email still covers them
+        };
+        let stamped = user
+            .pointer("/public_metadata/blaude_team/ticket")
+            .and_then(|v| v.as_str());
+        if stamped == Some(code.as_str()) {
+            continue;
+        }
+        let name = record.get("name").and_then(|v| v.as_str()).unwrap_or("");
+        let metadata =
+            json!({ "blaude_team": { "name": name, "ws_url": ws_url, "ticket": code } });
+        if let Some(id) = user["id"].as_str() {
+            if stamp_user(&client, &secret, id, &metadata).await.is_ok() {
+                revoke_pending_invitations(&client, &secret, email).await;
+            }
+        }
+    }
 }
 
 /// Best-effort removal of the team stamp when a member is revoked, so
@@ -321,22 +392,24 @@ pub async fn invite(
     // No token yet: an invitation is a TICKET, and membership begins when
     // it is redeemed (claim mints the bearer). Until then the person shows
     // as pending, which is what "invited" means.
-    let ticket = mint_join_ticket(email)?;
+    let ws_url = ws_endpoint(host);
+    let name = team_name.unwrap_or("");
+    let ticket = mint_join_ticket(email, &ws_url, name)?;
     let port = std::env::var("JCODE_API_WS_PORT").unwrap_or_else(|_| "7644".into());
     let join_url = format!("{}://{host}:{port}/join?ticket={ticket}", http_scheme());
     let metadata = json!({ "blaude_team": {
-        "name": team_name.unwrap_or(""),
-        "ws_url": ws_endpoint(host),
+        "name": name,
+        "ws_url": ws_url,
         "ticket": ticket,
     }});
-    // "emailed" now means "their sign-in will attach the team": the stamp
-    // landed on the Clerk user (created if new). The code they enter at
-    // sign-in is the entire join UX; the join link is only a fallback.
+    // emailed=true → an invitation email went out (new address);
+    // emailed=false with no error → existing account was stamped directly,
+    // their signed-in app attaches the team on its account watch.
     let mut emailed = false;
     let mut email_error: Option<String> = None;
     if send_email {
-        match stamp_team_on_user(email, &metadata).await {
-            Ok(()) => emailed = true,
+        match deliver_invite(email, &join_url, &metadata).await {
+            Ok(sent) => emailed = sent,
             Err(error) => email_error = Some(error),
         }
     }

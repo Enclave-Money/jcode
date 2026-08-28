@@ -201,6 +201,16 @@ pub async fn run_bridge(api_socket: PathBuf, legacy_socket: PathBuf) -> Result<(
     // only because we hold the exclusive lock above, so no live bridge owns it.
     #[cfg(unix)]
     let _ = std::fs::remove_file(&api_socket);
+    // Invite reconciler: sweeps unredeemed invites against newly-created
+    // accounts so an invitee who never opens the email still gets the team
+    // stamped the moment their account exists. No-ops without the Clerk
+    // secret (member machines).
+    tokio::spawn(async {
+        loop {
+            team_access::reconcile_invites().await;
+            tokio::time::sleep(std::time::Duration::from_secs(60)).await;
+        }
+    });
     if let Some(parent) = api_socket.parent() {
         std::fs::create_dir_all(parent).ok();
     }
@@ -778,8 +788,17 @@ where
                 }
                 if request["req"].as_str() == Some("me_account") {
                     let api_id = request["id"].as_u64().unwrap_or(0);
-                    let account = blaude_account::me()
+                    let mut account = blaude_account::me()
                         .and_then(|a| serde_json::to_value(a).ok());
+                    // A signed-in app learns about NEW invites right here:
+                    // the invite stamps the Clerk user, and this refresh is
+                    // how the stamp reaches a machine that signed in before
+                    // the invite existed. (There are no invite emails.)
+                    if let Some(serde_json::Value::Object(map)) = account.as_mut() {
+                        if let Some(invite) = blaude_account::refresh_team_invite().await {
+                            map.insert("team_invite".into(), invite);
+                        }
+                    }
                     let frame = ServerFrame::reply(api_id, ApiEvent::BlaudeAccount { account });
                     write_json_line(&mut write_half, &frame).await?;
                     continue;

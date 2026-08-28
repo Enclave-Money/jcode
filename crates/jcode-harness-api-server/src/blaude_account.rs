@@ -84,9 +84,73 @@ fn account_path() -> Result<std::path::PathBuf, String> {
         .map_err(|e| e.to_string())
 }
 
+/// The Clerk client session token, persisted at sign-in so the runtime can
+/// re-read the user later (that re-read is how a NEW invite reaches a
+/// signed-in app — there are no invite emails). Owner-only file, separate
+/// from blaude-account.json because that struct travels on the wire.
+fn session_path() -> Result<std::path::PathBuf, String> {
+    crate::team_access::home()
+        .map(|h| h.join("blaude-session.json"))
+        .map_err(|e| e.to_string())
+}
+
+fn save_client_jwt(jwt: &str) {
+    if jwt.is_empty() {
+        return;
+    }
+    if let Ok(path) = session_path() {
+        let _ = crate::team_access::write_owner_only(
+            &path,
+            serde_json::json!({ "client_jwt": jwt }).to_string().as_bytes(),
+        );
+    }
+}
+
+fn load_client_jwt() -> Option<String> {
+    let raw = std::fs::read_to_string(session_path().ok()?).ok()?;
+    let value: Value = serde_json::from_str(&raw).ok()?;
+    value
+        .get("client_jwt")
+        .and_then(|v| v.as_str())
+        .filter(|s| !s.is_empty())
+        .map(str::to_string)
+}
+
 pub fn me() -> Option<BlaudeAccountInfo> {
     let raw = std::fs::read_to_string(account_path().ok()?).ok()?;
     serde_json::from_str(&raw).ok()
+}
+
+/// Re-read the signed-in user from Clerk and return any team stamped on it
+/// since sign-in. Best-effort and quick: on any miss (no session, network,
+/// expired) the answer is simply None.
+pub async fn refresh_team_invite() -> Option<Value> {
+    let base = fapi_base().ok()?;
+    let jwt = load_client_jwt()?;
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(6))
+        .build()
+        .ok()?;
+    let resp = client
+        .get(format!("{base}/v1/client?_is_native=1"))
+        .header("Authorization", &jwt)
+        .send()
+        .await
+        .ok()?;
+    if let Some(rotated) = resp.headers().get("authorization").and_then(|v| v.to_str().ok()) {
+        save_client_jwt(rotated);
+    }
+    let body: Value = resp.json().await.ok()?;
+    let user = response_obj(&body)
+        .get("sessions")
+        .and_then(|s| s.as_array())
+        .and_then(|s| s.last())
+        .and_then(|s| s.get("user"))
+        .cloned()?;
+    user.get("public_metadata")
+        .and_then(|m| m.get("blaude_team"))
+        .filter(|t| t.get("ws_url").and_then(|u| u.as_str()).is_some_and(|u| !u.is_empty()))
+        .cloned()
 }
 
 /// The email IS the user identifier. Everything that names a person —
@@ -99,6 +163,9 @@ pub fn sign_out() -> Result<(), String> {
     let path = account_path()?;
     if path.exists() {
         std::fs::remove_file(&path).map_err(|e| e.to_string())?;
+    }
+    if let Ok(session) = session_path() {
+        let _ = std::fs::remove_file(session);
     }
     Ok(())
 }
@@ -267,7 +334,7 @@ pub async fn finish(
         (path, p.client_jwt.clone(), p.email.clone(), matches!(p.kind, PendingKind::SignUp))
     };
     let code = code.trim();
-    let (body, _) = fapi_post(
+    let (body, jwt_rotated) = fapi_post(
         &base,
         &path,
         Some(&jwt),
@@ -277,6 +344,9 @@ pub async fn finish(
     if let Some(msg) = clerk_error(&body) {
         return Err(msg);
     }
+    // Persist the client session: later refreshes of the user (how a new
+    // invite reaches this signed-in machine) authenticate with it.
+    save_client_jwt(jwt_rotated.as_deref().unwrap_or(&jwt));
     let mut body = body;
     let mut attempt = response_obj(&body);
     let mut status = attempt.get("status").and_then(|v| v.as_str()).unwrap_or("").to_string();
