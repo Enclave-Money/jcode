@@ -438,14 +438,35 @@ const JOIN_INSTRUCTIONS: &str = r#"<!doctype html><meta charset="utf-8"><meta na
 <body style="margin:0;display:grid;place-items:center;min-height:100vh;background:#111;color:#eee;font:16px/1.6 -apple-system,system-ui,sans-serif">
 <div style="max-width:30rem;padding:2rem">
 <h1 style="font-size:1.4rem">You're invited 🎉</h1>
-<p>You don't need this page. Joining happens in the blaude app:</p>
+<p>Joining happens in the blaude app:</p>
 <ol style="padding-left:1.2rem">
 <li><a href="https://blaude-website.vercel.app" style="color:#8ab4ff">Download blaude</a> and open it.</li>
-<li>Sign in with the email this invite was sent to.</li>
+<li>Choose <b>I have a team invite</b> and paste your invite link.</li>
 <li>That's it — your team attaches itself.</li>
 </ol>
-<p style="color:#999;font-size:.85rem">Already signed in with a different email? Ask your teammate for a fresh invite to the right address.</p>
-</div>"#;
+<div id="linkbox" style="display:none;margin-top:1rem">
+<p style="margin:0 0 .3rem;color:#999;font-size:.85rem">Your invite link:</p>
+<code id="link" style="display:block;background:#1c1c1e;border:1px solid #333;border-radius:8px;padding:.6rem .8rem;font-size:.8rem;word-break:break-all"></code>
+<button id="copy" style="margin-top:.5rem;padding:.5rem 1rem;border:none;border-radius:8px;background:#d97757;color:#fff;font-size:.9rem;cursor:pointer">Copy link</button>
+</div>
+<p style="color:#999;font-size:.85rem;margin-top:1rem">No link visible here? Ask the teammate who invited you to share it.</p>
+</div>
+<script>
+"use strict";
+// Show the pasteable link only when this visit still carries the ticket
+// (the ticket is NOT consumed by viewing this page — only the app claims it).
+var t = new URLSearchParams(location.search).get("ticket");
+if (t) {
+  var link = location.origin + "/join?ticket=" + encodeURIComponent(t);
+  document.getElementById("link").textContent = link;
+  document.getElementById("linkbox").style.display = "block";
+  document.getElementById("copy").onclick = function () {
+    navigator.clipboard.writeText(link).then(function () {
+      document.getElementById("copy").textContent = "Copied";
+    });
+  };
+}
+</script>"#;
 
 /// Serve the phone page (or health/404) to a non-upgrade HTTP request.
 async fn serve_http<S: AsyncRead + AsyncWrite + Unpin>(mut tcp: S, head: &str) -> Result<()> {
@@ -772,7 +793,7 @@ mod ws_tests {
         };
         let page = fetch("/join?ticket=ticket-abcdef1234567890".to_string()).await;
         assert!(page.starts_with("HTTP/1.1 200"), "{}", &page[..60]);
-        assert!(page.contains("Sign in with the email"), "instructions page");
+        assert!(page.contains("I have a team invite"), "instructions page");
         assert!(!page.contains("member-jo-token"), "browser visit must not mint a grant");
         let claim = fetch("/join/claim?ticket=ticket-abcdef1234567890".to_string()).await;
         assert!(claim.starts_with("HTTP/1.1 200"), "the page left the ticket unburned: {}", &claim[..60]);
