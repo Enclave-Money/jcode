@@ -28,6 +28,31 @@ struct Pending {
     attempt_id: String,
     client_jwt: String,
     email: String,
+    created_ms: u64,
+}
+
+fn epoch_ms() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0)
+}
+
+/// A sign-in attempt already waiting for a code from this address.
+///
+/// Every `start` asks Clerk to send a NEW code and RETIRES the previous
+/// one, so any repeat — an automatic retry after a dropped connection, an
+/// impatient second click — silently invalidated the code the person was
+/// already typing ("Incorrect code" on a code they read correctly).
+/// Repeats reuse the live attempt instead; only an explicit resend mints a
+/// new code.
+fn live_attempt_for(email: &str) -> Option<String> {
+    const REUSE_WINDOW_MS: u64 = 10 * 60 * 1000;
+    let now = epoch_ms();
+    let reg = registry().lock().ok()?;
+    reg.iter()
+        .find(|(_, p)| p.email == email && now.saturating_sub(p.created_ms) < REUSE_WINDOW_MS)
+        .map(|(id, _)| id.clone())
 }
 
 fn registry() -> &'static Mutex<HashMap<String, Pending>> {
@@ -228,11 +253,16 @@ fn response_obj(body: &Value) -> Value {
 /// Start email-code sign-in for `email`: existing users get a sign-in
 /// attempt, unknown ones a sign-up. Either way Clerk emails a code; the
 /// returned pending id redeems it via `finish`.
-pub async fn start(email: &str) -> Result<String, String> {
+pub async fn start(email: &str, resend: bool) -> Result<String, String> {
     let base = fapi_base()?;
     let email = email.trim().to_lowercase();
     if !email.contains('@') || email.len() < 5 {
         return Err("that doesn't look like an email address".into());
+    }
+    if !resend {
+        if let Some(existing) = live_attempt_for(&email) {
+            return Ok(existing);
+        }
     }
 
     let (body, jwt) = fapi_post(&base, "sign_ins", None, &[("identifier", &email)]).await?;
@@ -271,7 +301,13 @@ pub async fn start(email: &str) -> Result<String, String> {
         }
         registry().lock().unwrap().insert(
             id.clone(),
-            Pending { kind: PendingKind::SignUp, attempt_id: id.clone(), client_jwt: jwt, email },
+            Pending {
+                kind: PendingKind::SignUp,
+                attempt_id: id.clone(),
+                client_jwt: jwt,
+                email,
+                created_ms: epoch_ms(),
+            },
         );
         return Ok(id);
     }
@@ -308,7 +344,13 @@ pub async fn start(email: &str) -> Result<String, String> {
     }
     registry().lock().unwrap().insert(
         id.clone(),
-        Pending { kind: PendingKind::SignIn, attempt_id: id.clone(), client_jwt: jwt, email },
+        Pending {
+            kind: PendingKind::SignIn,
+            attempt_id: id.clone(),
+            client_jwt: jwt,
+            email,
+            created_ms: epoch_ms(),
+        },
     );
     Ok(id)
 }

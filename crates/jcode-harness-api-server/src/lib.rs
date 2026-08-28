@@ -806,7 +806,10 @@ where
                 if request["req"].as_str() == Some("account_signin_start") {
                     let api_id = request["id"].as_u64().unwrap_or(0);
                     let email = request["email"].as_str().unwrap_or_default();
-                    let frame = match blaude_account::start(email).await {
+                    // Only an explicit resend mints a new code; a retry must
+                    // not retire the code already in someone's inbox.
+                    let resend = request["resend"].as_bool().unwrap_or(false);
+                    let frame = match blaude_account::start(email, resend).await {
                         Ok(pending_id) => {
                             ServerFrame::reply(api_id, ApiEvent::SigninPending { pending_id })
                         }
