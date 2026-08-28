@@ -35,25 +35,38 @@ fn registry() -> &'static Mutex<HashMap<String, Pending>> {
     REG.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
+/// The blaude Clerk instance's Frontend API host. PUBLIC by design (every
+/// Clerk-backed web app ships it to the browser) — baking it in is what
+/// lets a fresh machine sign in with zero config. clerk.env's
+/// CLERK_FRONTEND_API (or the env var) overrides it; the SECRET key is a
+/// different thing and never leaves servers.
+const DEFAULT_FRONTEND_API: &str = "wanted-weasel-6110.clerk.accounts.dev";
+
 fn fapi_base() -> Result<String, String> {
-    let raw = crate::team_access::home()
-        .ok()
-        .and_then(|h| std::fs::read_to_string(h.join("clerk.env")).ok())
-        .ok_or("sign-in isn't configured on this machine (no clerk.env)")?;
-    for line in raw.lines() {
-        let mut parts = line.splitn(2, '=');
-        if parts.next().map(str::trim) == Some("CLERK_FRONTEND_API") {
-            let value = parts.next().unwrap_or("").trim();
-            if !value.is_empty() {
-                return Ok(if value.starts_with("http") {
-                    value.trim_end_matches('/').to_string()
-                } else {
-                    format!("https://{}", value.trim_end_matches('/'))
-                });
+    let configured = std::env::var("CLERK_FRONTEND_API").ok().filter(|v| !v.trim().is_empty());
+    let from_file = || {
+        let raw = crate::team_access::home()
+            .ok()
+            .and_then(|h| std::fs::read_to_string(h.join("clerk.env")).ok())?;
+        for line in raw.lines() {
+            let mut parts = line.splitn(2, '=');
+            if parts.next().map(str::trim) == Some("CLERK_FRONTEND_API") {
+                let value = parts.next().unwrap_or("").trim();
+                if !value.is_empty() {
+                    return Some(value.to_string());
+                }
             }
         }
-    }
-    Err("sign-in isn't configured on this machine (no CLERK_FRONTEND_API)".into())
+        None
+    };
+    let value = configured
+        .or_else(from_file)
+        .unwrap_or_else(|| DEFAULT_FRONTEND_API.to_string());
+    Ok(if value.starts_with("http") {
+        value.trim_end_matches('/').to_string()
+    } else {
+        format!("https://{}", value.trim_end_matches('/'))
+    })
 }
 
 fn random_password() -> Result<String, String> {

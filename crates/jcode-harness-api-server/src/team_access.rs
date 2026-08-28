@@ -93,6 +93,9 @@ pub fn revoke(email: &str) -> Result<bool> {
     if removed_tickets {
         write_owner_only(&tickets_path, &serde_json::to_vec(&tickets)?)?;
     }
+    if removed_token || removed_tickets {
+        clear_team_metadata(email.to_string());
+    }
     Ok(removed_token || removed_tickets)
 }
 
@@ -153,68 +156,103 @@ fn clerk_secret() -> Option<String> {
     None
 }
 
-async fn send_clerk_invitation(
-    email: &str,
-    redirect_url: &str,
-    metadata: &Value,
-) -> Result<(), String> {
+/// Stamp the team onto the invitee's Clerk USER — creating the user if the
+/// address is new. Their next sign-in (email + code, on ANY machine) then
+/// carries the team in public_metadata and the app attaches it
+/// automatically. This replaced Clerk INVITATIONS: their browser accept
+/// flow burned tickets, stranded people on web pages, and only worked for
+/// addresses without an account. The whole invitee UX is entering a code.
+async fn stamp_team_on_user(email: &str, metadata: &Value) -> Result<(), String> {
     let Some(secret) = clerk_secret() else {
         return Err("no Clerk key at ~/.jcode/clerk.env — share the join link manually".into());
     };
     let client = reqwest::Client::new();
-    let response = create_invitation(&client, &secret, email, redirect_url, metadata).await?;
+    // Retire any legacy pending invitation for this address (best-effort):
+    // its email carries a dead browser flow.
+    revoke_pending_invitations(&client, &secret, email).await;
+    let response = client
+        .get("https://api.clerk.com/v1/users")
+        .query(&[("email_address", email)])
+        .bearer_auth(&secret)
+        .send()
+        .await
+        .map_err(|e| format!("Clerk request failed: {e}"))?;
+    let users: Value = response
+        .json()
+        .await
+        .map_err(|e| format!("Clerk user lookup unreadable: {e}"))?;
+    let list = users
+        .as_array()
+        .cloned()
+        .or_else(|| users.get("data").and_then(|d| d.as_array()).cloned())
+        .unwrap_or_default();
+    let response = if let Some(id) = list.first().and_then(|u| u["id"].as_str()) {
+        // PATCH /users/{id}/metadata merges top-level public_metadata keys,
+        // so this sets blaude_team without clobbering anything else.
+        client
+            .patch(format!("https://api.clerk.com/v1/users/{id}/metadata"))
+            .bearer_auth(&secret)
+            .json(&json!({ "public_metadata": metadata }))
+            .send()
+            .await
+    } else {
+        client
+            .post("https://api.clerk.com/v1/users")
+            .bearer_auth(&secret)
+            .json(&json!({
+                "email_address": [email],
+                "public_metadata": metadata,
+                "skip_password_requirement": true,
+            }))
+            .send()
+            .await
+    }
+    .map_err(|e| format!("Clerk request failed: {e}"))?;
     let status = response.status();
     if status.is_success() {
         return Ok(());
     }
     let body = response.text().await.unwrap_or_default();
-    if status.as_u16() == 422 {
-        // Clerk refuses invitations for already-registered addresses; access
-        // is still issued — the join link is the path for existing users.
-        return Err(
-            "that address already has an account, so no email was sent — share the join link instead"
-                .into(),
-        );
-    }
-    if status.as_u16() == 400 && body.contains("duplicate_record") {
-        // A pending invitation already exists — and its email may carry a
-        // STALE redirect (an old host, a burned ticket). Counting that as
-        // success silently leaves the teammate holding a dead link (it did,
-        // live). A re-invite means "send a working link": revoke the old
-        // invitation and create a fresh one with THIS redirect.
-        revoke_pending_invitations(&client, &secret, email).await;
-        let retry = create_invitation(&client, &secret, email, redirect_url, metadata).await?;
-        if retry.status().is_success() {
-            return Ok(());
-        }
-        return Err(format!(
-            "Clerk invitation failed after revoking the old one (HTTP {})",
-            retry.status()
-        ));
-    }
-    Err(format!("Clerk invitation failed (HTTP {status})"))
+    Err(format!(
+        "Clerk refused the invite (HTTP {status}): {}",
+        body.chars().take(200).collect::<String>()
+    ))
 }
 
-async fn create_invitation(
-    client: &reqwest::Client,
-    secret: &str,
-    email: &str,
-    redirect_url: &str,
-    metadata: &Value,
-) -> Result<reqwest::Response, String> {
-    client
-        .post("https://api.clerk.com/v1/invitations")
-        .bearer_auth(secret)
-        // public_metadata lands on the signed-up user, so the app can join
-        // the team the moment sign-in completes — no links, no pasting.
-        .json(&json!({
-            "email_address": email,
-            "redirect_url": redirect_url,
-            "public_metadata": metadata,
-        }))
-        .send()
-        .await
-        .map_err(|e| format!("Clerk request failed: {e}"))
+/// Best-effort removal of the team stamp when a member is revoked, so
+/// their next sign-in doesn't auto-join with a dead ticket.
+fn clear_team_metadata(email: String) {
+    let Some(secret) = clerk_secret() else { return };
+    // revoke() is sync; only detach the Clerk call when a runtime exists
+    // (it always does on the ws path — this guards future callers).
+    let Ok(handle) = tokio::runtime::Handle::try_current() else { return };
+    handle.spawn(async move {
+        let client = reqwest::Client::new();
+        let Ok(response) = client
+            .get("https://api.clerk.com/v1/users")
+            .query(&[("email_address", email.as_str())])
+            .bearer_auth(&secret)
+            .send()
+            .await
+        else {
+            return;
+        };
+        let Ok(users) = response.json::<Value>().await else { return };
+        let list = users
+            .as_array()
+            .cloned()
+            .or_else(|| users.get("data").and_then(|d| d.as_array()).cloned())
+            .unwrap_or_default();
+        if let Some(id) = list.first().and_then(|u| u["id"].as_str()) {
+            let _ = client
+                .patch(format!("https://api.clerk.com/v1/users/{id}/metadata"))
+                .bearer_auth(&secret)
+                // null deletes the key under Clerk's merge semantics.
+                .json(&json!({ "public_metadata": { "blaude_team": null } }))
+                .send()
+                .await;
+        }
+    });
 }
 
 /// Best-effort revoke of every pending invitation for `email` — the prelude
@@ -291,10 +329,13 @@ pub async fn invite(
         "ws_url": ws_endpoint(host),
         "ticket": ticket,
     }});
+    // "emailed" now means "their sign-in will attach the team": the stamp
+    // landed on the Clerk user (created if new). The code they enter at
+    // sign-in is the entire join UX; the join link is only a fallback.
     let mut emailed = false;
     let mut email_error: Option<String> = None;
     if send_email {
-        match send_clerk_invitation(email, &join_url, &metadata).await {
+        match stamp_team_on_user(email, &metadata).await {
             Ok(()) => emailed = true,
             Err(error) => email_error = Some(error),
         }
@@ -302,7 +343,8 @@ pub async fn invite(
     Ok(json!({
         "email": email,
         "ws_url": ws_endpoint(host),
-        // The join link is the credential: redeeming it mints the bearer.
+        // The join link is the fallback credential: redeeming it mints the
+        // bearer without an account.
         "token": "",
         "join_url": join_url,
         "emailed": emailed,
