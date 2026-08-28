@@ -428,39 +428,12 @@ fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
 /// same network gets a full session UI from the very port the API lives on.
 const PHONE_PAGE: &str = include_str!("../assets/phone.html");
 
-/// Served at /join?ticket=… — the landing page of an invitation email. The
-/// grant (member email + bearer token) is injected server-side after the
-/// one-time ticket is burned; the page stores the token for the phone client
-/// and shows the desktop join blob.
-const JOIN_PAGE: &str = include_str!("../assets/join.html");
-
-/// Serve the phone page (or health/404) to a non-upgrade HTTP request.
-async fn serve_http<S: AsyncRead + AsyncWrite + Unpin>(mut tcp: S, head: &str) -> Result<()> {
-    let target = head.split_whitespace().nth(1).unwrap_or("/");
-    let path = target.split('?').next().unwrap_or("/");
-    let join_page;
-    let (status, body, content_type) = match path {
-        "/" | "/index.html" => ("200 OK", PHONE_PAGE, "text/html; charset=utf-8"),
-        "/health" => ("200 OK", "ok", "text/plain"),
-        "/join" => {
-            let ticket = target
-                .split_once('?')
-                .map(|(_, query)| query)
-                .unwrap_or("")
-                .split('&')
-                .find_map(|pair| pair.strip_prefix("ticket="))
-                .unwrap_or("");
-            match claim_join_ticket(ticket) {
-                Some(grant) => {
-                    join_page = JOIN_PAGE.replace("/*GRANT*/null", &grant);
-                    ("200 OK", join_page.as_str(), "text/html; charset=utf-8")
-                }
-                // No usable ticket — including Clerk's accept redirect,
-                // which strips our query params. Not an error for the
-                // person: the app IS the join flow now.
-                None => (
-                    "200 OK",
-                    r#"<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+/// Served at /join — the landing page of an invitation link. It NEVER
+/// claims the ticket: a browser visit used to burn the one-time credential
+/// (stranding the app's auto-join at sign-in, which is the only claimer
+/// now, via /join/claim) and dropped invitees into the embedded web client
+/// instead of the desktop flow. The page only points at the app.
+const JOIN_INSTRUCTIONS: &str = r#"<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Join your team on blaude</title>
 <body style="margin:0;display:grid;place-items:center;min-height:100vh;background:#111;color:#eee;font:16px/1.6 -apple-system,system-ui,sans-serif">
 <div style="max-width:30rem;padding:2rem">
@@ -472,11 +445,19 @@ async fn serve_http<S: AsyncRead + AsyncWrite + Unpin>(mut tcp: S, head: &str) -
 <li>That's it — your team attaches itself.</li>
 </ol>
 <p style="color:#999;font-size:.85rem">Already signed in with a different email? Ask your teammate for a fresh invite to the right address.</p>
-</div>"#,
-                    "text/html; charset=utf-8",
-                ),
-            }
-        }
+</div>"#;
+
+/// Serve the phone page (or health/404) to a non-upgrade HTTP request.
+async fn serve_http<S: AsyncRead + AsyncWrite + Unpin>(mut tcp: S, head: &str) -> Result<()> {
+    let target = head.split_whitespace().nth(1).unwrap_or("/");
+    let path = target.split('?').next().unwrap_or("/");
+    let join_page;
+    let (status, body, content_type) = match path {
+        "/" | "/index.html" => ("200 OK", PHONE_PAGE, "text/html; charset=utf-8"),
+        "/health" => ("200 OK", "ok", "text/plain"),
+        // Ticket or not, a browser visit gets instructions only — the
+        // ticket stays unburned for the app's /join/claim at sign-in.
+        "/join" => ("200 OK", JOIN_INSTRUCTIONS, "text/html; charset=utf-8"),
         // The app's machine-readable claim: same one-time semantics, JSON
         // body ({"email","token"}) instead of the join page.
         "/join/claim" => {
@@ -754,12 +735,11 @@ mod ws_tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
-    /// A join ticket claims exactly once: the first GET gets the member's
-    /// grant; the second gets the sign-in-instead instructions (Clerk's
-    /// accept redirect strips query params, so a ticketless/burned visit is
-    /// a normal landing, not an error).
+    /// A browser visit to /join NEVER burns the ticket (it used to, which
+    /// stranded the app's auto-join and dropped invitees into the web
+    /// client). Only the app's /join/claim redeems it — exactly once.
     #[tokio::test(flavor = "multi_thread")]
-    async fn join_ticket_claims_once() {
+    async fn join_page_never_claims_and_claim_burns_once() {
         let _guard = crate::jcode_home_test_lock();
         let home = std::env::temp_dir().join(format!("jcode-join-test-{}", std::process::id()));
         std::fs::create_dir_all(&home).unwrap();
@@ -790,14 +770,17 @@ mod ws_tests {
             tcp.read_to_end(&mut body).await.unwrap();
             String::from_utf8_lossy(&body).to_string()
         };
-        let first = fetch("/join?ticket=ticket-abcdef1234567890".to_string()).await;
-        assert!(first.starts_with("HTTP/1.1 200"), "{}", &first[..60]);
-        assert!(first.contains("member-jo-token"), "grant embedded");
-        assert!(first.contains("jo@example.com"));
-        let second = fetch("/join?ticket=ticket-abcdef1234567890".to_string()).await;
-        assert!(second.starts_with("HTTP/1.1 200"), "{}", &second[..60]);
-        assert!(second.contains("Sign in with the email"), "instructions page");
-        assert!(!second.contains("member-jo-token"), "no grant on a burned ticket");
+        let page = fetch("/join?ticket=ticket-abcdef1234567890".to_string()).await;
+        assert!(page.starts_with("HTTP/1.1 200"), "{}", &page[..60]);
+        assert!(page.contains("Sign in with the email"), "instructions page");
+        assert!(!page.contains("member-jo-token"), "browser visit must not mint a grant");
+        let claim = fetch("/join/claim?ticket=ticket-abcdef1234567890".to_string()).await;
+        assert!(claim.starts_with("HTTP/1.1 200"), "the page left the ticket unburned: {}", &claim[..60]);
+        assert!(claim.contains("member-jo-token"), "grant JSON for the app");
+        assert!(claim.contains("jo@example.com"));
+        let burned = fetch("/join/claim?ticket=ticket-abcdef1234567890".to_string()).await;
+        assert!(burned.starts_with("HTTP/1.1 410"), "one-time: {}", &burned[..60]);
+        assert!(!burned.contains("member-jo-token"));
 
         match previous {
             Some(value) => unsafe { std::env::set_var("JCODE_HOME", value) },
