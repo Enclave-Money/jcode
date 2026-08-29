@@ -373,6 +373,12 @@ pub enum ErrorCode {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct SessionInfo {
     pub session_id: String,
+    /// Real user messages, EXCLUDING the synthetic `<system-reminder>`
+    /// session-context message every session opens with. `Some(0)` means an
+    /// untouched chat: it exists on the server but nobody has said anything
+    /// in it, so it is noise in a teammate's sidebar. `None` when unknown.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub user_messages: Option<u32>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub working_dir: Option<String>,
     /// The effective persisted display title. A custom rename takes precedence

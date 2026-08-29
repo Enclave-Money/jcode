@@ -818,6 +818,7 @@ impl BridgeState {
                             "idle".into()
                         },
                         transcript_bytes: Self::transcript_bytes(&session_id),
+                        user_messages: Self::user_message_count(&session_id),
                         last_active_ms: Self::session_modified_ms(&session_id),
                         archived: archive.sessions.contains_key(&session_id),
                         archived_at_ms: archive.sessions.get(&session_id).copied(),
@@ -1191,6 +1192,7 @@ impl BridgeState {
                         ApiEvent::Attached {
                             session: SessionInfo {
                                 transcript_bytes: Self::transcript_bytes(&session_id),
+                                user_messages: Self::user_message_count(&session_id),
                                 last_active_ms: Self::session_modified_ms(&session_id),
                                 session_id,
                                 working_dir: metadata
@@ -1843,6 +1845,34 @@ impl BridgeState {
     /// their characters would make the cheap call expensive. The file is
     /// almost entirely message content, so its size tracks the conversation
     /// closely enough for a client to size or sort by.
+    /// Real user messages in a session — the synthetic `<system-reminder>`
+    /// session-context message every session opens with does not count.
+    /// This is what separates "a chat someone actually used" from an
+    /// untouched one; size cannot (measured live: an untouched session is
+    /// 4471 bytes and a two-message conversation 4844).
+    fn user_message_count(session_id: &str) -> Option<u32> {
+        let path = Self::session_record_path(session_id)?;
+        let meta = std::fs::metadata(&path).ok()?;
+        // A large record plainly has conversation in it; don't pay to parse.
+        if meta.len() > 1_000_000 {
+            return Some(u32::MAX);
+        }
+        let raw = std::fs::read_to_string(&path).ok()?;
+        let value: serde_json::Value = serde_json::from_str(&raw).ok()?;
+        let messages = value.get("messages")?.as_array()?;
+        let count = messages
+            .iter()
+            .filter(|message| {
+                message.get("role").and_then(|r| r.as_str()) == Some("user")
+                    && !message
+                        .get("content")
+                        .map(|c| c.to_string().contains("<system-reminder>"))
+                        .unwrap_or(false)
+            })
+            .count();
+        Some(count as u32)
+    }
+
     fn transcript_bytes(session_id: &str) -> Option<u64> {
         let path = Self::session_record_path(session_id)?;
         std::fs::metadata(path).ok().map(|meta| meta.len())
