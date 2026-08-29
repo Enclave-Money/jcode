@@ -54,6 +54,10 @@ pub enum ApiEvent {
 
     /// Team member emails, plus invited-but-not-yet-joined emails.
     TeamMembers {
+        /// The account that owns this server, so a member's roster shows a
+        /// real owner instead of assuming it is whoever is looking.
+        #[serde(default, skip_serializing_if = "String::is_empty")]
+        owner: String,
         emails: Vec<String>,
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         pending: Vec<String>,

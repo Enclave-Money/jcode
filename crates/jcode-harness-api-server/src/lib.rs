@@ -705,7 +705,11 @@ where
                 // or revoke. The three verbs share one gate.
                 if matches!(
                     request["req"].as_str(),
-                    Some("invite_member") | Some("list_team_members") | Some("revoke_member")
+                    // list_team_members is deliberately NOT here: seeing who
+                    // you work with is not team MANAGEMENT. Refusing it left
+                    // an invited member staring at a roster containing only
+                    // themselves, labelled Owner.
+                    Some("invite_member") | Some("revoke_member")
                         | Some("create_team") | Some("team_create_status")
                         | Some("connect_github")
                         | Some("account_signin_start") | Some("account_signin_code")
@@ -911,6 +915,7 @@ where
                 if request["req"].as_str() == Some("list_team_members") {
                     let api_id = request["id"].as_u64().unwrap_or(0);
                     let frame = ServerFrame::reply(api_id, ApiEvent::TeamMembers {
+                        owner: blaude_account::identity().unwrap_or_default(),
                         emails: team_access::member_emails(),
                         pending: team_access::pending_invites(),
                     });
