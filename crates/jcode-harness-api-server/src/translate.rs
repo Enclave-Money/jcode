@@ -1860,20 +1860,52 @@ impl BridgeState {
         if meta.len() > 1_000_000 {
             return Some(u32::MAX);
         }
-        let raw = std::fs::read_to_string(&path).ok()?;
-        let value: serde_json::Value = serde_json::from_str(&raw).ok()?;
-        let messages = value.get("messages")?.as_array()?;
-        let count = messages
-            .iter()
-            .filter(|message| {
-                message.get("role").and_then(|r| r.as_str()) == Some("user")
-                    && !message
-                        .get("content")
-                        .map(|c| c.to_string().contains("<system-reminder>"))
-                        .unwrap_or(false)
-            })
-            .count();
-        Some(count as u32)
+        let mut count = 0u32;
+        if let Ok(raw) = std::fs::read_to_string(&path) {
+            if let Ok(value) = serde_json::from_str::<serde_json::Value>(&raw) {
+                if let Some(messages) = value.get("messages").and_then(|m| m.as_array()) {
+                    count += messages.iter().filter(|m| Self::is_real_user_message(m)).count() as u32;
+                }
+            }
+        }
+        if count > 0 {
+            return Some(count);
+        }
+        // The snapshot is only rewritten at checkpoints, so a LIVE
+        // conversation lives in the journal beside it. Reading just the
+        // snapshot reported a busy chat as untouched, and teammates never
+        // saw it (measured: snapshot 1378 bytes and empty while the journal
+        // held 4962 bytes of conversation).
+        let journal = path.with_extension("journal.jsonl");
+        let Ok(file) = std::fs::File::open(&journal) else {
+            return Some(0);
+        };
+        if journal.metadata().map(|m| m.len()).unwrap_or(0) > 5_000_000 {
+            return Some(u32::MAX);
+        }
+        use std::io::BufRead;
+        for line in std::io::BufReader::new(file).lines().map_while(Result::ok) {
+            let Ok(value) = serde_json::from_str::<serde_json::Value>(&line) else {
+                continue;
+            };
+            if let Some(appended) = value.get("append_messages").and_then(|m| m.as_array()) {
+                count += appended.iter().filter(|m| Self::is_real_user_message(m)).count() as u32;
+                if count > 0 {
+                    return Some(count);
+                }
+            }
+        }
+        Some(count)
+    }
+
+    /// A message a PERSON typed — not the synthetic session-context reminder
+    /// every session opens with.
+    fn is_real_user_message(message: &serde_json::Value) -> bool {
+        message.get("role").and_then(|r| r.as_str()) == Some("user")
+            && !message
+                .get("content")
+                .map(|c| c.to_string().contains("<system-reminder>"))
+                .unwrap_or(false)
     }
 
     fn transcript_bytes(session_id: &str) -> Option<u64> {
