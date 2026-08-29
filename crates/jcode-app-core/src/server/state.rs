@@ -425,6 +425,33 @@ pub(super) async fn broadcast_presence(
     .await;
 }
 
+/// Tell EVERY attached client that the session list changed.
+///
+/// A brand-new session has no viewers of its own, so the session-scoped
+/// fanout can never carry it and clients were left to discover a teammate's
+/// new chat on a 12-second poll. This reaches everyone currently attached to
+/// anything on this runtime.
+pub(super) async fn broadcast_sessions_changed(
+    swarm_members: &Arc<RwLock<HashMap<String, SwarmMember>>>,
+    session_id: &str,
+) {
+    let targets: Vec<_> = {
+        let mut members = swarm_members.write().await;
+        let mut txs = Vec::new();
+        for member in members.values_mut() {
+            member.event_txs.retain(|_, tx| !tx.is_closed());
+            txs.extend(member.event_txs.values().cloned());
+        }
+        txs
+    };
+    let event = ServerEvent::SessionsChanged {
+        session_id: Some(session_id.to_string()),
+    };
+    for tx in targets {
+        let _ = tx.send(event.clone());
+    }
+}
+
 pub(super) async fn fanout_session_event(
     swarm_members: &Arc<RwLock<HashMap<String, SwarmMember>>>,
     session_id: &str,

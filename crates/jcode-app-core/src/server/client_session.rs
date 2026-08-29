@@ -410,6 +410,13 @@ async fn ensure_client_swarm_member(
         }
     }
 
+    if inserted {
+        // A new chat is news for the whole team, not just its (empty) set of
+        // viewers — push it so teammates see it immediately instead of on
+        // the next list poll.
+        super::state::broadcast_sessions_changed(swarm_members, client_session_id).await;
+    }
+
     if inserted && let Some(ref swarm_id_ref) = derived_swarm_id {
         let mut swarms = swarms_by_id.write().await;
         swarms

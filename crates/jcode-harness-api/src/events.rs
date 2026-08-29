@@ -53,6 +53,14 @@ pub enum ApiEvent {
     TeamCreateStatus { status: serde_json::Value },
 
     /// Team member emails, plus invited-but-not-yet-joined emails.
+    /// The runtime's session list changed (someone created a chat). Clients
+    /// refresh instead of waiting for their next poll.
+    #[serde(rename = "sessions_changed")]
+    SessionsChanged {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        session_id: Option<String>,
+    },
+
     TeamMembers {
         /// The account that owns this server, so a member's roster shows a
         /// real owner instead of assuming it is whoever is looking.

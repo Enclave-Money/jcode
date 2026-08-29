@@ -1056,6 +1056,16 @@ pub enum ServerEvent {
         by_user: Option<String>,
     },
 
+    /// A session appeared or changed on this runtime. Broadcast to EVERY
+    /// attached client, not just one session's viewers: a teammate's brand
+    /// new chat has nobody attached yet, so a session-scoped fanout can
+    /// never carry it and the list was left to a poll.
+    #[serde(rename = "sessions_changed")]
+    SessionsChanged {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        session_id: Option<String>,
+    },
+
     /// Who is attached to this session right now (multiplayer presence).
     /// Full snapshot on every change — trivially correct across reconnects.
     #[serde(rename = "presence")]

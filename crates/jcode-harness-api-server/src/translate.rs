@@ -1296,6 +1296,9 @@ impl BridgeState {
                     vec![]
                 }
             }
+            "sessions_changed" => vec![ServerFrame::event(ApiEvent::SessionsChanged {
+                session_id: event["session_id"].as_str().map(str::to_string),
+            })],
             "presence" => vec![ServerFrame::event(ApiEvent::Presence {
                 session_id: session(self),
                 viewers: event["viewers"]
