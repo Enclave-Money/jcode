@@ -410,6 +410,10 @@ pub(super) async fn broadcast_presence(
             .collect()
     };
     viewers.sort();
+    // One entry per PERSON, not per connection. A single app can hold more
+    // than one connection to a session (the live stream plus background
+    // polls), so the header counted two people as three.
+    viewers.dedup();
     let _ = fanout_session_event(
         swarm_members,
         session_id,
