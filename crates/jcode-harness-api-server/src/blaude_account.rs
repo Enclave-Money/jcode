@@ -146,36 +146,97 @@ pub fn me() -> Option<BlaudeAccountInfo> {
     serde_json::from_str(&raw).ok()
 }
 
+/// Only ONE invite refresh may be in flight.
+///
+/// The persisted credential is Clerk's ROTATING client token: every request
+/// returns a replacement and re-presenting a spent one is treated as token
+/// theft — Clerk revokes the client's sessions permanently. Two concurrent
+/// refreshes (a timer and a window-focus trigger firing together) therefore
+/// destroyed the very session they were reading, after which
+/// `/v1/client` answered 200 with `sessions: []` forever and no invite
+/// could ever be delivered to a signed-in machine. Verified from the token
+/// claims ({id, rotating_token}, no sid) and a live 401 on /v1/me.
+fn refresh_lock() -> &'static tokio::sync::Mutex<()> {
+    static LOCK: OnceLock<tokio::sync::Mutex<()>> = OnceLock::new();
+    LOCK.get_or_init(|| tokio::sync::Mutex::new(()))
+}
+
 /// Re-read the signed-in user from Clerk and return any team stamped on it
-/// since sign-in. Best-effort and quick: on any miss (no session, network,
-/// expired) the answer is simply None.
+/// since sign-in. Every outcome is logged: this runs on the bridge, whose
+/// stdout lands in ~/Library/Logs/Blaude/bridge.log, and a silent `None`
+/// made "you have no invite" and "I could not check" indistinguishable —
+/// which is exactly how a broken invite path stayed invisible.
 pub async fn refresh_team_invite() -> Option<Value> {
-    let base = fapi_base().ok()?;
-    let jwt = load_client_jwt()?;
+    let _guard = refresh_lock().lock().await;
+    let base = match fapi_base() {
+        Ok(base) => base,
+        Err(e) => {
+            eprintln!("blaude account: invite check skipped — {e}");
+            return None;
+        }
+    };
+    let Some(jwt) = load_client_jwt() else {
+        eprintln!("blaude account: invite check skipped — no saved session (sign in again to receive invites)");
+        return None;
+    };
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(6))
         .build()
         .ok()?;
-    let resp = client
+    let resp = match client
         .get(format!("{base}/v1/client?_is_native=1"))
         .header("Authorization", &jwt)
         .send()
         .await
-        .ok()?;
+    {
+        Ok(resp) => resp,
+        Err(e) => {
+            eprintln!("blaude account: invite check failed to reach Clerk — {e}");
+            return None;
+        }
+    };
+    let status = resp.status();
+    // Persist the replacement BEFORE parsing: dropping it here is what
+    // leaves a spent token on disk for the next call to present.
     if let Some(rotated) = resp.headers().get("authorization").and_then(|v| v.to_str().ok()) {
         save_client_jwt(rotated);
     }
-    let body: Value = resp.json().await.ok()?;
-    let user = response_obj(&body)
+    let body: Value = match resp.json().await {
+        Ok(body) => body,
+        Err(e) => {
+            eprintln!("blaude account: invite check got an unreadable reply (HTTP {status}) — {e}");
+            return None;
+        }
+    };
+    let sessions = response_obj(&body)
         .get("sessions")
         .and_then(|s| s.as_array())
-        .and_then(|s| s.last())
-        .and_then(|s| s.get("user"))
-        .cloned()?;
-    user.get("public_metadata")
+        .cloned()
+        .unwrap_or_default();
+    if sessions.is_empty() {
+        eprintln!(
+            "blaude account: invite check found NO ACTIVE SESSION (HTTP {status}) — this machine \
+             cannot receive team invites until you sign out and sign in again"
+        );
+        return None;
+    }
+    let Some(user) = sessions.last().and_then(|s| s.get("user")).cloned() else {
+        eprintln!("blaude account: invite check got a session without a user (HTTP {status})");
+        return None;
+    };
+    let invite = user
+        .get("public_metadata")
         .and_then(|m| m.get("blaude_team"))
         .filter(|t| t.get("ws_url").and_then(|u| u.as_str()).is_some_and(|u| !u.is_empty()))
-        .cloned()
+        .cloned();
+    match &invite {
+        Some(t) => eprintln!(
+            "blaude account: invite check found team {}",
+            t.get("name").and_then(|n| n.as_str()).unwrap_or("(unnamed)")
+        ),
+        None => eprintln!("blaude account: invite check ok — no team on this account"),
+    }
+    invite
 }
 
 /// The email IS the user identifier. Everything that names a person —
