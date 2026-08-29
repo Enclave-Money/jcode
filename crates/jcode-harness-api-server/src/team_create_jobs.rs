@@ -613,6 +613,12 @@ WorkingDirectory=$H/team
 Environment=HOME=$H
 Environment=JCODE_RUNTIME_DIR=$H/.jcode/runtime
 Environment=JCODE_IDLE_TIMEOUT_SECS=0
+# Boot even with no AI account configured. A team server is provisioned
+# BEFORE anyone connects a provider, and refusing to start left the daemon
+# crash-looping so nothing worked at all: no sessions, no chats, no
+# presence — none of which need a model. Turns fail with a clear message
+# until an account is added; everything else works.
+Environment=JCODE_DEFERRED_AUTH_BOOTSTRAP=1
 ExecStart=$H/blaude --provider auto serve
 Restart=always
 RestartSec=2
