@@ -326,8 +326,13 @@ pub async fn start(email: &str, resend: bool) -> Result<String, String> {
         }
     }
 
+    // Clerk's client token ROTATES on every request and a re-used one is
+    // treated as theft (the session is revoked). Every hop below must
+    // therefore carry the newest token forward — dropping a rotation and
+    // re-presenting an older token is what killed sessions the instant an
+    // account was created.
     let (body, jwt) = fapi_post(&base, "sign_ins", None, &[("identifier", &email)]).await?;
-    let jwt = jwt.unwrap_or_default();
+    let mut current = jwt.unwrap_or_default();
     let not_found = body
         .get("errors")
         .and_then(|e| e.as_array())
@@ -339,7 +344,8 @@ pub async fn start(email: &str, resend: bool) -> Result<String, String> {
     if not_found {
         // New person: sign them UP with the same email-code ceremony.
         let (body, jwt2) =
-            fapi_post(&base, "sign_ups", Some(&jwt), &[("email_address", &email)]).await?;
+            fapi_post(&base, "sign_ups", Some(&current), &[("email_address", &email)]).await?;
+        if let Some(rotated) = jwt2.clone() { current = rotated; }
         if let Some(msg) = clerk_error(&body) {
             return Err(msg);
         }
@@ -349,14 +355,14 @@ pub async fn start(email: &str, resend: bool) -> Result<String, String> {
             .and_then(|v| v.as_str())
             .ok_or("sign-up didn't start — try again")?
             .to_string();
-        let jwt = jwt2.unwrap_or(jwt);
-        let (body, _) = fapi_post(
+        let (body, rotated) = fapi_post(
             &base,
             &format!("sign_ups/{id}/prepare_verification"),
-            Some(&jwt),
+            Some(&current),
             &[("strategy", "email_code")],
         )
         .await?;
+        if let Some(rotated) = rotated { current = rotated; }
         if let Some(msg) = clerk_error(&body) {
             return Err(msg);
         }
@@ -365,7 +371,7 @@ pub async fn start(email: &str, resend: bool) -> Result<String, String> {
             Pending {
                 kind: PendingKind::SignUp,
                 attempt_id: id.clone(),
-                client_jwt: jwt,
+                client_jwt: current,
                 email,
                 created_ms: epoch_ms(),
             },
@@ -393,13 +399,14 @@ pub async fn start(email: &str, resend: bool) -> Result<String, String> {
             })
         })
         .ok_or("this account can't sign in with an emailed code")?;
-    let (body, _) = fapi_post(
+    let (body, rotated) = fapi_post(
         &base,
         &format!("sign_ins/{id}/prepare_first_factor"),
-        Some(&jwt),
+        Some(&current),
         &[("strategy", "email_code"), ("email_address_id", &email_address_id)],
     )
     .await?;
+    if let Some(rotated) = rotated { current = rotated; }
     if let Some(msg) = clerk_error(&body) {
         return Err(msg);
     }
@@ -408,7 +415,7 @@ pub async fn start(email: &str, resend: bool) -> Result<String, String> {
         Pending {
             kind: PendingKind::SignIn,
             attempt_id: id.clone(),
-            client_jwt: jwt,
+            client_jwt: current,
             email,
             created_ms: epoch_ms(),
         },
@@ -437,19 +444,20 @@ pub async fn finish(
         (path, p.client_jwt.clone(), p.email.clone(), matches!(p.kind, PendingKind::SignUp))
     };
     let code = code.trim();
+    let mut current = jwt;
     let (body, jwt_rotated) = fapi_post(
         &base,
         &path,
-        Some(&jwt),
+        Some(&current),
         &[("strategy", "email_code"), ("code", code)],
     )
     .await?;
+    if let Some(rotated) = jwt_rotated {
+        current = rotated;
+    }
     if let Some(msg) = clerk_error(&body) {
         return Err(msg);
     }
-    // Persist the client session: later refreshes of the user (how a new
-    // invite reaches this signed-in machine) authenticate with it.
-    save_client_jwt(jwt_rotated.as_deref().unwrap_or(&jwt));
     let mut body = body;
     let mut attempt = response_obj(&body);
     let mut status = attempt.get("status").and_then(|v| v.as_str()).unwrap_or("").to_string();
@@ -465,14 +473,17 @@ pub async fn finish(
             .unwrap_or(false);
         if needs_password {
             let pw = random_password()?;
-            let (body2, _) = fapi_send(
+            let (body2, rotated) = fapi_send(
                 reqwest::Method::PATCH,
                 &base,
                 &format!("sign_ups/{pending_id}"),
-                Some(&jwt),
+                Some(&current),
                 &[("password", pw.as_str())],
             )
             .await?;
+            if let Some(rotated) = rotated {
+                current = rotated;
+            }
             if let Some(msg) = clerk_error(&body2) {
                 return Err(msg);
             }
@@ -484,6 +495,10 @@ pub async fn finish(
     if status != "complete" {
         return Err("that code didn't finish the sign-in — try again".into());
     }
+    // Save LAST: persisting mid-flow stored a token that a later step in the
+    // same sign-up (the password PATCH) then spent, so the file was already
+    // stale before the app ever used it.
+    save_client_jwt(&current);
     let user_id = if is_signup {
         attempt.get("created_user_id").and_then(|v| v.as_str()).unwrap_or("")
     } else {
