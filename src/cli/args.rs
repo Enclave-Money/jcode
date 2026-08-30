@@ -29,9 +29,9 @@ pub(crate) enum ProviderAuthArg {
 #[derive(Parser, Debug)]
 #[command(name = "blaude")]
 #[command(version = jcode_build_meta::version())]
-#[command(
-    about = "blaude: a terminal-native coding agent that pools your Claude and Codex subscriptions"
-)]
+// Not "pools your subscriptions": pooling is being removed in favour of each
+// teammate spending their own quota on their own work.
+#[command(about = "blaude: a terminal-native coding agent for Claude, Codex and more")]
 pub(crate) struct Args {
     /// Initial provider to use (jcode, claude, openai, openai-api, openrouter, azure, opencode, opencode-go, zai, 302ai, baseten, cortecs, orcarouter, comtegra, deepseek, fpt, firmware, huggingface, moonshotai, nebius, scaleway, stackit, groq, mistral, perplexity, togetherai, deepinfra, xai, grok-build, nvidia-nim, lmstudio, ollama, chutes, cerebras, alibaba-coding-plan, openai-compatible, cursor, copilot, gemini, antigravity, google, or auto-detect). Interactive sessions can switch providers with /model.
     #[arg(short, long, default_value = "auto", global = true)]
