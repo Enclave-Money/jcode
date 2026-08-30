@@ -584,6 +584,7 @@ mod auth_tool_smoke_tests {
             timestamp: None,
             tool_duration_ms: None,
             token_usage: None,
+            by_user: None,
         }
     }
 
