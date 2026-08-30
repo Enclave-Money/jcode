@@ -407,15 +407,10 @@ fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
     a.iter().zip(b).fold(0u8, |acc, (x, y)| acc | (x ^ y)) == 0
 }
 
-/// The embedded phone/web client, served on plain GET — a browser on the
-/// same network gets a full session UI from the very port the API lives on.
-const PHONE_PAGE: &str = include_str!("../assets/phone.html");
-
 /// Served at /join — the landing page of an invitation link. It NEVER
 /// claims the ticket: a browser visit used to burn the one-time credential
 /// (stranding the app's auto-join at sign-in, which is the only claimer
-/// now, via /join/claim) and dropped invitees into the embedded web client
-/// instead of the desktop flow. The page only points at the app.
+/// now, via /join/claim). The page only points at the app.
 const JOIN_INSTRUCTIONS: &str = r#"<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Join your team on blaude</title>
 <body style="margin:0;display:grid;place-items:center;min-height:100vh;background:#111;color:#eee;font:16px/1.6 -apple-system,system-ui,sans-serif">
@@ -430,13 +425,15 @@ const JOIN_INSTRUCTIONS: &str = r#"<!doctype html><meta charset="utf-8"><meta na
 <p style="color:#999;font-size:.85rem;margin-top:1rem">Invited at a different address? Ask your teammate to invite the email you actually use.</p>
 </div>"#;
 
-/// Serve the phone page (or health/404) to a non-upgrade HTTP request.
+/// Serve health, the join landing page, or a 404 to a non-upgrade HTTP
+/// request. There is deliberately no browser session UI here: blaude's client
+/// is the desktop app, and a second half-featured client sharing the API port
+/// was surface nobody asked for.
 async fn serve_http<S: AsyncRead + AsyncWrite + Unpin>(mut tcp: S, head: &str) -> Result<()> {
     let target = head.split_whitespace().nth(1).unwrap_or("/");
     let path = target.split('?').next().unwrap_or("/");
     let join_page;
     let (status, body, content_type) = match path {
-        "/" | "/index.html" => ("200 OK", PHONE_PAGE, "text/html; charset=utf-8"),
         "/health" => ("200 OK", "ok", "text/plain"),
         // Ticket or not, a browser visit gets instructions only — the
         // ticket stays unburned for the app's /join/claim at sign-in.
@@ -465,7 +462,7 @@ async fn serve_http<S: AsyncRead + AsyncWrite + Unpin>(mut tcp: S, head: &str) -
         }
         _ => (
             "404 Not Found",
-            "not found — the phone client lives at /, the API at /api",
+            "not found. The API lives at /api; open a team in the blaude app.",
             "text/plain",
         ),
     };
@@ -489,8 +486,8 @@ where
     S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
 {
     // Read the request head, then REPLAY it: a websocket handshake gets the
-    // bytes back through PrefixedStream, a plain browser GET gets the
-    // embedded phone client instead of a refusal. (TLS streams cannot peek.)
+    // bytes back through PrefixedStream, a plain browser GET gets an HTTP
+    // answer instead of a refusal. (TLS streams cannot peek.)
     let mut head = Vec::with_capacity(1024);
     let mut chunk = [0u8; 1024];
     // Bound the whole head read: a peer that opens a socket and sends bytes
@@ -650,40 +647,45 @@ mod ws_tests {
         assert!(format!("{error}").contains("401"));
     }
 
-    /// A plain browser GET gets the embedded phone client, not a websocket
-    /// refusal; unknown paths 404; the API path is untouched.
+    /// A plain browser GET gets no session UI. There used to be an embedded
+    /// web client on `/`; it was removed, and this pins that it stays removed
+    /// rather than quietly coming back with a dependency.
+    ///
+    /// `/health` still answers, because the deploy checks depend on it.
     #[tokio::test(flavor = "multi_thread")]
-    async fn plain_get_serves_the_phone_client() {
+    async fn plain_get_serves_no_web_client() {
         let addr = start("sekrit").await;
-        let mut tcp = tokio::net::TcpStream::connect(addr).await.unwrap();
-        tcp.write_all(b"GET / HTTP/1.1\r\nHost: x\r\n\r\n")
-            .await
-            .unwrap();
-        let mut body = Vec::new();
-        tcp.read_to_end(&mut body).await.unwrap();
-        let text = String::from_utf8_lossy(&body);
-        assert!(
-            text.starts_with("HTTP/1.1 200"),
-            "got: {}",
-            &text[..60.min(text.len())]
-        );
-        assert!(
-            text.contains("blaude-phone"),
-            "page should embed the client"
-        );
+
+        for path in ["/", "/index.html", "/nope"] {
+            let mut tcp = tokio::net::TcpStream::connect(addr).await.unwrap();
+            tcp.write_all(format!("GET {path} HTTP/1.1\r\nHost: x\r\n\r\n").as_bytes())
+                .await
+                .unwrap();
+            let mut body = Vec::new();
+            tcp.read_to_end(&mut body).await.unwrap();
+            let text = String::from_utf8_lossy(&body);
+            assert!(
+                text.starts_with("HTTP/1.1 404"),
+                "{path} should 404, got: {}",
+                &text[..60.min(text.len())]
+            );
+            assert!(
+                !text.contains("blaude-phone"),
+                "{path} must not serve the removed web client"
+            );
+        }
 
         let mut tcp = tokio::net::TcpStream::connect(addr).await.unwrap();
-        tcp.write_all(b"GET /nope HTTP/1.1\r\nHost: x\r\n\r\n")
+        tcp.write_all(b"GET /health HTTP/1.1\r\nHost: x\r\n\r\n")
             .await
             .unwrap();
         let mut body = Vec::new();
         tcp.read_to_end(&mut body).await.unwrap();
-        assert!(String::from_utf8_lossy(&body).starts_with("HTTP/1.1 404"));
+        assert!(String::from_utf8_lossy(&body).starts_with("HTTP/1.1 200"));
     }
 
     /// TLS end to end: a self-signed server cert, a client that trusts it,
-    /// and the same hello over wss:// — plus the phone page over https-style
-    /// plain GET through the TLS stream.
+    /// and the same hello over wss://.
     #[tokio::test(flavor = "multi_thread")]
     async fn wss_round_trips_with_native_tls() {
         let cert = rcgen::generate_simple_self_signed(vec!["localhost".into()]).unwrap();

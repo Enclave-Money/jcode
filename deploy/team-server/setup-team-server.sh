@@ -8,7 +8,7 @@
 #       [--tls-cert /path/cert.pem --tls-key /path/key.pem] \
 #       [--binary /path/to/blaude] [--dry-run]
 #
-# Self-signed cert? Apple clients (the desktop app, iPhones) require the
+# Self-signed cert? The desktop app requires the
 # serverAuth extended key usage or they reject the cert outright:
 #   openssl req -x509 -newkey rsa:2048 -keyout key.pem -out cert.pem -days 365 \
 #     -nodes -subj "/CN=blaude-team" \
@@ -21,8 +21,8 @@
 #   - the owner token is at ~/.jcode/api-ws-token
 #   - member tokens go in ~/.jcode/team-tokens.json {"email": "token"}
 #     (the blaude desktop app's Invite People writes this for you)
-#   - teammates: File > Join Team with wss://<host>:<port>/api + token,
-#     or open https://<host>:<port>/ on a phone
+#   - teammates: File > Join Team with wss://<host>:<port>/api + token
+
 set -eu
 
 BIND="0.0.0.0"
@@ -122,11 +122,10 @@ SERVICE
   fi
 fi
 
-SCHEME="ws"; PAGE_SCHEME="http"
-[ -n "$TLS_CERT" ] && SCHEME="wss" && PAGE_SCHEME="https"
+SCHEME="ws"
+[ -n "$TLS_CERT" ] && SCHEME="wss"
 HOST_HINT="$(hostname 2>/dev/null || echo '<host>')"
 echo
 echo "Team endpoint:   $SCHEME://$HOST_HINT:$PORT/api"
-echo "Phone client:    $PAGE_SCHEME://$HOST_HINT:$PORT/"
 echo "Owner token:     ~/.jcode/api-ws-token (created on first start)"
 echo "Member tokens:   ~/.jcode/team-tokens.json — or use the app's Invite People"
