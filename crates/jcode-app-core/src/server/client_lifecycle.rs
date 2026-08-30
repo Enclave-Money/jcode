@@ -825,6 +825,17 @@ pub(super) async fn handle_client(
             // Forward bus events to this client
             bus_event = bus_rx.recv(), if client_subscribed => {
                 match bus_event {
+                    // Carries its own session_id: this explains one session's
+                    // pause, and the layer above routes it to that session's
+                    // viewers rather than to everyone.
+                    Ok(BusEvent::WriteQueued(queued)) => {
+                        let _ = client_event_tx.send(ServerEvent::WriteQueued {
+                            session_id: queued.session_id.clone(),
+                            path: queued.path.display().to_string(),
+                            holder: queued.holder.clone(),
+                            depth: queued.depth as u32,
+                        });
+                    }
                     Ok(BusEvent::ModelsUpdated) => {
                         let Some(event) = try_available_models_updated_event(&agent) else {
                             crate::logging::info(&format!(

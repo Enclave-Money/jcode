@@ -92,6 +92,21 @@ pub fn queue_status(key: &Path) -> (usize, Option<String>) {
     }
 }
 
+/// Announce that `session_id`'s write is waiting on this repo's queue.
+///
+/// The session layer forwards this to the client, so a teammate whose turn has
+/// paused sees who is ahead of them rather than an unexplained stall.
+pub fn publish_wait(session_id: &str, path: &Path, depth: usize, holder: Option<String>) {
+    crate::bus::Bus::global().publish(crate::bus::BusEvent::WriteQueued(
+        crate::bus::WriteQueued {
+            session_id: session_id.to_string(),
+            path: path.to_path_buf(),
+            holder,
+            depth,
+        },
+    ));
+}
+
 /// Run `body` holding this path's repo write lock.
 ///
 /// `actor` names whoever is writing, so a teammate waiting behind this one can

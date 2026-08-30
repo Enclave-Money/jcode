@@ -101,12 +101,7 @@ impl Tool for EditTool {
             &path,
             Some(session.as_str()),
             |depth, holder| {
-                jcode_base::logging::info(&format!(
-                    "edit queued on {} behind {} ({} in queue)",
-                    path.display(),
-                    holder.as_deref().unwrap_or("another session"),
-                    depth
-                ));
+                super::write_queue::publish_wait(&session, &path, depth, holder);
             },
             || async {
                 let content = tokio::fs::read_to_string(&path).await?;

@@ -197,6 +197,14 @@ function onEvent(f) {
     case "user_message": streamEl = null; row("user", f.by_user || "teammate", f.content); break;
     case "team_note": noteRow(f.by_user || "teammate", f.content); break;
     case "presence": setViewers(f.viewers || []); break;
+    case "write_queued": {
+      // Session-scoped, so the filter above is right to gate it: this explains
+      // THIS session's pause, not somebody else's queue.
+      const name = (f.path || "").split("/").pop() || "a file";
+      const ahead = Math.max((f.depth || 1) - 1, 1);
+      row("event", "", "waiting to write " + name + " (" + ahead + " ahead)");
+      break;
+    }
     case "tool_start": streamEl = null; setWorking(true); row("tool", "", "▸ " + f.name); break;
     case "tool_done": break;
     case "turn_done": setWorking(false); streamEl = null; break;

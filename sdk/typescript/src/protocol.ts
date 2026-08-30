@@ -257,6 +257,18 @@ export type ApiEvent =
       session_id?: string;
     }
   | {
+      /**
+       * This session's write is waiting on another session's write to the same
+       * repo. Writes to a shared checkout are serialised per repo, so without
+       * this the turn just pauses with nothing explaining it.
+       */
+      ev: "write_queued";
+      session_id: string;
+      path: string;
+      holder?: string;
+      depth: number;
+    }
+  | {
       /** Full snapshot of who is attached to the session (multiplayer presence). */
       ev: "presence";
       session_id: string;
@@ -373,6 +385,7 @@ export const KNOWN_EVENT_KINDS = [
   "user_message",
   "permission_resolved",
   "sessions_changed",
+  "write_queued",
 ] as const;
 
 /** Every request tag the SDK can send. */

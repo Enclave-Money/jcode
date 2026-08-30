@@ -82,12 +82,7 @@ impl Tool for PatchTool {
                 &resolved_path,
                 Some(session.as_str()),
                 |depth, holder| {
-                    jcode_base::logging::info(&format!(
-                        "patch queued on {} behind {} ({} in queue)",
-                        resolved_path.display(),
-                        holder.as_deref().unwrap_or("another session"),
-                        depth
-                    ));
+                    super::write_queue::publish_wait(&session, &resolved_path, depth, holder);
                 },
                 || apply_patch_with_diff(&patch, &resolved_path),
             )

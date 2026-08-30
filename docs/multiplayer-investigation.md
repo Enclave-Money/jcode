@@ -181,14 +181,145 @@ Nothing here needs an emergency fix. Everything here needs 2C.
 
 ---
 
-## 1K–1N — not covered
+## 1K — team and session layer
 
-Not investigated: the team/session layer map (1K), workspace ownership analysis
-(1L), the realtime polling audit (1M), or testing infrastructure beyond what
-`auth-investigation.md` records (1N).
+### Identity already exists at the bridge
 
-One 1M-adjacent finding did surface from the test suite and is recorded in
-`auth-investigation.md`: `ApiEvent::sessions_changed` reaches Rust clients but
-is absent from both the TypeScript SDK and the phone web client
-(`phone.html:188-199`), so a teammate's new chat never appears on the phone
-until reload. That is a live regression against the realtime bar.
+This is the most useful fact in this section, because it is the hook everything
+else hangs off.
+
+`crates/jcode-harness-api-server/src/ws.rs:354` `authorize()` maps a presented
+bearer to `(identity, is_owner)`:
+
+- **Owner** — presents the `api-ws-token`, or connects over the local 0600 unix
+  socket. Identity is their blaude account email
+  (`ws.rs:378-380`), falling back to `$USER`.
+- **Member** — presents a token from `team-tokens.json`; identity is the email
+  that token is filed under (`ws.rs:382-386`).
+- Comparison is constant-time (`ws.rs:389-395`), so tokens are not guessable by
+  timing.
+
+That identity is then carried into the connection handler
+(`ws.rs:514`, `ws.rs:527`), so **every request already knows which human it
+belongs to**. Nothing new needs inventing to route a member to their own Linux
+user: the value is in hand at the moment the socket authenticates.
+
+### How a client routes to a session
+
+`translate.rs` holds one `session_id` per bridge connection
+(`translate.rs:90`). Attach sets it (`translate.rs:297-301`); requests naming a
+different session are rejected or re-routed (`translate.rs:323-325`,
+`translate.rs:472-476`). So the bridge connection *is* the session binding, and
+one connection sees one session at a time.
+
+### Where a shared account, home, or process is assumed
+
+| Assumption | Where | Note |
+|---|---|---|
+| One daemon socket for everyone | `ws.rs:527` passes a single `legacy_socket` to every connection | Every member's traffic is translated onto the same daemon |
+| One credential store | pooling writes to the daemon's own account store, `login_jobs.rs:298-310` | See `auth-investigation.md` §1A |
+| One `~/.jcode` | `permissions.rs:22-34` resolves the safety queue and history under one `jcode_dir()` | Permission prompts are therefore team-global, not per member |
+| One `~/.jcode/login-jobs` | `login_jobs.rs:68` | Pending sign-in secrets share a directory |
+| One Unix user | `deploy/team-server/setup-team-server.sh`, and the live box | Now addressed by `provision-member.sh` |
+
+The permissions one is worth calling out: because the safety queue is a single
+file-mediated store under one home (`permissions.rs:30`), a permission prompt
+raised by one member's agent is visible to, and answerable by, the whole team.
+Under per-user processes that store becomes per-user automatically, since it is
+home-relative. That is another thing the isolation work fixes for free.
+
+### Realtime path (1M)
+
+Audited for polling in the session, presence and team layer. One real instance:
+
+**Permission prompts are polled, not pushed.** `lib.rs:459`:
+
+```rust
+let mut permission_poll = tokio::time::interval(Duration::from_millis(900));
+```
+
+The comment at `lib.rs:456-457` explains why: permission prompts are
+"file-mediated by design", so the bridge polls the on-disk queue rather than
+receiving an event. Everything else on this path is push: sessions, messages,
+presence and team notes all arrive as `ServerEvent`s forwarded to clients.
+
+Against the stated bar this one qualifies as an architectural gap rather than a
+tuning problem, and the fix is to make `permissions::pending` publish on the bus
+the way other subsystems do, so `client_lifecycle.rs`'s existing bus-to-client
+forwarder can carry it. Not done here.
+
+The other `tokio::time::sleep` calls in that crate are retry backoff and
+settle delays, not polling loops.
+
+**Fan-out under per-user processes.** With one harness process per member, a
+message from A's process must still reach B's client. The seam is the bridge:
+today one bridge fans out to all connections because they all translate onto
+one daemon socket (`ws.rs:527`). Per-user daemons break that, so the bridge
+becomes the join point and must subscribe to every member's daemon rather than
+one. That is the specific place a future implementer will be tempted to
+substitute a poll, and it must not be.
+
+---
+
+## 1L — workspace ownership, decided
+
+Two options were weighed. **Option 1 chosen**: files owned by whoever creates
+them, shared through a setgid group.
+
+**Option 2 (one workspace owned by a service account, Linux users only for
+credential scoping) does not actually work.** Credential resolution is
+home-relative, so the agent must run *as* the individual to find their
+credentials. If it runs as the individual, the files it creates are owned by
+the individual, not the service account. Getting service-account ownership
+anyway needs a setuid helper or idmapped mounts on every write. That is a lot
+of moving parts to make ownership uniform, and uniform ownership was never the
+goal, only the means.
+
+Worked through against the criteria asked for:
+
+| Criterion | Option 1 (chosen) | Option 2 |
+|---|---|---|
+| Ownership churn | Mixed owners, one group. Cosmetic. | Uniform, but only via a helper on every write |
+| Git | Works with `core.sharedRepository=group`. Without it, A's objects are unwritable by B. | Uniform, but the helper must also run for git's own writes |
+| Commit authorship | From git config, unaffected either way | Same |
+| Backup | One tree | One tree |
+| User removal | Files must be reassigned or they orphan to a bare uid | Nothing to reassign |
+| Blast radius | A compromised session can write the shared tree | Identical: same tree, same group |
+| Write queue | Unaffected; the queue keys on repo path | Unaffected |
+
+Option 1's one real cost is orphaned files on user removal, and that is
+scripted: `deprovision-member.sh` reassigns them to `root:blaude` and keeps
+them group-writable.
+
+Option 2's blast radius is not actually smaller, which is the argument that
+usually motivates it. Both models put every member's agent in the same
+directory with write access. Uniform ownership hides who wrote what without
+preventing anything.
+
+**Reversal note:** if home-relative credential resolution ever stops being the
+mechanism, Option 2 becomes viable and the ownership churn argument flips.
+
+---
+
+## 1N — testing
+
+Covered in `auth-investigation.md`, including the 21 construction sites that
+stopped the workspace suite compiling and the four failures that were hiding
+behind that break.
+
+---
+
+## Known gaps
+
+- **1H (Swarm)** is answered in `auth-investigation.md`, not here: Swarm is
+  explicitly optimistic and lock-free (`SWARM_ARCHITECTURE.md:307-310`), so it
+  cannot serialise writes. Per-repo serialisation was built instead.
+- **Permission-prompt polling** (`lib.rs:459`) is diagnosed above but **not
+  fixed**. It needs `permissions::pending` to publish on the bus.
+- **Bridge fan-out across per-user daemons** is identified as the seam but not
+  implemented. Today's bridge assumes one daemon socket (`ws.rs:527`).
+- **`sessions_changed` on the web clients** was a live realtime regression and
+  **is fixed** (TypeScript SDK and `phone.html`), along with `write_queued`.
+- The live audit above could not test cross-user credential reads on the
+  production box, because it has one user. That was tested separately with two
+  provisioned members and is recorded in the `provision-member.sh` commit.

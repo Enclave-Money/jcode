@@ -74,12 +74,7 @@ impl Tool for WriteTool {
             &path,
             Some(session.as_str()),
             |depth, holder| {
-                jcode_base::logging::info(&format!(
-                    "write queued on {} behind {} ({} in queue)",
-                    path.display(),
-                    holder.as_deref().unwrap_or("another session"),
-                    depth
-                ));
+                super::write_queue::publish_wait(&session, &path, depth, holder);
             },
             || async {
                 let existed = path.exists();

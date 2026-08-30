@@ -115,6 +115,22 @@ pub struct FileTouch {
     pub detail: Option<String>,
 }
 
+/// An agent write is waiting on another session's write to the same repo.
+///
+/// Writes to a shared checkout are serialised per repo, so a teammate's turn can
+/// pause with nothing on screen explaining it. This says who is ahead of them
+/// and how many are queued, so the client can show a reason instead of a stall.
+#[derive(Clone, Debug)]
+pub struct WriteQueued {
+    /// The session that is waiting.
+    pub session_id: String,
+    pub path: PathBuf,
+    /// The session currently holding the repo's write queue, when known.
+    pub holder: Option<String>,
+    /// Writers on the queue, including the one holding it.
+    pub depth: usize,
+}
+
 /// Streaming output tail for a swarm worker session, used to render the inline
 /// swarm gallery's live viewports. The text is a short, already-truncated tail
 /// of the worker's in-progress assistant output (not the full transcript).
@@ -438,6 +454,8 @@ pub enum BusEvent {
     BatchProgress(BatchProgress),
     /// File was touched by an agent (for swarm conflict detection)
     FileTouch(FileTouch),
+    /// An agent write is queued behind another session's write to the same repo.
+    WriteQueued(WriteQueued),
     /// Streaming output tail from a swarm worker, for inline gallery viewports.
     SwarmOutputTail(SwarmOutputTail),
     /// Background task completed

@@ -334,6 +334,20 @@ pub enum ApiEvent {
         viewers: Vec<String>,
     },
 
+    /// This session's write is waiting on another session's write to the same
+    /// repo. Writes to a shared checkout are serialised per repo, so without
+    /// this the turn just pauses and the teammate sees an unexplained stall.
+    WriteQueued {
+        session_id: String,
+        /// The path being written, for "waiting to edit src/main.rs".
+        path: String,
+        /// The session holding the queue, when known.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        holder: Option<String>,
+        /// Writers on the queue, including the one holding it.
+        depth: u32,
+    },
+
     /// A team note from an attached client — human-only side discussion,
     /// excluded from the model's context. Never echoed to the sender.
     TeamNote {

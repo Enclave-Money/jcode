@@ -1299,6 +1299,12 @@ impl BridgeState {
             "sessions_changed" => vec![ServerFrame::event(ApiEvent::SessionsChanged {
                 session_id: event["session_id"].as_str().map(str::to_string),
             })],
+            "write_queued" => vec![ServerFrame::event(ApiEvent::WriteQueued {
+                session_id: session(self),
+                path: event["path"].as_str().unwrap_or_default().to_string(),
+                holder: event["holder"].as_str().map(str::to_string),
+                depth: event["depth"].as_u64().unwrap_or(0) as u32,
+            })],
             "presence" => vec![ServerFrame::event(ApiEvent::Presence {
                 session_id: session(self),
                 viewers: event["viewers"]

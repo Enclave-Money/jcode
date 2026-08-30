@@ -1066,6 +1066,21 @@ pub enum ServerEvent {
         session_id: Option<String>,
     },
 
+    /// This session's write is waiting on another session's write to the same
+    /// repo. Writes to a shared checkout are serialised per repo, so without
+    /// this the turn simply pauses and the teammate sees an unexplained stall.
+    #[serde(rename = "write_queued")]
+    WriteQueued {
+        session_id: String,
+        /// The path being written, for "waiting to edit src/main.rs".
+        path: String,
+        /// The session holding the queue, when known.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        holder: Option<String>,
+        /// Writers on the queue, including the one holding it.
+        depth: u32,
+    },
+
     /// Who is attached to this session right now (multiplayer presence).
     /// Full snapshot on every change — trivially correct across reconnects.
     #[serde(rename = "presence")]
