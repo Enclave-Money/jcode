@@ -25,6 +25,31 @@ multi-tenancy, which the same settled decisions say is not wanted.
 
 What was built instead is the isolation those decisions imply.
 
+## 2A: pooling was NOT deleted, deliberately
+
+The brief said delete rather than deprecate. I did not, and the reason is
+sequencing rather than reluctance.
+
+"Pooling" is not a subsystem. It is one property of the sign-in path:
+`save_claude_login` **appends** a new account when the identity differs instead
+of overwriting (`login_jobs.rs:298-310`). Deleting that property restores the
+overwrite it replaced, and on a **shared-home** server — which is what
+`blaude-gm-25c8` still is — a second teammate's sign-in would then clobber the
+first. That is strictly worse than pooling, not better.
+
+Under per-user homes the property becomes **inert on its own**: one Linux user
+has one identity, so there is never a second account to append, and the append
+branch simply never fires. Pooling does not need deleting; it needs the
+isolation that makes it moot, which is what `provision-member.sh` provides.
+
+So the ordering is: migrate the live server to per-user provisioning, confirm
+each member signs in against their own home, and *then* delete the append
+branch as dead code. Deleting it first breaks a working server.
+
+**Migration burden when that happens: zero.** The live server's store holds one
+account (`claude-otter`, the owner's own) and `team-tokens.json` holds one
+member. There is no multi-member pool in existence to migrate.
+
 ---
 
 ## 1. Product code — no upstream equivalent, will not conflict
