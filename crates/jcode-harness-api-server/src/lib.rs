@@ -50,7 +50,7 @@ use jcode_transport::{Listener, Stream, WriteHalf};
 /// The reader lives OUTSIDE the connection's `select!` loop on purpose:
 /// `AsyncBufReadExt::read_line` is not cancellation-safe (a dropped future
 /// discards bytes already pulled out of the BufReader), and the loop's other
-/// arms — a 900ms permission tick, every inbound client frame — fire
+/// arms — the safety-queue watch, every inbound client frame — fire
 /// constantly. Reading a multi-MB history/state line straight off a select
 /// arm therefore truncates and silently loses it. An mpsc receiver, by
 /// contrast, IS cancel-safe, so the loop can await it freely.

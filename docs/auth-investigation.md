@@ -507,16 +507,20 @@ examples entirely.
 > `ApiEvent::sessions_changed is missing from sdk/typescript/src/protocol.ts`
 
 `sessions_changed` was added by `23a8174` — *"push new chats over the socket
-instead of polling"*. It reaches Rust clients. It never reached the TypeScript
-SDK, and the phone web client does not handle it either: `phone.html:188-199`
-dispatches 11 event kinds and `sessions_changed` is not among them. There is no
-interval refresh in that file, and `list_sessions` is called once
-(`phone.html:146`).
+instead of polling"*. It reached Rust clients and neither of the other two: not
+the TypeScript SDK, and not the embedded web client, whose dispatch handled 11
+event kinds without it. On that client a teammate's new chat never appeared at
+all until the page was reloaded.
 
-So on the phone client, **a teammate's new chat never appears at all** until
-the page is reloaded. The realtime work landed for one client and silently
-missed the other, and the parity test that exists to catch exactly this has
-been failing invisibly behind the compile error.
+The realtime work landed for one client and silently missed the others, and the
+parity test that exists to catch exactly this had been failing invisibly behind
+the compile error.
+
+**Since resolved two ways.** `sessions_changed` was added to the TypeScript SDK,
+and **the embedded web client was deleted outright** — it was a second,
+half-featured client nobody asked for, and every new event meant maintaining a
+third surface alongside the app and the SDK. Keeping the parity test honest for
+two clients is tractable; three was the reason this slipped.
 
 **The other two are pre-existing and lower stakes:**
 

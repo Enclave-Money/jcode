@@ -243,10 +243,20 @@ The comment at `lib.rs:456-457` explains why: permission prompts are
 receiving an event. Everything else on this path is push: sessions, messages,
 presence and team notes all arrive as `ServerEvent`s forwarded to clients.
 
-Against the stated bar this one qualifies as an architectural gap rather than a
-tuning problem, and the fix is to make `permissions::pending` publish on the bus
-the way other subsystems do, so `client_lifecycle.rs`'s existing bus-to-client
-forwarder can carry it. Not done here.
+Against the stated bar this qualified as an architectural gap rather than a
+tuning problem.
+
+**Fixed.** My first idea — publish on the bus the way other subsystems do — is
+wrong, and worth recording so nobody tries it again: the queue is written by the
+**daemon** and read by the **bridge**, which are separate processes, so an
+in-process bus cannot carry it. The filesystem is the only channel available, so
+the fix is to watch it. `permissions::watch_queue` turns the poll into an
+OS-delivered event, with the interval kept at 30s purely as a safety net (1s if
+a watch cannot be established, so a platform without working file events still
+delivers prompts).
+
+It watches the directory rather than the file: `queue.json` is replaced by
+rename, and a watch pinned to the old inode goes deaf after the first write.
 
 The other `tokio::time::sleep` calls in that crate are retry backoff and
 settle delays, not polling loops.
@@ -314,12 +324,14 @@ behind that break.
 - **1H (Swarm)** is answered in `auth-investigation.md`, not here: Swarm is
   explicitly optimistic and lock-free (`SWARM_ARCHITECTURE.md:307-310`), so it
   cannot serialise writes. Per-repo serialisation was built instead.
-- **Permission-prompt polling** (`lib.rs:459`) is diagnosed above but **not
-  fixed**. It needs `permissions::pending` to publish on the bus.
+- **Permission-prompt polling** is **fixed**: a filesystem watch replaced the
+  900ms poll, since the daemon and bridge are separate processes and the
+  filesystem is the only channel between them.
 - **Bridge fan-out across per-user daemons** is identified as the seam but not
   implemented. Today's bridge assumes one daemon socket (`ws.rs:527`).
 - **`sessions_changed` on the web clients** was a live realtime regression and
-  **is fixed** (TypeScript SDK and `phone.html`), along with `write_queued`.
+  **is fixed** in the TypeScript SDK, along with `write_queued`. The embedded
+  web client that also missed it was **deleted** rather than fixed.
 - The live audit above could not test cross-user credential reads on the
   production box, because it has one user. That was tested separately with two
   provisioned members and is recorded in the `provision-member.sh` commit.
