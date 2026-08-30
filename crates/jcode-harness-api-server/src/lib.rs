@@ -463,12 +463,41 @@ where
     //    permission prompts reach API clients (they are file-mediated by
     //    design — see src/permissions.rs).
     let mut api_line = String::new();
-    let mut permission_poll = tokio::time::interval(std::time::Duration::from_millis(900));
+    // The queue is written by the DAEMON, a different process, so the
+    // filesystem is the only channel available. A watch makes that a push: the
+    // prompt reaches the client when it is written, not up to 900ms later.
+    let mut queue_watch = permissions::watch_queue();
+    if queue_watch.is_none() {
+        eprintln!(
+            "harness API bridge: no filesystem watch on the safety queue; \
+             permission prompts fall back to a 1s poll"
+        );
+    }
+    // A safety net, not the mechanism. When the watch is live this fires rarely
+    // and finds nothing new; when the watch could not be established it is the
+    // only thing keeping prompts flowing.
+    let mut permission_poll =
+        tokio::time::interval(std::time::Duration::from_secs(if queue_watch.is_some() {
+            30
+        } else {
+            1
+        }));
     permission_poll.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
     let mut announced_permissions: std::collections::HashSet<String> = Default::default();
     loop {
         tokio::select! {
-            _ = permission_poll.tick() => {
+            // The watch firing and the safety-net tick mean the same thing,
+            // "re-read the queue", so they resolve into ONE arm. Splitting them
+            // would need the drain body duplicated.
+            _ = async {
+                match queue_watch.as_mut() {
+                    Some(watch) => tokio::select! {
+                        _ = watch.rx.recv() => {}
+                        _ = permission_poll.tick() => {}
+                    },
+                    None => { permission_poll.tick().await; }
+                }
+            } => {
                 let Some(session_id) = state.session_id.clone() else { continue };
                 let pending = tokio::task::block_in_place(permissions::pending);
                 let current: std::collections::HashSet<String> =

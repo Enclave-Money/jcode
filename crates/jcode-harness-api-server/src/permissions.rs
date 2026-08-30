@@ -148,9 +148,94 @@ fn civil_from_days(z: i64) -> (i64, u32, u32) {
     (if m <= 2 { y + 1 } else { y }, m, d)
 }
 
+/// Fires whenever the safety queue may have changed.
+///
+/// The daemon writes `safety/queue.json` and the bridge reads it, and they are
+/// SEPARATE PROCESSES, so no in-process event can carry this: the filesystem is
+/// the channel. Watching it turns "re-read every 900ms" into an OS-delivered
+/// event, which is the difference between a prompt appearing instantly and
+/// appearing up to a second late.
+///
+/// Returns `None` when a watch cannot be established, so the caller can keep a
+/// slow safety-net tick rather than losing prompts entirely. The watch is on
+/// the DIRECTORY, not the file: `queue.json` is replaced by rename on most
+/// writes, and a watch pinned to the old inode would go deaf after the first
+/// one.
+pub fn watch_queue() -> Option<QueueWatch> {
+    use notify::{RecursiveMode, Watcher};
+
+    let dir = jcode_dir().join("safety");
+    // The watch cannot attach to a directory that does not exist yet, and a
+    // fresh runtime has no safety dir until its first gated tool.
+    std::fs::create_dir_all(&dir).ok()?;
+
+    let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
+    let mut watcher = notify::recommended_watcher(move |event: notify::Result<notify::Event>| {
+        if event.is_ok() {
+            // Coalescing is the receiver's job: this only says "look again".
+            let _ = tx.send(());
+        }
+    })
+    .ok()?;
+    watcher.watch(&dir, RecursiveMode::NonRecursive).ok()?;
+
+    Some(QueueWatch {
+        rx,
+        _watcher: Box::new(watcher),
+    })
+}
+
+/// A live watch on the safety queue. Holding it keeps the watch open; dropping
+/// it closes the watch, so it is owned per connection rather than leaked.
+pub struct QueueWatch {
+    pub rx: tokio::sync::mpsc::UnboundedReceiver<()>,
+    _watcher: Box<dyn std::any::Any + Send>,
+}
+
 #[cfg(test)]
 mod permission_file_tests {
     use super::*;
+
+    /// The watch must fire when the daemon writes the queue. If it does not,
+    /// prompts fall back to the safety-net tick and a teammate waits seconds
+    /// for a dialog, which is the polling behaviour this replaced.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn the_queue_watch_fires_when_a_request_is_written() {
+        let _guard = crate::jcode_home_test_lock();
+        let dir = std::env::temp_dir().join(format!("jcode-perm-watch-{}", std::process::id()));
+        std::fs::create_dir_all(dir.join("safety")).unwrap();
+        let previous = std::env::var_os("JCODE_HOME");
+        unsafe { std::env::set_var("JCODE_HOME", &dir) };
+
+        let mut watch = watch_queue().expect("a watch should be establishable on a temp dir");
+
+        std::fs::write(
+            dir.join("safety/queue.json"),
+            r#"[{"id":"req_watch","action":"bash","description":"x","rationale":"y","urgency":"low","wait":true,"created_at":"2026-08-23T00:00:00Z"}]"#,
+        )
+        .unwrap();
+
+        // Generous: filesystem events are not instantaneous and CI is slow.
+        // Still far under the 30s safety net, so a pass here means the WATCH
+        // delivered it and not the fallback tick.
+        let fired = tokio::time::timeout(std::time::Duration::from_secs(10), watch.rx.recv()).await;
+        assert!(
+            fired.is_ok(),
+            "the watch never fired for a queue write; prompts would be late"
+        );
+
+        // And the thing it woke us for is actually readable.
+        assert!(
+            pending().iter().any(|p| p.id == "req_watch"),
+            "the queued request should be visible once the watch fires"
+        );
+
+        match previous {
+            Some(value) => unsafe { std::env::set_var("JCODE_HOME", value) },
+            None => unsafe { std::env::remove_var("JCODE_HOME") },
+        }
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 
     #[test]
     fn decision_moves_request_from_queue_to_history() {

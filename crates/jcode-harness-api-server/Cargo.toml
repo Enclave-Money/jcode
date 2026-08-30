@@ -8,6 +8,10 @@ description = "Harness API endpoint: bridges versioned API clients onto the inte
 [dependencies]
 anyhow = "1"
 futures = "0.3"
+# Permission prompts are file-mediated between two PROCESSES (daemon and
+# bridge), so the filesystem is the channel: a watch turns a 900ms poll into an
+# OS-delivered event. Same crate the gitnexus reindex watcher uses.
+notify = "6"
 jcode-harness-api = { path = "../jcode-harness-api" }
 jcode-storage = { path = "../jcode-storage" }
 jcode-transport = { path = "../jcode-transport" }
