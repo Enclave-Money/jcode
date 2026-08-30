@@ -226,9 +226,15 @@ is `runtime_dir()/jcode-api.sock`
 
 So if teammate A and teammate B are separate Linux users, they get separate
 sockets, separate daemons, separate `JCODE_HOME`, separate account stores —
-**with no code change at all.** On systemd, `/run/user/<uid>` is mode 0700, so
-the isolation is enforced by the kernel, which is the "fails closed" property
-you wanted.
+**with no code change at all.**
+
+> **Corrected by the live audit** (see `multiplayer-investigation.md` §1J).
+> The deployed server sets `JCODE_RUNTIME_DIR=/home/<user>/.jcode/runtime`
+> explicitly, so `runtime_dir()` takes its *first* branch and never consults
+> `$XDG_RUNTIME_DIR`; `/run/user/1000/` holds no blaude socket. The conclusion
+> stands — the path is home-relative, so it is still per-user, and the sockets
+> are `srw-------` (0600) on the inode, which the kernel enforces at
+> `connect()`. But the mechanism is the explicit override, not XDG.
 
 One harness process per Linux user is not a fallback. It is the grain of the
 existing code. The current single-daemon deployment is what fights it.
