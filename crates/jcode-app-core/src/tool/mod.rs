@@ -37,6 +37,7 @@ mod todo;
 mod webfetch;
 mod websearch;
 mod write;
+pub mod write_queue;
 
 use crate::compaction::CompactionManager;
 use crate::provider::Provider;

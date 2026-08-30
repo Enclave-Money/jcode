@@ -190,15 +190,23 @@ async fn handle_clear_session_replaces_runtime_handles_and_updates_shutdown_regi
     registered_signal.fire();
     assert!(new_cancel_signal.is_set());
 
-    let first = client_event_rx
-        .recv()
-        .await
-        .ok_or_else(|| anyhow!("session id event"))?;
-    assert!(matches!(first, ServerEvent::SessionId { .. }));
-    let second = client_event_rx
-        .recv()
-        .await
-        .ok_or_else(|| anyhow!("done event"))?;
-    assert!(matches!(second, ServerEvent::Done { id: 7 }));
+    // `SessionsChanged` is a broadcast about the runtime's session list, not a
+    // reply to this request, so it can arrive anywhere in this stream. What
+    // this test pins is the ordering of the DIRECT replies: the new session id,
+    // then Done. Asserting on the raw first frame made a legitimate broadcast
+    // look like a regression.
+    let mut replies = Vec::new();
+    while replies.len() < 2 {
+        let event = client_event_rx
+            .recv()
+            .await
+            .ok_or_else(|| anyhow!("expected session id and done events"))?;
+        if matches!(event, ServerEvent::SessionsChanged { .. }) {
+            continue;
+        }
+        replies.push(event);
+    }
+    assert!(matches!(replies[0], ServerEvent::SessionId { .. }));
+    assert!(matches!(replies[1], ServerEvent::Done { id: 7 }));
     Ok(())
 }

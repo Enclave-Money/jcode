@@ -72,9 +72,26 @@ impl Tool for PatchTool {
         let config_watch = super::config_edit_notice::ConfigEditWatch::begin();
         let mut results = Vec::new();
 
+        let session = ctx.session_id.clone();
         for patch in patches {
             let resolved_path = ctx.resolve_path(Path::new(&patch.path));
-            let result = apply_patch_with_diff(&patch, &resolved_path).await;
+            // One lock per patched file rather than one for the whole batch:
+            // holding the repo queue across every file in a large patch would
+            // stall every other teammate for the entire batch.
+            let result = super::write_queue::with_repo_write_lock(
+                &resolved_path,
+                Some(session.as_str()),
+                |depth, holder| {
+                    jcode_base::logging::info(&format!(
+                        "patch queued on {} behind {} ({} in queue)",
+                        resolved_path.display(),
+                        holder.as_deref().unwrap_or("another session"),
+                        depth
+                    ));
+                },
+                || apply_patch_with_diff(&patch, &resolved_path),
+            )
+            .await;
             match result {
                 Ok((msg, diff)) => {
                     if diff.is_empty() {

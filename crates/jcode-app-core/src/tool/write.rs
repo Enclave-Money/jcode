@@ -66,16 +66,35 @@ impl Tool for WriteTool {
             tokio::fs::create_dir_all(parent).await?;
         }
 
-        // Check if file existed before and read old content for diff
-        let existed = path.exists();
-        let old_content = if existed {
-            tokio::fs::read_to_string(&path).await.ok()
-        } else {
-            None
-        };
+        // Read-for-diff and write under this repo's write queue, so a teammate's
+        // concurrent edit cannot land between them and be reported as this
+        // write's "before". See `super::write_queue`.
+        let session = ctx.session_id.clone();
+        let (existed, old_content) = super::write_queue::with_repo_write_lock(
+            &path,
+            Some(session.as_str()),
+            |depth, holder| {
+                jcode_base::logging::info(&format!(
+                    "write queued on {} behind {} ({} in queue)",
+                    path.display(),
+                    holder.as_deref().unwrap_or("another session"),
+                    depth
+                ));
+            },
+            || async {
+                let existed = path.exists();
+                let old_content = if existed {
+                    tokio::fs::read_to_string(&path).await.ok()
+                } else {
+                    None
+                };
 
-        // Write the file
-        tokio::fs::write(&path, &params.content).await?;
+                tokio::fs::write(&path, &params.content).await?;
+
+                Ok::<_, anyhow::Error>((existed, old_content))
+            },
+        )
+        .await?;
 
         let _new_len = params.content.len();
         let line_count = params.content.lines().count();

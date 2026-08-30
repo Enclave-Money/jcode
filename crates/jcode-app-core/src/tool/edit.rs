@@ -80,37 +80,83 @@ impl Tool for EditTool {
             return Err(anyhow::anyhow!("File not found: {}", params.file_path));
         }
 
-        let content = tokio::fs::read_to_string(&path).await?;
-
-        // Count occurrences
-        let occurrences = content.matches(&params.old_string).count();
-
-        if occurrences == 0 {
-            // Try flexible matching
-            return try_flexible_match(&content, &params.old_string, &params.file_path);
+        // Read, replace and write back under this repo's write queue. Several
+        // teammates drive agents against one checkout, and this whole span is
+        // one read-modify-write: interleaving two of them silently drops the
+        // first edit. See `super::write_queue`.
+        enum Edited {
+            /// old_string was not found; the caller retries with fuzzy matching
+            /// OUTSIDE the lock, since that path only reads.
+            NoMatch(String),
+            Wrote {
+                content: String,
+                new_content: String,
+                start_line: usize,
+                occurrences: usize,
+            },
         }
 
-        if occurrences > 1 && !params.replace_all {
-            return Err(anyhow::anyhow!(
-                "old_string found {} times in the file. Either:\n\
-                 1. Provide more context to make it unique, or\n\
-                 2. Set replace_all: true to replace all occurrences",
-                occurrences
-            ));
-        }
+        let session = ctx.session_id.clone();
+        let edited = super::write_queue::with_repo_write_lock(
+            &path,
+            Some(session.as_str()),
+            |depth, holder| {
+                jcode_base::logging::info(&format!(
+                    "edit queued on {} behind {} ({} in queue)",
+                    path.display(),
+                    holder.as_deref().unwrap_or("another session"),
+                    depth
+                ));
+            },
+            || async {
+                let content = tokio::fs::read_to_string(&path).await?;
 
-        // Perform replacement
-        let new_content = if params.replace_all {
-            content.replace(&params.old_string, &params.new_string)
-        } else {
-            content.replacen(&params.old_string, &params.new_string, 1)
+                let occurrences = content.matches(&params.old_string).count();
+
+                if occurrences == 0 {
+                    return Ok::<Edited, anyhow::Error>(Edited::NoMatch(content));
+                }
+
+                if occurrences > 1 && !params.replace_all {
+                    return Err(anyhow::anyhow!(
+                        "old_string found {} times in the file. Either:\n\
+                         1. Provide more context to make it unique, or\n\
+                         2. Set replace_all: true to replace all occurrences",
+                        occurrences
+                    ));
+                }
+
+                let new_content = if params.replace_all {
+                    content.replace(&params.old_string, &params.new_string)
+                } else {
+                    content.replacen(&params.old_string, &params.new_string, 1)
+                };
+
+                let start_line = find_line_number(&content, &params.old_string);
+
+                tokio::fs::write(&path, &new_content).await?;
+
+                Ok(Edited::Wrote {
+                    content,
+                    new_content,
+                    start_line,
+                    occurrences,
+                })
+            },
+        )
+        .await?;
+
+        let (content, new_content, start_line, occurrences) = match edited {
+            Edited::NoMatch(content) => {
+                return try_flexible_match(&content, &params.old_string, &params.file_path);
+            }
+            Edited::Wrote {
+                content,
+                new_content,
+                start_line,
+                occurrences,
+            } => (content, new_content, start_line, occurrences),
         };
-
-        // Find line number where edit starts
-        let start_line = find_line_number(&content, &params.old_string);
-
-        // Write back
-        tokio::fs::write(&path, &new_content).await?;
 
         // Generate a diff with line numbers
         let diff = generate_diff(&params.old_string, &params.new_string, start_line);
