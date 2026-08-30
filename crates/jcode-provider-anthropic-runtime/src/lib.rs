@@ -941,15 +941,26 @@ impl AnthropicProvider {
         if matches!(mode, AnthropicCredentialMode::Auto) {
             match self.get_oauth_access_token().await {
                 Ok(token) => return Ok(token),
-                Err(oauth_err) => match self.direct_api_key() {
-                    Ok(key) => {
-                        jcode_base::logging::warn(&format!(
-                            "Claude OAuth is unusable in automatic credential mode ({oauth_err:#}); falling back to the configured Anthropic API key"
+                Err(oauth_err) => {
+                    // On a shared server this fallback would spend whichever key
+                    // sits in the process environment on whoever happens to be
+                    // missing credentials. Refuse rather than bill the wrong
+                    // person; see `env_credential_fallback_allowed`.
+                    if !jcode_provider_core::env_credential_fallback_allowed() {
+                        return Err(oauth_err.context(
+                            "Your Claude sign-in is not usable and this server does not share a fallback API key. Sign in again.",
                         ));
-                        return Ok((key, false));
                     }
-                    Err(_) => return Err(oauth_err),
-                },
+                    match self.direct_api_key() {
+                        Ok(key) => {
+                            jcode_base::logging::warn(&format!(
+                                "Claude OAuth is unusable in automatic credential mode ({oauth_err:#}); falling back to the configured Anthropic API key"
+                            ));
+                            return Ok((key, false));
+                        }
+                        Err(_) => return Err(oauth_err),
+                    }
+                }
             }
         }
 

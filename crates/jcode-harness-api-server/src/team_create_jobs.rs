@@ -619,6 +619,11 @@ Environment=JCODE_IDLE_TIMEOUT_SECS=0
 # presence — none of which need a model. Turns fail with a clear message
 # until an account is added; everything else works.
 Environment=JCODE_DEFERRED_AUTH_BOOTSTRAP=1
+# One daemon serves several teammates, so an API key sitting in this process's
+# environment must never stand in for a teammate whose own sign-in is missing:
+# that spends one person's quota on another's work with nothing saying so.
+# Turns fail with a clear "sign in again" instead.
+Environment=JCODE_SERVER_MODE=1
 ExecStart=$H/blaude --provider auto serve
 Restart=always
 RestartSec=2
@@ -644,6 +649,7 @@ User=$U
 Environment=HOME=$H
 Environment=JCODE_RUNTIME_DIR=$H/.jcode/runtime
 Environment=JCODE_BRIDGE_NO_SPAWN=1
+Environment=JCODE_SERVER_MODE=1
 Environment=JCODE_API_WS_BIND=0.0.0.0
 Environment=JCODE_API_WS_PORT=443
 Environment=JCODE_API_WS_TLS_CERT=$H/.jcode/tls/cert.pem

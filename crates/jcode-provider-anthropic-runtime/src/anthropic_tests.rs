@@ -1694,6 +1694,56 @@ async fn auto_mode_falls_back_to_api_key_when_oauth_is_expired() {
     );
 }
 
+/// A shared team server must never spend the process's API key on a user whose
+/// own credentials are missing: that bills one person's quota for another
+/// person's work, silently.
+///
+/// `auto_mode_falls_back_to_api_key_when_oauth_is_expired` above is this test's
+/// positive control. It is the identical setup with `JCODE_SERVER_MODE` unset
+/// and it DOES return the key, so a failure here is the server-mode gate and
+/// not a fixture that never had a key to find.
+#[tokio::test]
+async fn server_mode_refuses_to_fall_back_to_a_shared_api_key() {
+    let _guard = jcode_base::storage::lock_test_env();
+    let temp = tempfile::TempDir::new().unwrap();
+    let _home = EnvVarGuard::set("JCODE_HOME", temp.path());
+    let _api_key = EnvVarGuard::set("ANTHROPIC_API_KEY", "someone-elses-api-key");
+    let _runtime = EnvVarGuard::set("JCODE_RUNTIME_PROVIDER", "auto");
+    let _server = EnvVarGuard::set("JCODE_SERVER_MODE", "1");
+
+    jcode_base::auth::claude::upsert_account(jcode_base::auth::claude::AnthropicAccount {
+        label: "claude-1".to_string(),
+        access: "expired-oauth-access".to_string(),
+        refresh: String::new(),
+        expires: 0,
+        email: None,
+        subscription_type: Some("max".to_string()),
+        scopes: vec!["user:inference".to_string()],
+        added_by: None,
+    })
+    .unwrap();
+
+    let provider = AnthropicProvider::new();
+    assert_eq!(
+        provider.credential_mode_snapshot(),
+        AnthropicCredentialMode::Auto
+    );
+
+    let error = provider
+        .get_access_token()
+        .await
+        .expect_err("server mode must fail rather than borrow the environment's key");
+    let error = format!("{error:#}");
+    assert!(
+        !error.contains("someone-elses-api-key"),
+        "the other user's key must never reach the caller: {error}"
+    );
+    assert!(
+        error.contains("does not share a fallback API key"),
+        "the failure must say plainly why it refused: {error}"
+    );
+}
+
 #[tokio::test]
 async fn explicit_oauth_mode_does_not_silently_fall_back_to_api_key() {
     let _guard = jcode_base::storage::lock_test_env();

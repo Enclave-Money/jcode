@@ -506,6 +506,30 @@ pub enum PremiumMode {
     Zero = 2,
 }
 
+/// Whether automatic credential resolution may fall back to an API key read
+/// from the process environment when the caller's own OAuth credentials are
+/// missing or unusable.
+///
+/// One harness process on a team server serves several people. A single
+/// `ANTHROPIC_API_KEY` in that process's environment would therefore satisfy
+/// *every* user whose own credentials are absent, spending one person's key and
+/// quota on another person's work with nothing in the UI saying so. Server
+/// deployments set `JCODE_SERVER_MODE=1`; automatic fallback then refuses and
+/// the turn fails with the real credential error instead.
+///
+/// An explicitly pinned API-key mode (`JCODE_RUNTIME_PROVIDER=claude-api`) is a
+/// deliberate choice by whoever configured the process and is unaffected: this
+/// gates only the silent automatic substitution.
+pub fn env_credential_fallback_allowed() -> bool {
+    !std::env::var("JCODE_SERVER_MODE")
+        .ok()
+        .map(|value| {
+            let trimmed = value.trim();
+            !trimmed.is_empty() && trimmed != "0" && !trimmed.eq_ignore_ascii_case("false")
+        })
+        .unwrap_or(false)
+}
+
 /// Explicit OAuth-vs-API-key credential pin for dual-auth providers
 /// (Anthropic and OpenAI). `Auto` means "prefer OAuth when present, fall back
 /// to an API key"; the explicit variants pin one route for the session.
