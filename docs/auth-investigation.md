@@ -347,9 +347,30 @@ same-provider failover. `same_provider_account_failover` defaults to `true`
 pooled accounts. Remove the pool and each user has exactly one account, so
 same-provider rollover has nothing to roll over *to*. See 1I.
 
-**Not determined:** whether `team_access`, `create_team`, invites or `/join`
-depend on pooling, and what migration existing teams need. That needs the rest
-of 1A.
+**Removing pooling does NOT break the team layer.** This gate condition does
+not fire. `team_create_jobs.rs` and `team_access.rs` contain **zero**
+references to the provider account store — no `anthropic_accounts`, no
+`claude::`, no `codex::`, no `auth.json`, no `save_claude_login`. The two
+layers are already independent, and commit `f8b0ade` made that explicit:
+
+> "fix(team): a team server boots and works with no AI account [...] Verified
+> on a fresh VM: owner and member both create sessions and each sees the
+> other's, with no AI account anywhere."
+
+It sets `JCODE_DEFERRED_AUTH_BOOTSTRAP` in the generated unit
+(`team_create_jobs.rs`) so the daemon boots credential-less and fails
+individual turns with a clear message instead of crash-looping.
+
+Beware a naming collision when reading this code: **"account" means two
+different things.** In `blaude_account.rs` and `team_access.rs` it is the
+*Clerk sign-in identity* (`me()`, `identity()`, `sign_out()` —
+`blaude_account.rs:144, 244, 248`). In `auth/claude.rs` and
+`auth/account_store.rs` it is the *AI provider subscription*. Pooling concerns
+only the second.
+
+**Not determined:** what migration existing teams need — i.e. how to split an
+already-pooled `auth.json` back out to per-person homes. That needs the rest of
+1A and a live server to inspect.
 
 ---
 
