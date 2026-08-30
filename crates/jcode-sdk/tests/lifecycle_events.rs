@@ -18,10 +18,12 @@ use std::time::{Duration, Instant};
 fn session(id: &str) -> SessionInfo {
     SessionInfo {
         session_id: id.to_string(),
+        user_messages: None,
         working_dir: None,
         title: Some(format!("Title for {id}")),
         status: "idle".to_string(),
         transcript_bytes: None,
+        last_active_ms: None,
         archived: false,
         archived_at_ms: None,
     }

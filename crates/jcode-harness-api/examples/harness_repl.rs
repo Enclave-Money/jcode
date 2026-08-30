@@ -120,6 +120,7 @@ fn run_demo() {
                     ApiEvent::Attached {
                         session: jcode_harness_api::SessionInfo {
                             session_id: "demo-1".into(),
+                            user_messages: None,
                             working_dir: None,
                             title: Some("demo".into()),
                             status: "idle".into(),
