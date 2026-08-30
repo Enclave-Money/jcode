@@ -450,10 +450,84 @@ and `docs/client-investigation.md` are **not written**.
 
 Partial 1N data, since it bore on the gate:
 
-- `cargo test --lib --bins` (what CI runs, `.github/workflows/ci.yml:227`)
-  **did not compile** on main: `E0063: missing field by_user` at
-  `src/cli/auth_test/choice.rs:579`. Introduced by local commit `6aad329`,
-  invisible to `cargo build`. Fixed in `f470ffb`.
+### The test suite did not compile, in 21 places
+
+`cargo test --workspace` failed to build across **21 sites in 21 files**,
+all from local commits adding fields to shared types and updating only the
+production constructors. `cargo build` stayed green throughout, which is why
+none of it was noticed.
+
+| Field | Added by | Missed sites | Fixed in |
+|---|---|---|---|
+| `StoredMessage/HistoryMessage/RenderedMessage::by_user` | `6aad329` | 48 (18 files) | `f470ffb`, `afd1205` |
+| `SessionInfo::last_active_ms` | `ad3ab53` | 3 | `6162684` |
+| `SessionInfo::user_messages` | `b71eaba` | 3 | `6162684` |
+
+**CI would not have caught the last two.** They live in
+`crates/jcode-sdk/tests/` and `crates/jcode-harness-api/examples/`, which
+`--lib --bins` (`.github/workflows/ci.yml:227`) does not build. Only
+`--all-targets` reaches them. Worth widening the CI step.
+
+### Four tests fail for reasons unrelated to those fixes
+
+After the build was repaired: **4818 passed, 4 failed** across 72 suites
+(`--lib --bins`). None of the four touches `by_user`, `user_messages` or
+`last_active_ms`.
+
+**Coverage is not the same between invocations, so "the suite passes" depends
+on how you ask.** Two runs of the same tree:
+
+| Invocation | Suites | Tests | Failures |
+|---|---|---|---|
+| `--workspace --lib --bins` | 72 | 4822 | 4 |
+| `--workspace --all-targets` | 88 | 3971 | 2 |
+
+`--all-targets` builds *more* targets but ran ~850 *fewer* tests, and
+`schema_snapshot` did not run in it at all (the two TS-SDK parity failures are
+absent from that run, yet reproduce every time via
+`cargo test -p jcode-harness-api --lib schema_snapshot`). Likewise
+`jcode-base`'s 1313 lib tests — including the known cursor failure — did not
+appear in either workspace run, but fail reliably under `-p jcode-base --lib`.
+
+Feature unification differs per invocation, so neither command is complete
+coverage on its own. Anyone gating work on "tests pass" here needs to pin the
+invocation first; today CI's `--lib --bins` misses integration tests and
+examples entirely.
+
+**Two are a live realtime regression, and they matter to the product bar.**
+
+`harness_api_tests/schema_snapshot.rs:205` and `:236`:
+
+> `ApiEvent::sessions_changed is missing from sdk/typescript/src/protocol.ts`
+
+`sessions_changed` was added by `23a8174` — *"push new chats over the socket
+instead of polling"*. It reaches Rust clients. It never reached the TypeScript
+SDK, and the phone web client does not handle it either: `phone.html:188-199`
+dispatches 11 event kinds and `sessions_changed` is not among them. There is no
+interval refresh in that file, and `list_sessions` is called once
+(`phone.html:146`).
+
+So on the phone client, **a teammate's new chat never appears at all** until
+the page is reloaded. The realtime work landed for one client and silently
+missed the other, and the parity test that exists to catch exactly this has
+been failing invisibly behind the compile error.
+
+**The other two are pre-existing and lower stakes:**
+
+- `sdk_tests/parity.rs:143` — `addDir` and `installSkill` exist in the TS SDK
+  but are in neither `CAPABILITIES` nor `TS_ONLY`.
+- `anthropic_tests.rs:1861` — server recommendation `'Opus 4.8'` maps to
+  `claude-opus-4-5`, not `claude-opus-4-8`. The pooling commit `89b25a9`
+  touched this file, but only to add `added_by` to fixtures (4 lines); it did
+  not touch this assertion.
+
+### `cargo fmt --check` fails on main
+
+**146 diffs**, verified by stashing. CI runs `cargo fmt --all -- --check`
+(`ci.yml:591`), so the Format job is red on main independently of any of this.
+The drift is concentrated in local product code — nearly every file under
+`crates/jcode-harness-api-server/`. Not touched here: reformatting 146 files
+would bury an auth diff and wreck the rebase surface.
 - `jcode-base` auth tests: 391 pass, **1 pre-existing failure** —
   `auth::tests::cursor_status_is_available_for_authenticated_cli_session`
   (`auth/tests.rs:794-814`). Inherited from upstream, not local: the test is
