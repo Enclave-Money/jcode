@@ -1,12 +1,74 @@
-# Display stack (2D) — design, contract, and why it is not deployed yet
+# Display stack (2D) — design, contract, and verification
 
-Status: **designed, not stood up.** The current team server cannot run it. The
-measurements and the reasoning are below so the decision is checkable rather
-than asserted.
+Status: **stood up and verified** on `blaude-display-01`
+(e2-standard-4, asia-south1-a), a machine provisioned for it. It is **not** on
+the team server, and cannot be; the measurements below say why.
+
+The instance is left **STOPPED** after verification. A stopped VM bills only its
+disk (~$1.60/month for 40 GB) instead of ~$97/month running. Start it with:
+
+```
+gcloud compute instances start blaude-display-01 --zone asia-south1-a
+```
 
 ---
 
-## Why it is not running on `blaude-gm-25c8`
+## Verified, with evidence
+
+Run 2026-08-30 on `blaude-display-01`. Nothing was exposed publicly: HTTP bound
+to loopback, no WebRTC UDP published, all checks over an IAP tunnel.
+
+| Claim | Evidence |
+|---|---|
+| Xvfb virtual display | XFCE session running on `:99.0` in the container logs |
+| Whole desktop, not a browser | `ghcr.io/m1k1o/neko/xfce` entrypoint; captured frame shows the XFCE desktop, panel and dock |
+| Neko serving | `GET /` → `200 text/html`, 1424 bytes; `/health` → `200` |
+| Container healthy | `docker ps` → `Up (healthy)` |
+| Full frame capture | 1920×1080 PNG, **24,393 bytes** |
+| Downscaled frame | JPEG at `-resize 640x`, **5,515 bytes** |
+| An external process can drive the display | `xclock` launched into `DISPLAY=:99` appeared on the desktop, WM-managed with a title bar and taskbar entry, and showed up in the next capture |
+
+The frames were pulled back and **looked at**, not just sized: a 24 KB PNG can
+be a blank screen. The first shows a real XFCE desktop; the second shows the
+externally-launched window on it.
+
+**5.5 KB for a downscaled frame** is the number that matters for the brief's
+"small enough that the same path works on a phone client later". It is, and the
+downscale happens server-side so a phone never fetches the 1080p original.
+
+### The Firefox Agent Bridge question is answered: yes
+
+The brief said to check whether the harness's Firefox Agent Bridge can drive a
+browser inside this display before adding any separate automation layer.
+
+An external process attaching to `DISPLAY=:99` gets its window managed by XFCE
+and rendered into the captured frame. That is exactly what the Agent Bridge
+needs. **No separate automation layer, no Playwright**, consistent with the
+settled decision.
+
+Caveat: the base `xfce` image ships no browser (`ls /usr/bin | grep -i
+firefox|chromium` is empty). The production image must add one. The mechanism is
+proven; the package list is not complete.
+
+### Not verified
+
+Stated plainly rather than implied:
+
+- **Real WebRTC streaming to a remote client.** That needs the UDP range
+  published, which would have exposed a desktop to the internet for a test. The
+  HTTP/signalling half is verified; the media half is not.
+- **Multi-client viewing and control handoff.** Neko implements it; this
+  deployment has not exercised it.
+- **The sub-300ms latency target.** Unmeasured, because it is meaningless
+  without the media path above.
+- **Capture tooling is not baked into the image.** `imagemagick` and `x11-apps`
+  were installed into the running container to verify the frame path. A
+  production image must include them; otherwise the frame endpoint has nothing
+  to capture with.
+
+---
+
+## Why it cannot run on the team server `blaude-gm-25c8`
 
 Measured on the live box, 2026-08-30:
 
@@ -122,12 +184,35 @@ not invent one:
 - control is requested, granted, and released explicitly, and released
   automatically on disconnect
 
-### Client decision, deferred to 2H
+### Client decision (2H): WKWebView hosting Neko's own client
 
-Native WebRTC via a Swift package versus a `WKWebView` hosting Neko's own web
-client is a 2H question and is not prejudged here. The contract above is the
-same either way, which is the point of specifying it in terms of URLs and
-events rather than in terms of a client library.
+The brief asks for this assessed and decided before any WebRTC layer is
+written. **Decision: `WKWebView`.**
+
+**The hard part of Neko is not the video, it is the control protocol.**
+Multi-viewer attach, request/grant/release of input control, and
+release-on-disconnect are all implemented in their web client and evolve with
+their server. A native implementation has to reimplement that protocol and then
+track it for as long as we ship. Video decode is the easy half and the half
+`WKWebView` already does, hardware-accelerated, through system WebKit.
+
+**A native WebRTC package would be the largest dependency in the project.**
+`BlaudeKit` currently has none at all: its own header says
+"URLSessionWebSocketTask, no dependencies"
+(`WebSocketTransport.swift:3`). The usual Swift WebRTC binaries are on the order
+of a hundred megabytes. That is a lot of new surface, and a lot of new
+notarisation and update burden, for one panel in the app.
+
+**What we give up**, stated honestly: web chrome inside a native window, a JS
+bridge for any custom input handling, and less direct control over reconnect
+behaviour than a native client would allow. If the panel later needs to feel
+like a first-class native surface rather than an embedded viewer, this is the
+decision to revisit.
+
+**What does not change either way** is the still-frame path. Screenshots are
+plain HTTP image fetches and should be rendered natively regardless, so the
+common case — glance at what the agent did — never pays for a WebView at all.
+The WebView is only for the live interactive session.
 
 ---
 
