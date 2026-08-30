@@ -984,6 +984,26 @@ impl JcodeClient {
         .map(drop)
     }
 
+    /// Grant the session an extra working directory (the wire form of the
+    /// TUI's `/add-dir`). Adding one it already has is an Ok no-op.
+    pub fn add_dir(&self, session_id: &str, path: &str) -> Result<()> {
+        self.request_ok(ApiRequest::AddDir {
+            session_id: session_id.to_string(),
+            path: path.to_string(),
+        })
+        .map(drop)
+    }
+
+    /// Install a skill from a `github.com/owner/repo` URL and reload the
+    /// daemon's registry. Use a spare connection: the clone stalls the pipe it
+    /// runs on.
+    pub fn install_skill(&self, url: &str) -> Result<()> {
+        self.request_ok(ApiRequest::InstallSkill {
+            url: url.to_string(),
+        })
+        .map(drop)
+    }
+
     /// Restore the history the last `rewind` removed.
     pub fn rewind_undo(&self, session_id: &str) -> Result<()> {
         self.request_ok(ApiRequest::RewindUndo {

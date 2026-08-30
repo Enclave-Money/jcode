@@ -184,6 +184,13 @@ async function attach(sessionId, title) {
 
 let streamEl = null;
 function onEvent(f) {
+  // A teammate created a chat. This is about the session LIST, not about one
+  // session, so it must be handled before the attached-session filter below,
+  // which would drop it whenever the new chat is not the one being viewed.
+  if (f.ev === "sessions_changed") {
+    if (!attached) listSessions();
+    return;
+  }
   if (attached && f.session_id && f.session_id !== attached) return;
   switch (f.ev) {
     case "text_delta": setWorking(true); stream(f.text); break;
