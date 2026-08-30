@@ -1,0 +1,24 @@
+[package]
+name = "blaude-tools"
+version = "0.1.0"
+edition = "2021"
+description = "blaude helper CLI: repo-graph brief and dead-code prune"
+license = "MIT"
+
+# Rescued from ~/workspace/blaude (the old terminal app) when that repo was
+# deleted. Only `brief` and `prune` came across: the terminal core it used to
+# live beside (PTY session, grid, tabs, ~2,200 lines) is not needed here and was
+# not carried over.
+#
+# `blaude brief` and `blaude prune` shell out to this binary at runtime (see
+# src/cli/dispatch.rs), and blaude-native bundles it via scripts/build-runtime.sh.
+[[bin]]
+name = "blaude-tools"
+path = "src/main.rs"
+
+[dependencies]
+anyhow = "1"
+clap = { version = "4", features = ["derive"] }
+serde_json = "1"
+# brief.rs probes whether an indexer PID is still alive.
+libc = "0.2"

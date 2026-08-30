@@ -8,6 +8,7 @@ autobins = false
 [workspace]
 members = [
     ".",
+    "crates/blaude-tools",
     "crates/jcode-agent-runtime",
     "crates/jcode-app-core",
     "crates/jcode-base",
