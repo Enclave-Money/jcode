@@ -569,7 +569,10 @@ fn account_subcommands_parse() {
     assert!(matches!(
         login.command,
         Some(Command::Account {
-            action: AccountCommand::Login { no_browser: true, .. }
+            action: AccountCommand::Login {
+                no_browser: true,
+                ..
+            }
         })
     ));
 

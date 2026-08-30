@@ -324,7 +324,11 @@ fn prune_drops_orphaned_graph_cache_generations() {
     // parse-cache: files named "<hash>.json"; index lists only "aaa".
     let parse = gitnexus.join("parse-cache");
     std::fs::create_dir_all(&parse).unwrap();
-    std::fs::write(parse.join("index.json"), r#"{"version":"x","keys":["aaa"]}"#).unwrap();
+    std::fs::write(
+        parse.join("index.json"),
+        r#"{"version":"x","keys":["aaa"]}"#,
+    )
+    .unwrap();
     std::fs::write(parse.join("aaa.json"), b"live").unwrap();
     std::fs::write(parse.join("bbb.json"), b"orphan-superseded").unwrap();
     std::fs::write(parse.join("ccc.json"), b"orphan-partial-from-killed-run").unwrap();
@@ -335,7 +339,11 @@ fn prune_drops_orphaned_graph_cache_generations() {
     std::fs::create_dir_all(parsed.join("bbb")).unwrap();
     std::fs::write(parsed.join("aaa/f"), b"live").unwrap();
     std::fs::write(parsed.join("bbb/f"), b"orphan").unwrap();
-    std::fs::write(parsed.join("index.json"), r#"{"version":"x","keys":["aaa"]}"#).unwrap();
+    std::fs::write(
+        parsed.join("index.json"),
+        r#"{"version":"x","keys":["aaa"]}"#,
+    )
+    .unwrap();
 
     prune_stale_graph_cache(root);
 
@@ -363,7 +371,10 @@ fn prune_is_a_noop_without_a_readable_index() {
 
     prune_stale_graph_cache(temp.path());
 
-    assert!(parse.join("aaa.json").exists(), "pruned without an index present");
+    assert!(
+        parse.join("aaa.json").exists(),
+        "pruned without an index present"
+    );
     assert!(parsed.join("aaa").is_dir(), "pruned with a keyless index");
 }
 

@@ -232,7 +232,9 @@ impl BridgeState {
     /// Validate an install_skill request: a github.com/owner/repo URL becomes
     /// (clone_url, skill_name, destination). Refuses anything else, and
     /// refuses a destination that already exists.
-    pub(crate) fn validate_skill_install(url: &str) -> Result<(String, String, std::path::PathBuf), (ErrorCode, String)> {
+    pub(crate) fn validate_skill_install(
+        url: &str,
+    ) -> Result<(String, String, std::path::PathBuf), (ErrorCode, String)> {
         let trimmed = url.trim().trim_end_matches('/');
         let rest = trimmed
             .strip_prefix("https://github.com/")
@@ -250,7 +252,8 @@ impl BridgeState {
                 && part
                     .chars()
                     .all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '-' | '_' | '.'))
-                && part != "." && part != ".."
+                && part != "."
+                && part != ".."
         };
         if parts.len() != 2 || !parts.iter().all(|part| valid_part(part)) {
             return Err((
@@ -259,9 +262,8 @@ impl BridgeState {
             ));
         }
         let name = parts[1].to_string();
-        let home = std::env::var("HOME").map_err(|_| {
-            (ErrorCode::Internal, "HOME is not set".to_string())
-        })?;
+        let home = std::env::var("HOME")
+            .map_err(|_| (ErrorCode::Internal, "HOME is not set".to_string()))?;
         let dest = std::path::Path::new(&home)
             .join(".jcode/skills")
             .join(&name);
@@ -342,7 +344,7 @@ impl BridgeState {
                 let home = match std::env::var("HOME") {
                     Ok(home) => home,
                     Err(_) => {
-                        return Self::error_reply(api_id, ErrorCode::Internal, "HOME is not set")
+                        return Self::error_reply(api_id, ErrorCode::Internal, "HOME is not set");
                     }
                 };
                 let path = std::path::Path::new(&home).join(".jcode/councils.json");
@@ -364,13 +366,13 @@ impl BridgeState {
                 let path = match jcode_storage::councils::Councils::path() {
                     Ok(path) => path,
                     Err(error) => {
-                        return Self::error_reply(api_id, ErrorCode::Internal, &error.to_string())
+                        return Self::error_reply(api_id, ErrorCode::Internal, &error.to_string());
                     }
                 };
                 let mut councils = match jcode_storage::councils::Councils::load_from(&path) {
                     Ok(councils) => councils,
                     Err(error) => {
-                        return Self::error_reply(api_id, ErrorCode::Internal, &error.to_string())
+                        return Self::error_reply(api_id, ErrorCode::Internal, &error.to_string());
                     }
                 };
                 let result = if req == "create_council" {
@@ -390,7 +392,11 @@ impl BridgeState {
                     Some(anyhow::anyhow!("no council named “{name}”"))
                 };
                 if let Some(error) = result {
-                    return Self::error_reply(api_id, ErrorCode::InvalidRequest, &error.to_string());
+                    return Self::error_reply(
+                        api_id,
+                        ErrorCode::InvalidRequest,
+                        &error.to_string(),
+                    );
                 }
                 if let Err(error) = councils.save_to(&path) {
                     return Self::error_reply(api_id, ErrorCode::Internal, &error.to_string());
@@ -421,7 +427,10 @@ impl BridgeState {
                                 .collect();
                             vec![Outbound::Reply(ServerFrame::reply(
                                 api_id,
-                                ApiEvent::Accounts { provider: "openai".into(), accounts: listed },
+                                ApiEvent::Accounts {
+                                    provider: "openai".into(),
+                                    accounts: listed,
+                                },
                             ))]
                         }
                         Err(message) => Self::error_reply(api_id, ErrorCode::Internal, &message),
@@ -448,7 +457,10 @@ impl BridgeState {
                             .collect();
                         vec![Outbound::Reply(ServerFrame::reply(
                             api_id,
-                            ApiEvent::Accounts { provider: "claude".into(), accounts: listed },
+                            ApiEvent::Accounts {
+                                provider: "claude".into(),
+                                accounts: listed,
+                            },
                         ))]
                     }
                     Err(message) => Self::error_reply(api_id, ErrorCode::Internal, &message),
@@ -481,8 +493,7 @@ impl BridgeState {
                     );
                 }
                 let path = request["path"].as_str().unwrap_or_default();
-                if !std::path::Path::new(path).is_absolute()
-                    || !std::path::Path::new(path).is_dir()
+                if !std::path::Path::new(path).is_absolute() || !std::path::Path::new(path).is_dir()
                 {
                     return Self::error_reply(
                         api_id,
@@ -586,17 +597,16 @@ impl BridgeState {
                 } else {
                     None
                 };
-                let working_dir =
-                    request["working_dir"]
-                        .as_str()
-                        .map(str::to_string)
-                        .or(attach_target_dir)
-                        .or_else(|| std::env::var("HOME").ok())
-                        .or_else(|| {
-                            std::env::current_dir()
-                                .ok()
-                                .map(|d| d.display().to_string())
-                        });
+                let working_dir = request["working_dir"]
+                    .as_str()
+                    .map(str::to_string)
+                    .or(attach_target_dir)
+                    .or_else(|| std::env::var("HOME").ok())
+                    .or_else(|| {
+                        std::env::current_dir()
+                            .ok()
+                            .map(|d| d.display().to_string())
+                    });
                 let mut subscribe = json!({
                     "type": "subscribe",
                     "id": id,
@@ -1030,7 +1040,8 @@ impl BridgeState {
                         api_id,
                         ApiEvent::Error {
                             code: ErrorCode::InvalidRequest,
-                            message: "set_work_mode needs `mode`: auto | plan | ask | manual".into(),
+                            message: "set_work_mode needs `mode`: auto | plan | ask | manual"
+                                .into(),
                         },
                     ))];
                 }
@@ -1751,7 +1762,9 @@ impl BridgeState {
                     .collect()
             })
             .unwrap_or_default();
-        let active = value["active_anthropic_account"].as_str().map(str::to_string);
+        let active = value["active_anthropic_account"]
+            .as_str()
+            .map(str::to_string);
         Ok((accounts, active))
     }
 
@@ -1789,10 +1802,7 @@ impl BridgeState {
         let mut value: Value = serde_json::from_str(&text).map_err(|e| e.to_string())?;
         let known = value["anthropic_accounts"]
             .as_array()
-            .map(|list| {
-                list.iter()
-                    .any(|a| a["label"].as_str() == Some(label))
-            })
+            .map(|list| list.iter().any(|a| a["label"].as_str() == Some(label)))
             .unwrap_or(false);
         if !known {
             return Err(format!("no Claude account labeled `{label}`"));
@@ -1870,7 +1880,10 @@ impl BridgeState {
         if let Ok(raw) = std::fs::read_to_string(&path) {
             if let Ok(value) = serde_json::from_str::<serde_json::Value>(&raw) {
                 if let Some(messages) = value.get("messages").and_then(|m| m.as_array()) {
-                    count += messages.iter().filter(|m| Self::is_real_user_message(m)).count() as u32;
+                    count += messages
+                        .iter()
+                        .filter(|m| Self::is_real_user_message(m))
+                        .count() as u32;
                 }
             }
         }
@@ -1895,7 +1908,10 @@ impl BridgeState {
                 continue;
             };
             if let Some(appended) = value.get("append_messages").and_then(|m| m.as_array()) {
-                count += appended.iter().filter(|m| Self::is_real_user_message(m)).count() as u32;
+                count += appended
+                    .iter()
+                    .filter(|m| Self::is_real_user_message(m))
+                    .count() as u32;
                 if count > 0 {
                     return Some(count);
                 }

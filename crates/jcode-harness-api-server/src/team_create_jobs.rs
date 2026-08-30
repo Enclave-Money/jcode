@@ -195,7 +195,9 @@ async fn run(bin: &PathBuf, args: &[&str], stdin: Option<&str>) -> Result<String
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
         .kill_on_drop(true);
-    let mut child = cmd.spawn().map_err(|e| format!("could not run gcloud: {e}"))?;
+    let mut child = cmd
+        .spawn()
+        .map_err(|e| format!("could not run gcloud: {e}"))?;
     if let Some(text) = stdin {
         if let Some(mut pipe) = child.stdin.take() {
             let _ = pipe.write_all(text.as_bytes()).await;
@@ -265,17 +267,9 @@ async fn provision(job_id: String, name: String, region: Option<String>) -> Resu
     let zone = zone_for_region(region.as_deref(), &cfg.zone);
 
     // Authed at all? A cheap read that fails fast when logged out.
-    run(
-        &gcloud,
-        &[
-            "auth",
-            "print-access-token",
-            "--quiet",
-        ],
-        None,
-    )
-    .await
-    .map_err(|e| format!("Google Cloud isn't signed in — run `gcloud auth login`. ({e})"))?;
+    run(&gcloud, &["auth", "print-access-token", "--quiet"], None)
+        .await
+        .map_err(|e| format!("Google Cloud isn't signed in — run `gcloud auth login`. ({e})"))?;
 
     let nanos = SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -334,7 +328,10 @@ async fn provision(job_id: String, name: String, region: Option<String>) -> Resu
         )
         .await
         .unwrap_or_default();
-        if !tags.split([',', ';', ' ']).any(|t| t.trim() == "blaude-team") {
+        if !tags
+            .split([',', ';', ' '])
+            .any(|t| t.trim() == "blaude-team")
+        {
             let merged = if tags.trim().is_empty() {
                 "blaude-team".to_string()
             } else {
@@ -428,7 +425,10 @@ async fn provision(job_id: String, name: String, region: Option<String>) -> Resu
             &[
                 "compute",
                 "scp",
-                &format!("{}:~/blaude-agent/target/release/blaude", cfg.template_instance),
+                &format!(
+                    "{}:~/blaude-agent/target/release/blaude",
+                    cfg.template_instance
+                ),
                 cache.to_str().unwrap_or_default(),
                 "--project",
                 &cfg.project,
@@ -696,7 +696,10 @@ echo SETUP_OK
     set_stage(&job_id, "Starting it…");
     let mut up = false;
     for _ in 0..30 {
-        if tokio::net::TcpStream::connect((ip.as_str(), 443u16)).await.is_ok() {
+        if tokio::net::TcpStream::connect((ip.as_str(), 443u16))
+            .await
+            .is_ok()
+        {
             up = true;
             break;
         }
@@ -745,11 +748,6 @@ echo SETUP_OK
         return Err("The server is up but its credentials could not be read.".into());
     }
 
-    finish_ok(
-        &job_id,
-        &format!("wss://{domain}:443/api"),
-        &token,
-        &ca_pem,
-    );
+    finish_ok(&job_id, &format!("wss://{domain}:443/api"), &token, &ca_pem);
     Ok(())
 }

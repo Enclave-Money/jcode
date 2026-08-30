@@ -491,7 +491,10 @@ pub fn set_account_added_by(label: &str, member: &str) -> Result<()> {
         save_auth_file(&auth)?;
         Ok(())
     } else {
-        anyhow::bail!("No account with label '{}' found for added_by update", label);
+        anyhow::bail!(
+            "No account with label '{}' found for added_by update",
+            label
+        );
     }
 }
 

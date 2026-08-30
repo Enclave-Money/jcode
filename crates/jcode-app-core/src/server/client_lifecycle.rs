@@ -1,10 +1,9 @@
 use super::available_models_dedup::available_models_dedup_key;
 use super::client_actions::{
-    handle_set_work_mode,
     AgentTaskContext, NotifySessionContext, handle_agent_task, handle_compact, handle_input_shell,
     handle_notify_session, handle_rename_session, handle_run_subagent, handle_set_feature,
-    handle_set_subagent_model, handle_split, handle_stdin_response, handle_transfer,
-    handle_trigger_memory_extraction,
+    handle_set_subagent_model, handle_set_work_mode, handle_split, handle_stdin_response,
+    handle_transfer, handle_trigger_memory_extraction,
 };
 use super::client_comm::{
     handle_comm_channel_members, handle_comm_list, handle_comm_list_channels, handle_comm_message,
@@ -1910,9 +1909,7 @@ pub(super) async fn handle_client(
                 };
                 match outcome {
                     Ok(count) => {
-                        crate::logging::info(&format!(
-                            "reload_skills: {count} skills loaded"
-                        ));
+                        crate::logging::info(&format!("reload_skills: {count} skills loaded"));
                         let _ = client_event_tx.send(ServerEvent::Done { id });
                     }
                     Err(error) => {
@@ -3108,7 +3105,14 @@ async fn start_processing_message(
         let event_tx = tx.clone();
         let result = match std::panic::AssertUnwindSafe(crate::hooks::with_client_terminal_env(
             client_terminal_env,
-            process_message_streaming_mpsc(agent, &content, images, system_reminder, by_user, event_tx),
+            process_message_streaming_mpsc(
+                agent,
+                &content,
+                images,
+                system_reminder,
+                by_user,
+                event_tx,
+            ),
         ))
         .catch_unwind()
         .await

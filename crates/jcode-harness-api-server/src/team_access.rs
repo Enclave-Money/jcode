@@ -91,7 +91,10 @@ fn now_ms() -> u64 {
 }
 
 fn is_expired(record: &Value) -> bool {
-    let created = record.get("created_ms").and_then(|v| v.as_u64()).unwrap_or(0);
+    let created = record
+        .get("created_ms")
+        .and_then(|v| v.as_u64())
+        .unwrap_or(0);
     created == 0 || now_ms().saturating_sub(created) > TICKET_TTL_MS
 }
 
@@ -121,8 +124,16 @@ pub fn claim_ticket(code: &str) -> Option<Grant> {
             return None;
         }
         let email = entry.get("email")?.as_str()?.to_string();
-        let ws_url = entry.get("ws_url").and_then(|v| v.as_str()).unwrap_or("").to_string();
-        let name = entry.get("name").and_then(|v| v.as_str()).unwrap_or("").to_string();
+        let ws_url = entry
+            .get("ws_url")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string();
+        let name = entry
+            .get("name")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string();
         // Mint the replacement under the SAME lock, so the account is never
         // left without a live ticket.
         let mut tickets = read_tickets();
@@ -149,7 +160,9 @@ pub fn claim_ticket(code: &str) -> Option<Grant> {
 /// Best-effort: point the account's stamp at the replacement ticket.
 fn restamp_with_fresh_ticket(email: String, ws_url: String, name: String, ticket: String) {
     let Some(secret) = clerk_secret() else { return };
-    let Ok(handle) = tokio::runtime::Handle::try_current() else { return };
+    let Ok(handle) = tokio::runtime::Handle::try_current() else {
+        return;
+    };
     handle.spawn(async move {
         let client = reqwest::Client::new();
         if let Ok(Some(user)) = find_user(&client, &secret, &email).await {
@@ -209,8 +222,7 @@ pub fn revoke(email: &str) -> Result<bool> {
 
 /// Emails invited but not yet joined: an unredeemed ticket and no token.
 pub fn pending_invites() -> Vec<String> {
-    let members: std::collections::HashSet<String> =
-        ws::team_tokens().keys().cloned().collect();
+    let members: std::collections::HashSet<String> = ws::team_tokens().keys().cloned().collect();
     let Ok(home) = home() else { return Vec::new() };
     let tickets: HashMap<String, Value> = std::fs::read_to_string(home.join("join-tickets.json"))
         .ok()
@@ -272,7 +284,11 @@ fn clerk_secret() -> Option<String> {
 }
 
 /// The signed-up user's Clerk id for an email, if the account exists.
-async fn find_user(client: &reqwest::Client, secret: &str, email: &str) -> Result<Option<Value>, String> {
+async fn find_user(
+    client: &reqwest::Client,
+    secret: &str,
+    email: &str,
+) -> Result<Option<Value>, String> {
     let response = client
         .get("https://api.clerk.com/v1/users")
         .query(&[("email_address", email)])
@@ -309,7 +325,10 @@ async fn stamp_user(
     if response.status().is_success() {
         Ok(())
     } else {
-        Err(format!("Clerk refused the stamp (HTTP {})", response.status()))
+        Err(format!(
+            "Clerk refused the stamp (HTTP {})",
+            response.status()
+        ))
     }
 }
 
@@ -395,8 +414,7 @@ pub async fn reconcile_invites() {
             continue;
         }
         let name = record.get("name").and_then(|v| v.as_str()).unwrap_or("");
-        let metadata =
-            json!({ "blaude_team": { "name": name, "ws_url": ws_url, "ticket": code } });
+        let metadata = json!({ "blaude_team": { "name": name, "ws_url": ws_url, "ticket": code } });
         if let Some(id) = user["id"].as_str() {
             if stamp_user(&client, &secret, id, &metadata).await.is_ok() {
                 revoke_pending_invitations(&client, &secret, email).await;
@@ -411,7 +429,9 @@ fn clear_team_metadata(email: String) {
     let Some(secret) = clerk_secret() else { return };
     // revoke() is sync; only detach the Clerk call when a runtime exists
     // (it always does on the ws path — this guards future callers).
-    let Ok(handle) = tokio::runtime::Handle::try_current() else { return };
+    let Ok(handle) = tokio::runtime::Handle::try_current() else {
+        return;
+    };
     handle.spawn(async move {
         let client = reqwest::Client::new();
         let Ok(response) = client
@@ -423,7 +443,9 @@ fn clear_team_metadata(email: String) {
         else {
             return;
         };
-        let Ok(users) = response.json::<Value>().await else { return };
+        let Ok(users) = response.json::<Value>().await else {
+            return;
+        };
         let list = users
             .as_array()
             .cloned()

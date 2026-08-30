@@ -1296,7 +1296,14 @@ request in this new forked session, using the inherited conversation only as con
         token_usage: Option<StoredTokenUsage>,
         display_role: Option<StoredDisplayRole>,
     ) -> String {
-        self.add_message_authored(role, content, tool_duration_ms, token_usage, display_role, None)
+        self.add_message_authored(
+            role,
+            content,
+            tool_duration_ms,
+            token_usage,
+            display_role,
+            None,
+        )
     }
 
     /// Append a message carrying its author's team identity, so multiplayer

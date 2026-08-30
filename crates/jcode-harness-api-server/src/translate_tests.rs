@@ -1527,7 +1527,11 @@ fn foreign_turn_terminal_becomes_turn_done() {
 
     // A done with no local pending message and no foreign stream: silent
     // (this is the subscribe/other-request completion case).
-    assert!(state.legacy_event_to_api(&json!({"type": "done", "id": 3})).is_empty());
+    assert!(
+        state
+            .legacy_event_to_api(&json!({"type": "done", "id": 3}))
+            .is_empty()
+    );
 
     // A foreign turn streams (no local `message` in flight)...
     let frames = state.legacy_event_to_api(&json!({"type": "text_delta", "text": "hi"}));
@@ -1535,11 +1539,18 @@ fn foreign_turn_terminal_becomes_turn_done() {
     // ...and its terminal done — foreign id space — is a turn boundary here.
     let frames = state.legacy_event_to_api(&json!({"type": "done", "id": 479}));
     assert!(
-        matches!(frames.first().map(|f| &f.event), Some(ApiEvent::TurnDone { .. })),
+        matches!(
+            frames.first().map(|f| &f.event),
+            Some(ApiEvent::TurnDone { .. })
+        ),
         "foreign turn terminal must emit turn_done, got {frames:?}"
     );
     // The boundary is consumed: the next stray done is silent again.
-    assert!(state.legacy_event_to_api(&json!({"type": "done", "id": 480})).is_empty());
+    assert!(
+        state
+            .legacy_event_to_api(&json!({"type": "done", "id": 480}))
+            .is_empty()
+    );
 }
 
 /// Attaching to a session that no longer exists must FAIL, not silently bind
@@ -1566,7 +1577,10 @@ fn attaching_a_dead_session_errors_instead_of_binding_the_placeholder() {
     match &frames[0].event {
         ApiEvent::Error { code, message } => {
             assert_eq!(*code, ErrorCode::UnknownSession);
-            assert!(message.contains("session_gone"), "names the target: {message}");
+            assert!(
+                message.contains("session_gone"),
+                "names the target: {message}"
+            );
         }
         other => panic!("expected an unknown_session error, got {other:?}"),
     }
@@ -1592,7 +1606,9 @@ fn attaching_a_live_session_still_binds_it() {
         "type": "state", "id": state_id, "session_id": "s9",
     }));
     assert_eq!(frames[0].reply_to, Some(4));
-    assert!(matches!(&frames[0].event, ApiEvent::Attached { session } if session.session_id == "s9"));
+    assert!(
+        matches!(&frames[0].event, ApiEvent::Attached { session } if session.session_id == "s9")
+    );
     assert_eq!(state.session_id.as_deref(), Some("s9"));
 }
 
@@ -1610,7 +1626,10 @@ fn add_dir_refuses_a_session_the_connection_is_not_attached_to() {
     assert_eq!(frame.reply_to, Some(3));
     assert!(matches!(
         &frame.event,
-        ApiEvent::Error { code: ErrorCode::UnknownSession, .. }
+        ApiEvent::Error {
+            code: ErrorCode::UnknownSession,
+            ..
+        }
     ));
 }
 
@@ -1626,7 +1645,13 @@ fn add_dir_refuses_relative_and_missing_paths() {
             panic!("expected a local reply");
         };
         assert!(
-            matches!(&frame.event, ApiEvent::Error { code: ErrorCode::InvalidRequest, .. }),
+            matches!(
+                &frame.event,
+                ApiEvent::Error {
+                    code: ErrorCode::InvalidRequest,
+                    ..
+                }
+            ),
             "path {path} must be refused"
         );
     }
@@ -1668,22 +1693,34 @@ fn install_skill_validation_accepts_repo_urls_and_refuses_junk() {
 #[test]
 fn add_dir_reminder_rides_the_next_message() {
     let mut state = state_with_session();
-    state.pending_dir_reminders.push("Added additional working directory: /tmp/x.".to_string());
+    state
+        .pending_dir_reminders
+        .push("Added additional working directory: /tmp/x.".to_string());
 
     let out = state.api_request_to_legacy(&json!({
         "req": "send_message", "id": 9, "session_id": "s1",
         "content": "hi", "system_reminder": "Plan mode is ON.",
     }));
-    let Outbound::Legacy(message) = &out[0] else { panic!("expected legacy message") };
+    let Outbound::Legacy(message) = &out[0] else {
+        panic!("expected legacy message")
+    };
     let reminder = message["system_reminder"].as_str().unwrap();
-    assert!(reminder.starts_with("Plan mode is ON."), "client reminder first: {reminder}");
+    assert!(
+        reminder.starts_with("Plan mode is ON."),
+        "client reminder first: {reminder}"
+    );
     assert!(reminder.contains("/tmp/x"), "grant appended: {reminder}");
 
     let out = state.api_request_to_legacy(&json!({
         "req": "send_message", "id": 10, "session_id": "s1", "content": "again",
     }));
-    let Outbound::Legacy(message) = &out[0] else { panic!("expected legacy message") };
-    assert!(message["system_reminder"].is_null(), "reminder must not repeat");
+    let Outbound::Legacy(message) = &out[0] else {
+        panic!("expected legacy message")
+    };
+    assert!(
+        message["system_reminder"].is_null(),
+        "reminder must not repeat"
+    );
 }
 
 /// After a refused attach, later unsolicited session/state events must NOT
@@ -1695,7 +1732,9 @@ fn a_refused_attach_poisons_the_connection_until_the_client_reattaches() {
     let out = state.api_request_to_legacy(&json!({
         "req": "attach_session", "id": 4, "session_id": "session_gone",
     }));
-    let Outbound::Legacy(get_state) = &out[1] else { panic!("expected get_state") };
+    let Outbound::Legacy(get_state) = &out[1] else {
+        panic!("expected get_state")
+    };
     let state_id = get_state["id"].as_u64().unwrap();
     let _ = state.legacy_event_to_api(&json!({
         "type": "state", "id": state_id, "session_id": "session_placeholder",
@@ -1703,22 +1742,38 @@ fn a_refused_attach_poisons_the_connection_until_the_client_reattaches() {
     assert!(state.session_id.is_none());
 
     // The daemon's unsolicited pushes must not bind the placeholder.
-    let _ = state.legacy_event_to_api(&json!({"type": "session", "session_id": "session_placeholder"}));
-    let _ = state.legacy_event_to_api(&json!({"type": "state", "id": 0, "session_id": "session_placeholder"}));
-    assert!(state.session_id.is_none(), "placeholder must not bind after refusal");
+    let _ =
+        state.legacy_event_to_api(&json!({"type": "session", "session_id": "session_placeholder"}));
+    let _ = state.legacy_event_to_api(
+        &json!({"type": "state", "id": 0, "session_id": "session_placeholder"}),
+    );
+    assert!(
+        state.session_id.is_none(),
+        "placeholder must not bind after refusal"
+    );
 
     // A stateful request is refused locally, not forwarded into the ghost.
     let out = state.api_request_to_legacy(&json!({
         "req": "send_team_note", "id": 9, "session_id": "session_gone", "content": "x",
     }));
-    let Outbound::Reply(frame) = &out[0] else { panic!("expected local refusal") };
-    assert!(matches!(&frame.event, ApiEvent::Error { code: ErrorCode::UnknownSession, .. }));
+    let Outbound::Reply(frame) = &out[0] else {
+        panic!("expected local refusal")
+    };
+    assert!(matches!(
+        &frame.event,
+        ApiEvent::Error {
+            code: ErrorCode::UnknownSession,
+            ..
+        }
+    ));
 
     // An explicit re-attach lifts the poison.
     let out = state.api_request_to_legacy(&json!({
         "req": "attach_session", "id": 10, "session_id": "session_real",
     }));
-    let Outbound::Legacy(get_state) = &out[1] else { panic!("expected get_state") };
+    let Outbound::Legacy(get_state) = &out[1] else {
+        panic!("expected get_state")
+    };
     let state_id = get_state["id"].as_u64().unwrap();
     let frames = state.legacy_event_to_api(&json!({
         "type": "state", "id": state_id, "session_id": "session_real",

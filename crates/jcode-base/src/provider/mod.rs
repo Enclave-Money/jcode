@@ -1741,7 +1741,6 @@ impl Provider for MultiProvider {
         Some(next)
     }
 
-
     async fn complete(
         &self,
         messages: &[Message],

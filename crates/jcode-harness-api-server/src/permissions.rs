@@ -20,10 +20,12 @@ pub struct PendingPermission {
 }
 
 fn jcode_dir() -> PathBuf {
-    std::env::var("JCODE_HOME").map(PathBuf::from).unwrap_or_else(|_| {
-        let home = std::env::var("HOME").unwrap_or_else(|_| ".".into());
-        PathBuf::from(home).join(".jcode")
-    })
+    std::env::var("JCODE_HOME")
+        .map(PathBuf::from)
+        .unwrap_or_else(|_| {
+            let home = std::env::var("HOME").unwrap_or_else(|_| ".".into());
+            PathBuf::from(home).join(".jcode")
+        })
 }
 
 fn queue_path() -> PathBuf {
@@ -56,7 +58,11 @@ pub fn pending() -> Vec<PendingPermission> {
                     description.push_str(rationale);
                 }
             }
-            Some(PendingPermission { id, action, description })
+            Some(PendingPermission {
+                id,
+                action,
+                description,
+            })
         })
         .collect()
 }

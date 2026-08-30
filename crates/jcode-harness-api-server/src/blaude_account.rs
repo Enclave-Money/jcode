@@ -68,7 +68,9 @@ fn registry() -> &'static Mutex<HashMap<String, Pending>> {
 const DEFAULT_FRONTEND_API: &str = "wanted-weasel-6110.clerk.accounts.dev";
 
 fn fapi_base() -> Result<String, String> {
-    let configured = std::env::var("CLERK_FRONTEND_API").ok().filter(|v| !v.trim().is_empty());
+    let configured = std::env::var("CLERK_FRONTEND_API")
+        .ok()
+        .filter(|v| !v.trim().is_empty());
     let from_file = || {
         let raw = crate::team_access::home()
             .ok()
@@ -126,7 +128,9 @@ fn save_client_jwt(jwt: &str) {
     if let Ok(path) = session_path() {
         let _ = crate::team_access::write_owner_only(
             &path,
-            serde_json::json!({ "client_jwt": jwt }).to_string().as_bytes(),
+            serde_json::json!({ "client_jwt": jwt })
+                .to_string()
+                .as_bytes(),
         );
     }
 }
@@ -176,7 +180,9 @@ pub async fn refresh_team_invite() -> Option<Value> {
         }
     };
     let Some(jwt) = load_client_jwt() else {
-        eprintln!("blaude account: invite check skipped — no saved session (sign in again to receive invites)");
+        eprintln!(
+            "blaude account: invite check skipped — no saved session (sign in again to receive invites)"
+        );
         return None;
     };
     let client = reqwest::Client::builder()
@@ -198,7 +204,11 @@ pub async fn refresh_team_invite() -> Option<Value> {
     let status = resp.status();
     // Persist the replacement BEFORE parsing: dropping it here is what
     // leaves a spent token on disk for the next call to present.
-    if let Some(rotated) = resp.headers().get("authorization").and_then(|v| v.to_str().ok()) {
+    if let Some(rotated) = resp
+        .headers()
+        .get("authorization")
+        .and_then(|v| v.to_str().ok())
+    {
         save_client_jwt(rotated);
     }
     let body: Value = match resp.json().await {
@@ -227,12 +237,18 @@ pub async fn refresh_team_invite() -> Option<Value> {
     let invite = user
         .get("public_metadata")
         .and_then(|m| m.get("blaude_team"))
-        .filter(|t| t.get("ws_url").and_then(|u| u.as_str()).is_some_and(|u| !u.is_empty()))
+        .filter(|t| {
+            t.get("ws_url")
+                .and_then(|u| u.as_str())
+                .is_some_and(|u| !u.is_empty())
+        })
         .cloned();
     match &invite {
         Some(t) => eprintln!(
             "blaude account: invite check found team {}",
-            t.get("name").and_then(|n| n.as_str()).unwrap_or("(unnamed)")
+            t.get("name")
+                .and_then(|n| n.as_str())
+                .unwrap_or("(unnamed)")
         ),
         None => eprintln!("blaude account: invite check ok — no team on this account"),
     }
@@ -343,9 +359,16 @@ pub async fn start(email: &str, resend: bool) -> Result<String, String> {
 
     if not_found {
         // New person: sign them UP with the same email-code ceremony.
-        let (body, jwt2) =
-            fapi_post(&base, "sign_ups", Some(&current), &[("email_address", &email)]).await?;
-        if let Some(rotated) = jwt2.clone() { current = rotated; }
+        let (body, jwt2) = fapi_post(
+            &base,
+            "sign_ups",
+            Some(&current),
+            &[("email_address", &email)],
+        )
+        .await?;
+        if let Some(rotated) = jwt2.clone() {
+            current = rotated;
+        }
         if let Some(msg) = clerk_error(&body) {
             return Err(msg);
         }
@@ -362,7 +385,9 @@ pub async fn start(email: &str, resend: bool) -> Result<String, String> {
             &[("strategy", "email_code")],
         )
         .await?;
-        if let Some(rotated) = rotated { current = rotated; }
+        if let Some(rotated) = rotated {
+            current = rotated;
+        }
         if let Some(msg) = clerk_error(&body) {
             return Err(msg);
         }
@@ -403,10 +428,15 @@ pub async fn start(email: &str, resend: bool) -> Result<String, String> {
         &base,
         &format!("sign_ins/{id}/prepare_first_factor"),
         Some(&current),
-        &[("strategy", "email_code"), ("email_address_id", &email_address_id)],
+        &[
+            ("strategy", "email_code"),
+            ("email_address_id", &email_address_id),
+        ],
     )
     .await?;
-    if let Some(rotated) = rotated { current = rotated; }
+    if let Some(rotated) = rotated {
+        current = rotated;
+    }
     if let Some(msg) = clerk_error(&body) {
         return Err(msg);
     }
@@ -441,7 +471,12 @@ pub async fn finish(
             PendingKind::SignIn => format!("sign_ins/{}/attempt_first_factor", p.attempt_id),
             PendingKind::SignUp => format!("sign_ups/{}/attempt_verification", p.attempt_id),
         };
-        (path, p.client_jwt.clone(), p.email.clone(), matches!(p.kind, PendingKind::SignUp))
+        (
+            path,
+            p.client_jwt.clone(),
+            p.email.clone(),
+            matches!(p.kind, PendingKind::SignUp),
+        )
     };
     let code = code.trim();
     let mut current = jwt;
@@ -460,7 +495,11 @@ pub async fn finish(
     }
     let mut body = body;
     let mut attempt = response_obj(&body);
-    let mut status = attempt.get("status").and_then(|v| v.as_str()).unwrap_or("").to_string();
+    let mut status = attempt
+        .get("status")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
     // The Clerk instance may require a password field; a person signing in
     // by email code neither has nor wants one. Complete the sign-up with a
     // generated throwaway (never shown, never needed — email codes remain
@@ -489,7 +528,11 @@ pub async fn finish(
             }
             body = body2;
             attempt = response_obj(&body);
-            status = attempt.get("status").and_then(|v| v.as_str()).unwrap_or("").to_string();
+            status = attempt
+                .get("status")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
         }
     }
     if status != "complete" {
@@ -500,7 +543,10 @@ pub async fn finish(
     // stale before the app ever used it.
     save_client_jwt(&current);
     let user_id = if is_signup {
-        attempt.get("created_user_id").and_then(|v| v.as_str()).unwrap_or("")
+        attempt
+            .get("created_user_id")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
     } else {
         ""
     };
@@ -514,7 +560,9 @@ pub async fn finish(
         .cloned()
         .unwrap_or(Value::Null);
     let name = [
-        user.get("first_name").and_then(|v| v.as_str()).unwrap_or(""),
+        user.get("first_name")
+            .and_then(|v| v.as_str())
+            .unwrap_or(""),
         user.get("last_name").and_then(|v| v.as_str()).unwrap_or(""),
     ]
     .iter()
@@ -534,7 +582,11 @@ pub async fn finish(
     let team_invite = user
         .get("public_metadata")
         .and_then(|m| m.get("blaude_team"))
-        .filter(|t| t.get("ws_url").and_then(|u| u.as_str()).is_some_and(|u| !u.is_empty()))
+        .filter(|t| {
+            t.get("ws_url")
+                .and_then(|u| u.as_str())
+                .is_some_and(|u| !u.is_empty())
+        })
         .cloned();
     let path = account_path()?;
     crate::team_access::write_owner_only(

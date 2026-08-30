@@ -503,9 +503,7 @@ callback on {}\n",
                 if !std::io::stdin().is_terminal() {
                     anyhow::bail!("automatic callback failed: {err}");
                 }
-                eprintln!(
-                    "Automatic callback failed ({err}). Falling back to manual code paste."
-                );
+                eprintln!("Automatic callback failed ({err}). Falling back to manual code paste.");
             }
             Err(_) => {
                 if !std::io::stdin().is_terminal() {
@@ -972,7 +970,9 @@ pub fn save_claude_tokens_for_account(tokens: &OAuthTokens, label: &str) -> Resu
             .and_then(|account| account.subscription_type.clone()),
         scopes,
         // Preserve the team member who owns this pooled account across refreshes.
-        added_by: existing.as_ref().and_then(|account| account.added_by.clone()),
+        added_by: existing
+            .as_ref()
+            .and_then(|account| account.added_by.clone()),
     };
     claude_auth::upsert_account(account)?;
     Ok(())

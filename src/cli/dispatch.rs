@@ -184,10 +184,14 @@ pub(crate) async fn run_main(mut args: Args) -> Result<()> {
                 .await
                 {
                     eprintln!("api-bridge: could not start the blaude server: {error:#}");
-                    eprintln!("api-bridge: continuing; an already-running server will still be used");
+                    eprintln!(
+                        "api-bridge: continuing; an already-running server will still be used"
+                    );
                 }
             } else {
-                eprintln!("api-bridge: JCODE_BRIDGE_NO_SPAWN set — relying on an externally managed daemon");
+                eprintln!(
+                    "api-bridge: JCODE_BRIDGE_NO_SPAWN set — relying on an externally managed daemon"
+                );
             }
             let api_socket = api_socket
                 .map(std::path::PathBuf::from)
@@ -297,9 +301,10 @@ pub(crate) async fn run_main(mut args: Args) -> Result<()> {
             council::run(action)?;
         }
         Some(Command::Account { action }) => match action {
-            super::args::AccountCommand::Login { no_browser, callback: _ } => {
-                account::run_login(no_browser).await?
-            }
+            super::args::AccountCommand::Login {
+                no_browser,
+                callback: _,
+            } => account::run_login(no_browser).await?,
             super::args::AccountCommand::Status { json } => account::run_status(json).await?,
             super::args::AccountCommand::Manage => account::run_manage()?,
             super::args::AccountCommand::Logout => account::run_logout().await?,
@@ -353,7 +358,8 @@ pub(crate) async fn run_main(mut args: Args) -> Result<()> {
             AuthCommand::Status { json } => commands::run_auth_status_command(json)?,
             AuthCommand::ImportClaudeCode => {
                 crate::auth::claude::trust_native_source()?;
-                let label = crate::auth::claude::import_native_credentials_into_account_labeled(None)?;
+                let label =
+                    crate::auth::claude::import_native_credentials_into_account_labeled(None)?;
                 crate::auth::claude::set_active_account(&label)?;
                 println!("Imported Claude Code credentials as account `{label}` (now active).");
             }
@@ -378,11 +384,13 @@ pub(crate) async fn run_main(mut args: Args) -> Result<()> {
                             )
                             .await
                             {
-                                Ok(tokens) => crate::auth::oauth::update_claude_account_profile(
-                                    &account.label,
-                                    &tokens.access_token,
-                                )
-                                .await,
+                                Ok(tokens) => {
+                                    crate::auth::oauth::update_claude_account_profile(
+                                        &account.label,
+                                        &tokens.access_token,
+                                    )
+                                    .await
+                                }
                                 Err(e) => Err(e),
                             }
                         }

@@ -5,9 +5,9 @@ use crate::tool::Registry;
 use async_trait::async_trait;
 use std::collections::HashMap;
 use std::pin::Pin;
+use std::sync::Mutex as StdMutex;
 use std::sync::RwLock as StdRwLock;
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::Mutex as StdMutex;
 
 async fn recv_final_catalog_notification(rx: &mut mpsc::UnboundedReceiver<ServerEvent>) -> String {
     tokio::time::timeout(std::time::Duration::from_secs(2), async {

@@ -1173,7 +1173,12 @@ mod work_mode_tests {
 
     #[test]
     fn as_str_round_trips_through_parse() {
-        for mode in [WorkMode::Auto, WorkMode::Plan, WorkMode::Ask, WorkMode::Manual] {
+        for mode in [
+            WorkMode::Auto,
+            WorkMode::Plan,
+            WorkMode::Ask,
+            WorkMode::Manual,
+        ] {
             assert_eq!(WorkMode::parse(mode.as_str()), Some(mode));
         }
     }

@@ -13,7 +13,10 @@ async fn claude_start_mints_url_with_app_redirect_and_pkce() {
     let record = login_jobs::status(&job_id).expect("job exists");
     let url = record["url"].as_str().expect("url present");
 
-    assert!(url.contains("claude.ai") || url.contains("claude.com"), "not a Claude authorize URL: {url}");
+    assert!(
+        url.contains("claude.ai") || url.contains("claude.com"),
+        "not a Claude authorize URL: {url}"
+    );
     // The redirect is percent-encoded in the query.
     assert!(
         url.contains("redirect_uri=http%3A%2F%2Flocalhost%3A49231%2Fcallback"),
@@ -33,7 +36,10 @@ async fn codex_start_mints_openai_url_with_app_redirect() {
     let record = login_jobs::status(&job_id).expect("job exists");
     let url = record["url"].as_str().expect("url present");
 
-    assert!(url.contains("openai.com") || url.contains("auth.openai"), "not an OpenAI authorize URL: {url}");
+    assert!(
+        url.contains("openai.com") || url.contains("auth.openai"),
+        "not an OpenAI authorize URL: {url}"
+    );
     assert!(
         url.contains("redirect_uri=http%3A%2F%2Flocalhost%3A50122%2Fcallback"),
         "url does not carry the app's loopback redirect: {url}"
@@ -53,8 +59,14 @@ async fn status_record_never_leaks_the_verifier() {
 
     // The record carries the public authorize URL (challenge + state) but no
     // key that would expose the raw verifier.
-    assert!(!serialized.contains("code_verifier"), "record leaked a verifier key: {serialized}");
-    assert!(!serialized.contains("verifier"), "record leaked a verifier field: {serialized}");
+    assert!(
+        !serialized.contains("code_verifier"),
+        "record leaked a verifier key: {serialized}"
+    );
+    assert!(
+        !serialized.contains("verifier"),
+        "record leaked a verifier field: {serialized}"
+    );
 
     login_jobs::cancel(&job_id);
 }
@@ -67,7 +79,10 @@ async fn complete_with_empty_code_fails_cleanly() {
     let record = login_jobs::status(&job_id).expect("job exists");
     assert_eq!(record["state"], "failed");
     assert!(
-        record["error"].as_str().unwrap_or("").contains("no authorization code"),
+        record["error"]
+            .as_str()
+            .unwrap_or("")
+            .contains("no authorization code"),
         "unexpected error: {record}"
     );
 }

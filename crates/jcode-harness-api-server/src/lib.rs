@@ -27,10 +27,10 @@ pub mod background_progress;
 pub mod blaude_account;
 pub mod council_jobs;
 pub mod github_auth_jobs;
-pub mod team_create_jobs;
 pub mod login_jobs;
-pub mod team_access;
 pub mod permissions;
+pub mod team_access;
+pub mod team_create_jobs;
 pub mod translate;
 pub mod ws;
 
@@ -336,7 +336,14 @@ async fn handle_api_client(stream: Stream, legacy_socket: PathBuf) -> Result<()>
     let (read_half, write_half) = stream.into_split();
     // Local unix-socket clients are the machine owner by definition (0600).
     let identity = blaude_account::identity().or_else(|| std::env::var("USER").ok());
-    handle_api_io(BufReader::new(read_half), write_half, legacy_socket, identity, true).await
+    handle_api_io(
+        BufReader::new(read_half),
+        write_half,
+        legacy_socket,
+        identity,
+        true,
+    )
+    .await
 }
 
 /// Per-client bridge loop, generic over the client transport: the unix socket

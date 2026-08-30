@@ -58,7 +58,12 @@ fn new_job_id() -> String {
 }
 
 /// Start a run; returns the job id immediately.
-pub fn start(name: String, prompt: String, working_dir: Option<String>, tag: Option<String>) -> String {
+pub fn start(
+    name: String,
+    prompt: String,
+    working_dir: Option<String>,
+    tag: Option<String>,
+) -> String {
     let job_id = new_job_id();
     let record = json!({
         "job_id": job_id,
@@ -72,7 +77,11 @@ pub fn start(name: String, prompt: String, working_dir: Option<String>, tag: Opt
     let cancel = Arc::new(tokio::sync::Notify::new());
     jobs().lock().unwrap().insert(
         job_id.clone(),
-        Job { record: record.clone(), state_tx: state_tx.clone(), cancel: cancel.clone() },
+        Job {
+            record: record.clone(),
+            state_tx: state_tx.clone(),
+            cancel: cancel.clone(),
+        },
     );
 
     let id = job_id.clone();
@@ -97,7 +106,10 @@ pub fn start(name: String, prompt: String, working_dir: Option<String>, tag: Opt
         command.kill_on_drop(true);
 
         let (state, error) = match command.spawn() {
-            Err(error) => ("failed".to_string(), Some(format!("couldn't launch council: {error}"))),
+            Err(error) => (
+                "failed".to_string(),
+                Some(format!("couldn't launch council: {error}")),
+            ),
             Ok(mut child) => {
                 tokio::select! {
                     _ = cancel.notified() => {
@@ -126,7 +138,9 @@ pub fn start(name: String, prompt: String, working_dir: Option<String>, tag: Opt
         };
 
         let output = if state == "done" {
-            out_path.as_ref().and_then(|p| std::fs::read_to_string(p).ok())
+            out_path
+                .as_ref()
+                .and_then(|p| std::fs::read_to_string(p).ok())
         } else {
             None
         };
@@ -154,7 +168,9 @@ fn finish(job_id: &str, state: &str, output: Option<String>, error: Option<Strin
 
 fn persist(record: &Value) {
     let Some(dir) = runs_dir() else { return };
-    let Some(job_id) = record["job_id"].as_str() else { return };
+    let Some(job_id) = record["job_id"].as_str() else {
+        return;
+    };
     let path = dir.join(format!("{job_id}.json"));
     if let Ok(text) = serde_json::to_string_pretty(record) {
         let _ = std::fs::write(path, text);
@@ -163,7 +179,9 @@ fn persist(record: &Value) {
 }
 
 fn prune(dir: &std::path::Path) {
-    let Ok(entries) = std::fs::read_dir(dir) else { return };
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
     let mut records: Vec<(std::time::SystemTime, PathBuf)> = entries
         .flatten()
         .filter(|e| e.path().extension().is_some_and(|x| x == "json"))

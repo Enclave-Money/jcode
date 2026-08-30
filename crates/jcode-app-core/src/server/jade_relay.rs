@@ -512,8 +512,13 @@ impl RelayClient {
                 queue,
                 stop_signal,
             );
-            if !control.queue_soft_interrupt(interrupt, Vec::new(), true, SoftInterruptSource::User, None)
-            {
+            if !control.queue_soft_interrupt(
+                interrupt,
+                Vec::new(),
+                true,
+                SoftInterruptSource::User,
+                None,
+            ) {
                 anyhow::bail!(
                     "session '{}' could not accept cancel interrupt",
                     self.config.session_id
@@ -1219,7 +1224,8 @@ async fn deliver_to_session(
         agent_guard.message_count()
     };
     let event_tx = session_event_fanout_sender(session_id.to_string(), swarm_members);
-    process_message_streaming_mpsc(Arc::clone(&agent), text, Vec::new(), None, None, event_tx).await?;
+    process_message_streaming_mpsc(Arc::clone(&agent), text, Vec::new(), None, None, event_tx)
+        .await?;
     let reply = {
         let agent_guard = agent.lock().await;
         agent_guard.latest_assistant_text_after(start_message_index)
@@ -1250,7 +1256,8 @@ async fn deliver_to_launched_session(
         agent_guard.message_count()
     };
     let event_tx = session_event_fanout_sender(session_id.to_string(), swarm_members);
-    process_message_streaming_mpsc(Arc::clone(&agent), text, Vec::new(), None, None, event_tx).await?;
+    process_message_streaming_mpsc(Arc::clone(&agent), text, Vec::new(), None, None, event_tx)
+        .await?;
     let reply = {
         let agent_guard = agent.lock().await;
         agent_guard.latest_assistant_text_after(start_message_index)

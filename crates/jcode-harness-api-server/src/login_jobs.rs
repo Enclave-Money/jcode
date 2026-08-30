@@ -73,7 +73,9 @@ fn login_jobs_dir() -> Option<std::path::PathBuf> {
 fn persist_job(p: &PersistedJob) {
     let Some(dir) = login_jobs_dir() else { return };
     let path = dir.join(format!("{}.json", p.job_id));
-    let Ok(json) = serde_json::to_string(p) else { return };
+    let Ok(json) = serde_json::to_string(p) else {
+        return;
+    };
     if std::fs::write(&path, json).is_ok() {
         #[cfg(unix)]
         {
@@ -109,16 +111,20 @@ fn reregister(p: &PersistedJob) {
         "started_at": p.started_secs,
     });
     let (state_tx, _) = watch::channel("waiting_for_code".to_string());
-    jobs().lock().unwrap().entry(p.job_id.clone()).or_insert(Job {
-        record,
-        verifier: p.verifier.clone(),
-        state_param: p.state_param.clone(),
-        redirect_uri: p.redirect_uri.clone(),
-        provider: p.provider.clone(),
-        member: p.member.clone(),
-        state_tx,
-        cancel: Arc::new(tokio::sync::Notify::new()),
-    });
+    jobs()
+        .lock()
+        .unwrap()
+        .entry(p.job_id.clone())
+        .or_insert(Job {
+            record,
+            verifier: p.verifier.clone(),
+            state_param: p.state_param.clone(),
+            redirect_uri: p.redirect_uri.clone(),
+            provider: p.provider.clone(),
+            member: p.member.clone(),
+            state_tx,
+            cancel: Arc::new(tokio::sync::Notify::new()),
+        });
 }
 
 fn now_secs() -> u64 {
@@ -162,7 +168,11 @@ fn finish(job_id: &str, state: &str, error: Option<String>) {
 }
 
 fn normalize(provider: &str) -> &'static str {
-    if provider == "codex" || provider == "openai" { "codex" } else { "claude" }
+    if provider == "codex" || provider == "openai" {
+        "codex"
+    } else {
+        "claude"
+    }
 }
 
 /// Start a loopback-relay login. `redirect_uri` is the app's own loopback
@@ -186,7 +196,11 @@ pub fn start(provider: &str, redirect_uri: &str, member: Option<&str>) -> String
     };
     // Record the state the exchange will actually check against, so the stored
     // value matches the authorize URL for each provider.
-    let state = if provider == "codex" { state } else { verifier.clone() };
+    let state = if provider == "codex" {
+        state
+    } else {
+        verifier.clone()
+    };
 
     let job_id = new_job_id();
     let record = json!({
@@ -274,23 +288,37 @@ pub async fn complete(job_id: &str, input: &str) {
             // from disk and re-register so the rest of this flow works normally.
             Some(p) => {
                 reregister(&p);
-                (p.verifier, p.state_param, p.redirect_uri, p.provider, p.member)
+                (
+                    p.verifier,
+                    p.state_param,
+                    p.redirect_uri,
+                    p.provider,
+                    p.member,
+                )
             }
             None => return,
         },
     };
     let input = input.trim().to_string();
     if input.is_empty() {
-        finish(job_id, "failed", Some("no authorization code received".into()));
+        finish(
+            job_id,
+            "failed",
+            Some("no authorization code received".into()),
+        );
         return;
     }
     set_state(job_id, "completing");
 
     let result: anyhow::Result<()> = async {
         if provider == "codex" {
-            let tokens =
-                oauth::exchange_openai_callback_input(&verifier, &input, &state_param, &redirect_uri)
-                    .await?;
+            let tokens = oauth::exchange_openai_callback_input(
+                &verifier,
+                &input,
+                &state_param,
+                &redirect_uri,
+            )
+            .await?;
             // Identity-aware append (pooling), mirroring the Claude path.
             let requested = codex::login_target_label(None)?;
             let _ = oauth::save_openai_login(&tokens, &requested).await?;
@@ -320,7 +348,11 @@ pub async fn complete(job_id: &str, input: &str) {
 }
 
 pub fn status(job_id: &str) -> Option<Value> {
-    jobs().lock().unwrap().get(job_id).map(|job| job.record.clone())
+    jobs()
+        .lock()
+        .unwrap()
+        .get(job_id)
+        .map(|job| job.record.clone())
 }
 
 pub fn cancel(job_id: &str) -> bool {

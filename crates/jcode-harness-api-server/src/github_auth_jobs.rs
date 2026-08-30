@@ -55,7 +55,12 @@ pub fn status(job_id: &str) -> Option<Value> {
 }
 
 fn gh_bin() -> Option<String> {
-    for candidate in ["gh", "/usr/bin/gh", "/usr/local/bin/gh", "/opt/homebrew/bin/gh"] {
+    for candidate in [
+        "gh",
+        "/usr/bin/gh",
+        "/usr/local/bin/gh",
+        "/opt/homebrew/bin/gh",
+    ] {
         let probe = std::process::Command::new(candidate)
             .arg("--version")
             .stdout(Stdio::null())
@@ -139,9 +144,12 @@ pub async fn start() -> Value {
 
     let spawn = tokio::process::Command::new(&gh)
         .args([
-            "auth", "login",
-            "--hostname", "github.com",
-            "--git-protocol", "https",
+            "auth",
+            "login",
+            "--hostname",
+            "github.com",
+            "--git-protocol",
+            "https",
             "--web",
             "--skip-ssh-key",
         ])
@@ -203,11 +211,8 @@ pub async fn start() -> Value {
 
     let waiter_id = job_id.clone();
     tokio::spawn(async move {
-        let waited = tokio::time::timeout(
-            Duration::from_secs(OVERALL_TIMEOUT_SECS),
-            child.wait(),
-        )
-        .await;
+        let waited =
+            tokio::time::timeout(Duration::from_secs(OVERALL_TIMEOUT_SECS), child.wait()).await;
         let _ = out_task.await;
         let _ = err_task.await;
         match waited {

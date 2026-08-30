@@ -85,7 +85,11 @@ pub fn queue_status(key: &Path) -> (usize, Option<String>) {
     let map = REPO_WRITE_LOCKS.lock().unwrap_or_else(|e| e.into_inner());
     match map.get(key) {
         Some(queue) => {
-            let holder = queue.holder.lock().unwrap_or_else(|e| e.into_inner()).clone();
+            let holder = queue
+                .holder
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .clone();
             (queue.waiting.load(Ordering::SeqCst), holder)
         }
         None => (0, None),
@@ -97,14 +101,12 @@ pub fn queue_status(key: &Path) -> (usize, Option<String>) {
 /// The session layer forwards this to the client, so a teammate whose turn has
 /// paused sees who is ahead of them rather than an unexplained stall.
 pub fn publish_wait(session_id: &str, path: &Path, depth: usize, holder: Option<String>) {
-    crate::bus::Bus::global().publish(crate::bus::BusEvent::WriteQueued(
-        crate::bus::WriteQueued {
-            session_id: session_id.to_string(),
-            path: path.to_path_buf(),
-            holder,
-            depth,
-        },
-    ));
+    crate::bus::Bus::global().publish(crate::bus::BusEvent::WriteQueued(crate::bus::WriteQueued {
+        session_id: session_id.to_string(),
+        path: path.to_path_buf(),
+        holder,
+        depth,
+    }));
 }
 
 /// Run `body` holding this path's repo write lock.
@@ -136,7 +138,11 @@ where
     let guard = match queue.lock.try_lock() {
         Ok(guard) => guard,
         Err(_) => {
-            let holder = queue.holder.lock().unwrap_or_else(|e| e.into_inner()).clone();
+            let holder = queue
+                .holder
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .clone();
             on_wait(queue.waiting.load(Ordering::SeqCst), holder);
             queue.lock.lock().await
         }
@@ -213,18 +219,25 @@ mod tests {
         for _ in 0..8 {
             let file = file.clone();
             handles.push(tokio::spawn(async move {
-                with_repo_write_lock(&file, None, |_, _| {}, || async {
-                    let current: u32 = tokio::fs::read_to_string(&file)
-                        .await
-                        .unwrap()
-                        .trim()
-                        .parse()
-                        .unwrap();
-                    // Yield between read and write: without serialisation this
-                    // is where the lost update happens.
-                    tokio::task::yield_now().await;
-                    tokio::fs::write(&file, (current + 1).to_string()).await.unwrap();
-                })
+                with_repo_write_lock(
+                    &file,
+                    None,
+                    |_, _| {},
+                    || async {
+                        let current: u32 = tokio::fs::read_to_string(&file)
+                            .await
+                            .unwrap()
+                            .trim()
+                            .parse()
+                            .unwrap();
+                        // Yield between read and write: without serialisation this
+                        // is where the lost update happens.
+                        tokio::task::yield_now().await;
+                        tokio::fs::write(&file, (current + 1).to_string())
+                            .await
+                            .unwrap();
+                    },
+                )
                 .await
             }));
         }
@@ -250,10 +263,15 @@ mod tests {
         let holder = {
             let (file, release, held) = (file.clone(), release.clone(), held.clone());
             tokio::spawn(async move {
-                with_repo_write_lock(&file, Some("ana"), |_, _| {}, || async {
-                    held.notify_one();
-                    release.notified().await;
-                })
+                with_repo_write_lock(
+                    &file,
+                    Some("ana"),
+                    |_, _| {},
+                    || async {
+                        held.notify_one();
+                        release.notified().await;
+                    },
+                )
                 .await
             })
         };
@@ -284,11 +302,17 @@ mod tests {
         }
         holder.await.unwrap();
 
-        assert!(saw_wait.load(Ordering::SeqCst), "the waiter must be told it is queued");
+        assert!(
+            saw_wait.load(Ordering::SeqCst),
+            "the waiter must be told it is queued"
+        );
         let seen = seen_holder.lock().unwrap().clone();
         let (who, depth) = seen.expect("a holder name must be reported");
         assert_eq!(who, "ana");
-        assert!(depth >= 2, "depth counts the holder plus the waiter, got {depth}");
+        assert!(
+            depth >= 2,
+            "depth counts the holder plus the waiter, got {depth}"
+        );
     }
 
     #[tokio::test]
@@ -300,10 +324,18 @@ mod tests {
 
         let waited = Arc::new(AtomicBool::new(false));
         let flag = waited.clone();
-        with_repo_write_lock(&file, Some("solo"), |_, _| flag.store(true, Ordering::SeqCst), || async {})
-            .await;
+        with_repo_write_lock(
+            &file,
+            Some("solo"),
+            |_, _| flag.store(true, Ordering::SeqCst),
+            || async {},
+        )
+        .await;
 
-        assert!(!waited.load(Ordering::SeqCst), "a free queue must not report a wait");
+        assert!(
+            !waited.load(Ordering::SeqCst),
+            "a free queue must not report a wait"
+        );
     }
 
     #[tokio::test]
@@ -317,6 +349,9 @@ mod tests {
 
         let (depth, holder) = queue_status(&repo_key(&file));
         assert_eq!(depth, 0, "the waiter count must return to zero");
-        assert_eq!(holder, None, "a released queue must not keep a stale holder");
+        assert_eq!(
+            holder, None,
+            "a released queue must not keep a stale holder"
+        );
     }
 }

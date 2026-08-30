@@ -33,7 +33,11 @@ pub async fn spawn_from_env(legacy_socket: PathBuf) -> Result<Option<std::net::S
     if raw.eq_ignore_ascii_case("off") {
         return Ok(None);
     }
-    let port: u16 = if raw.is_empty() { DEFAULT_WS_PORT } else { raw.parse().context("JCODE_API_WS_PORT")? };
+    let port: u16 = if raw.is_empty() {
+        DEFAULT_WS_PORT
+    } else {
+        raw.parse().context("JCODE_API_WS_PORT")?
+    };
     // Loopback by default; JCODE_API_WS_BIND=0.0.0.0 opens the door for team
     // clients. A non-loopback bind carries bearer tokens over the network, so
     // it is REFUSED unless TLS terminates here (or the operator explicitly
@@ -42,7 +46,8 @@ pub async fn spawn_from_env(legacy_socket: PathBuf) -> Result<Option<std::net::S
     // production posture: a token in cleartext on 0.0.0.0 is a credential leak.
     let bind = std::env::var("JCODE_API_WS_BIND").unwrap_or_else(|_| "127.0.0.1".into());
     let tls = tls_acceptor_from_env()?;
-    let is_loopback = bind == "127.0.0.1" || bind == "::1" || bind.eq_ignore_ascii_case("localhost");
+    let is_loopback =
+        bind == "127.0.0.1" || bind == "::1" || bind.eq_ignore_ascii_case("localhost");
     let allow_insecure = std::env::var("JCODE_API_WS_ALLOW_INSECURE").is_ok_and(|v| v == "1");
     if !is_loopback && tls.is_none() && !allow_insecure {
         anyhow::bail!(
@@ -59,7 +64,9 @@ pub async fn spawn_from_env(legacy_socket: PathBuf) -> Result<Option<std::net::S
     if tls.is_some() {
         eprintln!("harness API bridge: TLS enabled — clients connect with wss://");
     } else if !is_loopback {
-        eprintln!("harness API bridge: WARNING — plaintext ws:// on {bind} (JCODE_API_WS_ALLOW_INSECURE)");
+        eprintln!(
+            "harness API bridge: WARNING — plaintext ws:// on {bind} (JCODE_API_WS_ALLOW_INSECURE)"
+        );
     }
     tokio::spawn(async move {
         if let Err(error) = run_ws_listener_with_tls(listener, token, legacy_socket, tls).await {
@@ -218,7 +225,10 @@ pub async fn run_ws_listener_with_tls(
             Ok(pair) => pair,
             Err(error) => {
                 eprintln!("harness API bridge: accept error (continuing): {error}");
-                if matches!(error.raw_os_error(), Some(libc::EMFILE) | Some(libc::ENFILE)) {
+                if matches!(
+                    error.raw_os_error(),
+                    Some(libc::EMFILE) | Some(libc::ENFILE)
+                ) {
                     tokio::time::sleep(std::time::Duration::from_millis(100)).await;
                 }
                 continue;
@@ -308,7 +318,9 @@ impl<S: AsyncWrite + Unpin> AsyncWrite for PrefixedStream<S> {
 /// Brute-force guard: a peer that keeps failing auth gets refused outright
 /// for a cooldown window. In-memory per-process — enough to turn an online
 /// token guess from thousands/second into ten/minute.
-fn auth_failures() -> &'static std::sync::Mutex<std::collections::HashMap<std::net::IpAddr, (u32, std::time::Instant)>> {
+fn auth_failures()
+-> &'static std::sync::Mutex<std::collections::HashMap<std::net::IpAddr, (u32, std::time::Instant)>>
+{
     static FAILURES: std::sync::OnceLock<
         std::sync::Mutex<std::collections::HashMap<std::net::IpAddr, (u32, std::time::Instant)>>,
     > = std::sync::OnceLock::new();
@@ -321,7 +333,9 @@ const AUTH_FAILURE_WINDOW: std::time::Duration = std::time::Duration::from_secs(
 fn auth_throttled(peer: std::net::IpAddr) -> bool {
     let mut map = auth_failures().lock().unwrap_or_else(|p| p.into_inner());
     match map.get(&peer) {
-        Some((count, since)) if since.elapsed() < AUTH_FAILURE_WINDOW => *count >= AUTH_FAILURE_LIMIT,
+        Some((count, since)) if since.elapsed() < AUTH_FAILURE_WINDOW => {
+            *count >= AUTH_FAILURE_LIMIT
+        }
         Some(_) => {
             map.remove(&peer);
             false
@@ -364,9 +378,9 @@ fn authorize(request: &Request, token: &str) -> Result<(Option<String>, bool), E
         .map(str::to_string)
         .or_else(|| {
             request.uri().query().and_then(|query| {
-                query.split('&').find_map(|pair| {
-                    pair.strip_prefix("token=").map(str::to_string)
-                })
+                query
+                    .split('&')
+                    .find_map(|pair| pair.strip_prefix("token=").map(str::to_string))
             })
         });
     let Some(presented) = presented else {
@@ -375,8 +389,7 @@ fn authorize(request: &Request, token: &str) -> Result<(Option<String>, bool), E
     if constant_time_eq(presented.as_bytes(), token.as_bytes()) {
         // The owner's identity is their blaude account email when the
         // runtime has one (on team servers it rides along at create_team).
-        let identity = crate::blaude_account::identity()
-            .or_else(|| std::env::var("USER").ok());
+        let identity = crate::blaude_account::identity().or_else(|| std::env::var("USER").ok());
         return Ok((identity, true));
     }
     for (email, member_token) in team_tokens() {
@@ -494,9 +507,15 @@ where
         head.extend_from_slice(&chunk[..n]);
     }
     let head_text = String::from_utf8_lossy(&head).to_string();
-    let tcp = PrefixedStream { prefix: head, offset: 0, inner: tcp };
+    let tcp = PrefixedStream {
+        prefix: head,
+        offset: 0,
+        inner: tcp,
+    };
     if head_text.starts_with("GET ")
-        && !head_text.to_ascii_lowercase().contains("upgrade: websocket")
+        && !head_text
+            .to_ascii_lowercase()
+            .contains("upgrade: websocket")
     {
         // The prefixed request bytes are already consumed conceptually — the
         // responder only writes.
@@ -506,7 +525,9 @@ where
     let auth_cb = std::sync::Arc::clone(&auth);
     let ws = tokio_tungstenite::accept_hdr_async(tcp, |request: &Request, response: Response| {
         let who = authorize(request, token).inspect_err(|_| note_auth_failure(peer))?;
-        *auth_cb.lock().unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(who);
+        *auth_cb
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(who);
         Ok(response)
     })
     .await
@@ -524,7 +545,13 @@ where
     // the standard bridge loop on the other end. One frame = one line.
     let (client_side, bridge_side) = tokio::io::duplex(1024 * 1024);
     let (bridge_read, bridge_write) = tokio::io::split(bridge_side);
-    let core = tokio::spawn(handle_api_io(BufReader::new(bridge_read), bridge_write, legacy_socket, identity, is_owner));
+    let core = tokio::spawn(handle_api_io(
+        BufReader::new(bridge_read),
+        bridge_write,
+        legacy_socket,
+        identity,
+        is_owner,
+    ));
 
     let (relay_read, mut relay_write) = tokio::io::split(client_side);
     let mut lines = BufReader::new(relay_read).lines();
@@ -575,7 +602,8 @@ mod ws_tests {
     async fn start(token: &str) -> std::net::SocketAddr {
         let listener = TcpListener::bind(("127.0.0.1", 0)).await.unwrap();
         let addr = listener.local_addr().unwrap();
-        let legacy = std::env::temp_dir().join(format!("jcode-ws-test-{}-none.sock", std::process::id()));
+        let legacy =
+            std::env::temp_dir().join(format!("jcode-ws-test-{}-none.sock", std::process::id()));
         tokio::spawn(run_ws_listener(listener, token.to_string(), legacy));
         addr
     }
@@ -586,13 +614,13 @@ mod ws_tests {
     async fn hello_round_trips_over_websocket() {
         let addr = start("sekrit").await;
         let mut request = format!("ws://{addr}/api").into_client_request().unwrap();
-        request.headers_mut().insert(
-            "authorization",
-            "Bearer sekrit".parse().unwrap(),
-        );
+        request
+            .headers_mut()
+            .insert("authorization", "Bearer sekrit".parse().unwrap());
         let (mut ws, _) = tokio_tungstenite::connect_async(request).await.unwrap();
         ws.send(Message::Text(
-            r#"{"v":1,"id":1,"req":"hello","min_version":1,"max_version":1,"client":"ws-test/0"}"#.into(),
+            r#"{"v":1,"id":1,"req":"hello","min_version":1,"max_version":1,"client":"ws-test/0"}"#
+                .into(),
         ))
         .await
         .unwrap();
@@ -610,10 +638,9 @@ mod ws_tests {
     async fn bad_token_is_rejected_at_handshake() {
         let addr = start("sekrit").await;
         let mut request = format!("ws://{addr}/api").into_client_request().unwrap();
-        request.headers_mut().insert(
-            "authorization",
-            "Bearer wrong".parse().unwrap(),
-        );
+        request
+            .headers_mut()
+            .insert("authorization", "Bearer wrong".parse().unwrap());
         let error = tokio_tungstenite::connect_async(request).await.unwrap_err();
         let text = format!("{error}");
         assert!(text.contains("401"), "expected 401, got: {text}");
@@ -629,15 +656,26 @@ mod ws_tests {
     async fn plain_get_serves_the_phone_client() {
         let addr = start("sekrit").await;
         let mut tcp = tokio::net::TcpStream::connect(addr).await.unwrap();
-        tcp.write_all(b"GET / HTTP/1.1\r\nHost: x\r\n\r\n").await.unwrap();
+        tcp.write_all(b"GET / HTTP/1.1\r\nHost: x\r\n\r\n")
+            .await
+            .unwrap();
         let mut body = Vec::new();
         tcp.read_to_end(&mut body).await.unwrap();
         let text = String::from_utf8_lossy(&body);
-        assert!(text.starts_with("HTTP/1.1 200"), "got: {}", &text[..60.min(text.len())]);
-        assert!(text.contains("blaude-phone"), "page should embed the client");
+        assert!(
+            text.starts_with("HTTP/1.1 200"),
+            "got: {}",
+            &text[..60.min(text.len())]
+        );
+        assert!(
+            text.contains("blaude-phone"),
+            "page should embed the client"
+        );
 
         let mut tcp = tokio::net::TcpStream::connect(addr).await.unwrap();
-        tcp.write_all(b"GET /nope HTTP/1.1\r\nHost: x\r\n\r\n").await.unwrap();
+        tcp.write_all(b"GET /nope HTTP/1.1\r\nHost: x\r\n\r\n")
+            .await
+            .unwrap();
         let mut body = Vec::new();
         tcp.read_to_end(&mut body).await.unwrap();
         assert!(String::from_utf8_lossy(&body).starts_with("HTTP/1.1 404"));
@@ -660,10 +698,8 @@ mod ws_tests {
             load_tls_acceptor(cert_path.to_str().unwrap(), key_path.to_str().unwrap()).unwrap();
         let listener = TcpListener::bind(("127.0.0.1", 0)).await.unwrap();
         let addr = listener.local_addr().unwrap();
-        let legacy = std::env::temp_dir().join(format!(
-            "jcode-wss-test-{}-none.sock",
-            std::process::id()
-        ));
+        let legacy =
+            std::env::temp_dir().join(format!("jcode-wss-test-{}-none.sock", std::process::id()));
         tokio::spawn(run_ws_listener_with_tls(
             listener,
             "sekrit".to_string(),
@@ -682,19 +718,17 @@ mod ws_tests {
         let mut request = format!("wss://localhost:{}/api?token=sekrit", addr.port())
             .into_client_request()
             .unwrap();
-        request
-            .headers_mut()
-            .insert("host", format!("localhost:{}", addr.port()).parse().unwrap());
-        let (mut ws, _) = tokio_tungstenite::connect_async_tls_with_config(
-            request,
-            None,
-            false,
-            Some(connector),
-        )
-        .await
-        .unwrap();
+        request.headers_mut().insert(
+            "host",
+            format!("localhost:{}", addr.port()).parse().unwrap(),
+        );
+        let (mut ws, _) =
+            tokio_tungstenite::connect_async_tls_with_config(request, None, false, Some(connector))
+                .await
+                .unwrap();
         ws.send(Message::Text(
-            r#"{"v":1,"id":1,"req":"hello","min_version":1,"max_version":1,"client":"wss-test/0"}"#.into(),
+            r#"{"v":1,"id":1,"req":"hello","min_version":1,"max_version":1,"client":"wss-test/0"}"#
+                .into(),
         ))
         .await
         .unwrap();
@@ -743,13 +777,24 @@ mod ws_tests {
         let page = fetch("/join?ticket=ticket-abcdef1234567890".to_string()).await;
         assert!(page.starts_with("HTTP/1.1 200"), "{}", &page[..60]);
         assert!(page.contains("Sign in with the email"), "instructions page");
-        assert!(!page.contains("member-jo-token"), "browser visit must not mint a grant");
+        assert!(
+            !page.contains("member-jo-token"),
+            "browser visit must not mint a grant"
+        );
         let claim = fetch("/join/claim?ticket=ticket-abcdef1234567890".to_string()).await;
-        assert!(claim.starts_with("HTTP/1.1 200"), "the page left the ticket unburned: {}", &claim[..60]);
+        assert!(
+            claim.starts_with("HTTP/1.1 200"),
+            "the page left the ticket unburned: {}",
+            &claim[..60]
+        );
         assert!(claim.contains("member-jo-token"), "grant JSON for the app");
         assert!(claim.contains("jo@example.com"));
         let burned = fetch("/join/claim?ticket=ticket-abcdef1234567890".to_string()).await;
-        assert!(burned.starts_with("HTTP/1.1 410"), "one-time: {}", &burned[..60]);
+        assert!(
+            burned.starts_with("HTTP/1.1 410"),
+            "one-time: {}",
+            &burned[..60]
+        );
         assert!(!burned.contains("member-jo-token"));
 
         // …but membership is renewable: the claim left a FRESH ticket for
@@ -764,8 +809,15 @@ mod ws_tests {
         assert_ne!(code, "ticket-abcdef1234567890", "the burned code is gone");
         assert_eq!(record["email"], "jo@example.com");
         let second = fetch(format!("/join/claim?ticket={code}")).await;
-        assert!(second.starts_with("HTTP/1.1 200"), "renewed ticket redeems: {}", &second[..60]);
-        assert!(second.contains("member-jo-token"), "same membership, not a new one");
+        assert!(
+            second.starts_with("HTTP/1.1 200"),
+            "renewed ticket redeems: {}",
+            &second[..60]
+        );
+        assert!(
+            second.contains("member-jo-token"),
+            "same membership, not a new one"
+        );
 
         match previous {
             Some(value) => unsafe { std::env::set_var("JCODE_HOME", value) },
@@ -793,10 +845,13 @@ mod ws_tests {
     #[tokio::test(flavor = "multi_thread")]
     async fn query_token_is_accepted() {
         let addr = start("sekrit").await;
-        let request = format!("ws://{addr}/api?token=sekrit").into_client_request().unwrap();
+        let request = format!("ws://{addr}/api?token=sekrit")
+            .into_client_request()
+            .unwrap();
         let (mut ws, _) = tokio_tungstenite::connect_async(request).await.unwrap();
         ws.send(Message::Text(
-            r#"{"v":1,"id":9,"req":"hello","min_version":1,"max_version":1,"client":"ws-test/0"}"#.into(),
+            r#"{"v":1,"id":9,"req":"hello","min_version":1,"max_version":1,"client":"ws-test/0"}"#
+                .into(),
         ))
         .await
         .unwrap();

@@ -43,9 +43,9 @@ impl Agent {
         display_role: Option<StoredDisplayRole>,
         by_user: Option<String>,
     ) -> String {
-        let id = self
-            .session
-            .add_message_authored(role, content, None, None, display_role, by_user);
+        let id =
+            self.session
+                .add_message_authored(role, content, None, None, display_role, by_user);
         let compaction = self.registry.compaction();
         if let Ok(mut manager) = compaction.try_write() {
             if let Some(message) = self.session.messages.last() {
