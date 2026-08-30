@@ -406,6 +406,7 @@ mod history_dedup_tests {
             content: content.to_string(),
             tool_calls: None,
             tool_data: None,
+            by_user: None,
         }
     }
 

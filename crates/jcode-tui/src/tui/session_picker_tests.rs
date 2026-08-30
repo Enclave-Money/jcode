@@ -653,6 +653,7 @@ fn test_loading_preview_refreshes_search_index_for_picker_filtering() {
         timestamp: None,
         tool_duration_ms: None,
         token_usage: None,
+        by_user: None,
     });
     session.save().expect("save session");
 

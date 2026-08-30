@@ -1287,6 +1287,7 @@ fn test_create_transfer_session_from_parent_copies_todos_and_uses_compacted_cont
             timestamp: None,
             tool_duration_ms: None,
             token_usage: None,
+            by_user: None,
         });
         let transfer_compaction = crate::session::StoredCompactionState {
             summary_text: "Compacted handoff summary".to_string(),

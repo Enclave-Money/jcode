@@ -83,6 +83,7 @@ fn advancing_the_epoch_forces_recomputation_for_identical_input() {
         timestamp: None,
         tool_duration_ms: None,
         token_usage: None,
+        by_user: None,
     });
     app.advance_command_suggestions_epoch();
 

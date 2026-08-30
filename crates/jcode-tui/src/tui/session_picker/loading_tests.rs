@@ -513,6 +513,7 @@ fn load_sessions_prefers_custom_title_over_generated_title() {
         timestamp: None,
         tool_duration_ms: None,
         token_usage: None,
+        by_user: None,
     });
     session.save().expect("save session");
     invalidate_session_list_cache();
@@ -550,6 +551,7 @@ fn load_sessions_prefers_todo_group_over_generated_title() {
         timestamp: None,
         tool_duration_ms: None,
         token_usage: None,
+        by_user: None,
     });
     session.save().expect("save session");
     crate::todo::save_todos(
@@ -603,6 +605,7 @@ fn load_sessions_keeps_custom_title_over_todo_group() {
         timestamp: None,
         tool_duration_ms: None,
         token_usage: None,
+        by_user: None,
     });
     session.save().expect("save session");
     crate::todo::save_todos(
@@ -655,6 +658,7 @@ fn load_sessions_includes_saved_sessions_beyond_scan_limit() {
         timestamp: None,
         tool_duration_ms: None,
         token_usage: None,
+        by_user: None,
     });
     saved_session.save().expect("save saved session");
 
@@ -675,6 +679,7 @@ fn load_sessions_includes_saved_sessions_beyond_scan_limit() {
             timestamp: None,
             tool_duration_ms: None,
             token_usage: None,
+            by_user: None,
         });
         session.save().expect("save unsaved session");
     }
@@ -712,6 +717,7 @@ fn load_sessions_preserves_snapshot_saved_when_journal_meta_omits_saved() {
         timestamp: None,
         tool_duration_ms: None,
         token_usage: None,
+        by_user: None,
     });
     session.save().expect("save saved session");
 
@@ -799,6 +805,7 @@ fn session_matches_query_searches_jcode_transcript_contents() {
         timestamp: None,
         tool_duration_ms: None,
         token_usage: None,
+        by_user: None,
     });
     session.save().expect("save session");
 
@@ -844,6 +851,7 @@ fn jcode_search_index_keeps_late_turns_after_reaching_its_budget() {
             timestamp: None,
             tool_duration_ms: None,
             token_usage: None,
+            by_user: None,
         });
     }
     session.save().expect("save session");
@@ -1129,6 +1137,7 @@ fn benchmark_resume_loading_reports_timings() {
             timestamp: None,
             tool_duration_ms: None,
             token_usage: None,
+            by_user: None,
         });
         session.append_stored_message(crate::session::StoredMessage {
             id: format!("msg-{idx}-2"),
@@ -1141,6 +1150,7 @@ fn benchmark_resume_loading_reports_timings() {
             timestamp: None,
             tool_duration_ms: None,
             token_usage: None,
+            by_user: None,
         });
         session.save().expect("save benchmark session");
     }
@@ -1198,6 +1208,7 @@ fn onboarding_scoped_loader_returns_only_codex_sessions() {
         timestamp: None,
         tool_duration_ms: None,
         token_usage: None,
+        by_user: None,
     });
     jcode_session.save().expect("save blaude session");
 
@@ -1240,6 +1251,7 @@ fn parallel_fill_skips_many_recent_empty_sessions_to_reach_scan_limit() {
             timestamp: None,
             tool_duration_ms: None,
             token_usage: None,
+            by_user: None,
         });
     };
 
@@ -1302,6 +1314,7 @@ fn hidden_debug_sessions_do_not_consume_default_resume_budget() {
             timestamp: None,
             tool_duration_ms: None,
             token_usage: None,
+            by_user: None,
         });
     };
 
@@ -1370,6 +1383,7 @@ fn session_matches_picker_query_requires_all_tokens_order_independent() {
         timestamp: None,
         tool_duration_ms: None,
         token_usage: None,
+        by_user: None,
     });
     session.save().expect("save session");
 

@@ -526,7 +526,9 @@ fn user_history_message(content: &str) -> crate::protocol::HistoryMessage {
         content: content.to_string(),
         tool_calls: None,
         tool_data: None,
+        by_user: None,
     }
+    by_user: None,
 }
 
 fn history_event_for_session(session_id: &str) -> crate::protocol::ServerEvent {

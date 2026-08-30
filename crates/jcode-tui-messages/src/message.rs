@@ -454,6 +454,7 @@ mod tests {
             tool_calls: vec!["read".to_string()],
             tool_data: None,
             stored_index: None,
+            by_user: None,
         };
 
         let display = DisplayMessage::from_rendered_message(rendered);

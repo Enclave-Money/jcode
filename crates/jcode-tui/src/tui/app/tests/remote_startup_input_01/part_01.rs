@@ -515,6 +515,7 @@ fn test_new_for_remote_fresh_spawn_restores_local_transcript() {
             timestamp: None,
             tool_duration_ms: None,
             token_usage: None,
+            by_user: None,
         });
         session.save().expect("save spawned child session");
 
@@ -582,6 +583,7 @@ fn test_new_for_remote_restores_display_history_without_retaining_session_transc
             timestamp: None,
             tool_duration_ms: None,
             token_usage: None,
+            by_user: None,
         });
         session.save().expect("save remote restore session");
 
