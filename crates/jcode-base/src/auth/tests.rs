@@ -789,11 +789,24 @@ fn cursor_status_is_available_for_native_auth_without_cli() {
     AuthStatus::invalidate_cache();
 }
 
+/// An authenticated `cursor-agent` CLI session is NOT on its own enough to
+/// report Cursor as available.
+///
+/// This used to assert the opposite, and had been failing. Probing the CLI was
+/// removed: `probe_cursor_status` reads native credentials only (env, auth
+/// file, vscdb) and `check_fast` explicitly "avoids subprocesses such as
+/// `cursor-agent status`" (see `AuthStatus::check_fast`). `JCODE_CURSOR_CLI_PATH`
+/// now appears nowhere outside tests.
+///
+/// Pinning the real contract keeps a test on this path instead of deleting one,
+/// and stops the removal being rediscovered as a mystery failure. If CLI-session
+/// detection is ever wanted back, this is the test to invert.
 #[cfg(unix)]
 #[test]
-fn cursor_status_is_available_for_authenticated_cli_session() {
+fn cursor_cli_session_alone_does_not_report_available() {
     let _lock = crate::storage::lock_test_env();
     let prev_api_key = std::env::var_os("CURSOR_API_KEY");
+    let prev_access = std::env::var_os("CURSOR_ACCESS_TOKEN");
     let prev_cli_path = std::env::var_os("JCODE_CURSOR_CLI_PATH");
     let temp = tempfile::TempDir::new().expect("create temp dir");
     let mock_cli = write_mock_cursor_agent(
@@ -801,14 +814,21 @@ fn cursor_status_is_available_for_authenticated_cli_session() {
         "#!/bin/sh\nif [ \"$1\" = \"status\" ]; then\n  echo \"Authenticated\\nAccount: test@example.com\"\n  exit 0\nfi\nexit 1\n",
     );
 
+    // No native credentials anywhere: only the CLI would know the user is
+    // signed in, and nothing consults it.
     crate::env::remove_var("CURSOR_API_KEY");
+    crate::env::remove_var("CURSOR_ACCESS_TOKEN");
     crate::env::set_var("JCODE_CURSOR_CLI_PATH", &mock_cli);
     AuthStatus::invalidate_cache();
 
-    let status = AuthStatus::check();
-    assert_eq!(status.cursor, AuthState::Available);
+    assert_eq!(
+        AuthStatus::check().cursor,
+        AuthState::NotConfigured,
+        "a mocked CLI session must not satisfy the native-credential probe"
+    );
 
     restore_env_var("CURSOR_API_KEY", prev_api_key);
+    restore_env_var("CURSOR_ACCESS_TOKEN", prev_access);
     restore_env_var("JCODE_CURSOR_CLI_PATH", prev_cli_path);
     AuthStatus::invalidate_cache();
 }

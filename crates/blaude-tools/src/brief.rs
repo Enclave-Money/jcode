@@ -108,7 +108,10 @@ fn now_secs() -> u64 {
 /// Is `pid` a live process? Used to steal a lock whose holder died.
 fn pid_alive(pid: i32) -> bool {
     // kill(pid, 0): 0 => alive, ESRCH => gone, EPERM => alive but not ours.
-    unsafe { libc::kill(pid, 0) == 0 || std::io::Error::last_os_error().raw_os_error() == Some(libc::EPERM) }
+    unsafe {
+        libc::kill(pid, 0) == 0
+            || std::io::Error::last_os_error().raw_os_error() == Some(libc::EPERM)
+    }
 }
 
 /// Try to take the refresh lock without blocking. Returns `None` if another
@@ -119,7 +122,11 @@ pub fn try_refresh_lock(root: &Path) -> Option<RefreshLock> {
     if let Some(parent) = path.parent() {
         let _ = fs::create_dir_all(parent);
     }
-    match fs::OpenOptions::new().write(true).create_new(true).open(&path) {
+    match fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&path)
+    {
         Ok(mut f) => {
             use std::io::Write as _;
             let _ = writeln!(f, "{}\n{}", std::process::id(), now_secs());
@@ -205,7 +212,11 @@ pub fn refresh_index(root: &Path) -> Result<bool> {
     let Some(_lock) = try_refresh_lock(root) else {
         return Ok(false);
     };
-    run_gitnexus(root, &["analyze", "--skip-agents-md", "--embeddings", "0"], false)?;
+    run_gitnexus(
+        root,
+        &["analyze", "--skip-agents-md", "--embeddings", "0"],
+        false,
+    )?;
     Ok(true)
 }
 
@@ -545,10 +556,16 @@ mod tests {
         fs::create_dir_all(d.path().join(".gitnexus")).unwrap();
         let first = try_refresh_lock(d.path()).expect("first acquire");
         // A second concurrent acquire is refused.
-        assert!(try_refresh_lock(d.path()).is_none(), "lock must be exclusive");
+        assert!(
+            try_refresh_lock(d.path()).is_none(),
+            "lock must be exclusive"
+        );
         drop(first);
         // Released — acquirable again.
-        assert!(try_refresh_lock(d.path()).is_some(), "lock must release on drop");
+        assert!(
+            try_refresh_lock(d.path()).is_some(),
+            "lock must release on drop"
+        );
 
         // A stale lock (old timestamp, our own live pid) is stolen.
         let path = d.path().join(".gitnexus/refresh.lock");

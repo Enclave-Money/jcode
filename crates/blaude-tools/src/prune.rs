@@ -79,12 +79,57 @@ pub fn has_textual_call_site(lines: &[&str], name: &str, def_idx: usize) -> bool
 /// Trait methods Rust dispatches dynamically; the parser rarely records a call
 /// edge to them, so "no callers" means nothing here.
 const TRAIT_METHODS: &[&str] = &[
-    "fmt", "drop", "default", "clone", "clone_from", "eq", "ne", "cmp", "partial_cmp", "hash",
-    "from", "into", "try_from", "try_into", "as_ref", "as_mut", "borrow", "borrow_mut", "deref",
-    "deref_mut", "index", "index_mut", "add", "sub", "mul", "div", "neg", "not", "next",
-    "next_back", "size_hint", "poll", "poll_next", "source", "description", "cause", "to_string",
-    "to_owned", "from_str", "serialize", "deserialize", "visit_str", "visit_map", "visit_seq",
-    "type_id", "provide", "call", "call_mut", "call_once", "start", "run",
+    "fmt",
+    "drop",
+    "default",
+    "clone",
+    "clone_from",
+    "eq",
+    "ne",
+    "cmp",
+    "partial_cmp",
+    "hash",
+    "from",
+    "into",
+    "try_from",
+    "try_into",
+    "as_ref",
+    "as_mut",
+    "borrow",
+    "borrow_mut",
+    "deref",
+    "deref_mut",
+    "index",
+    "index_mut",
+    "add",
+    "sub",
+    "mul",
+    "div",
+    "neg",
+    "not",
+    "next",
+    "next_back",
+    "size_hint",
+    "poll",
+    "poll_next",
+    "source",
+    "description",
+    "cause",
+    "to_string",
+    "to_owned",
+    "from_str",
+    "serialize",
+    "deserialize",
+    "visit_str",
+    "visit_map",
+    "visit_seq",
+    "type_id",
+    "provide",
+    "call",
+    "call_mut",
+    "call_once",
+    "start",
+    "run",
 ];
 
 /// Find the 0-based line of `fn <name>` in the file, using the graph's
@@ -145,7 +190,14 @@ pub fn enclosing_dynamic_dispatch(lines: &[&str], fn_idx: usize) -> bool {
         }
         // The nearest opener at a lower indent is this function's scope.
         let mut t = l.trim_start();
-        for kw in ["pub(crate) ", "pub(super) ", "pub ", "unsafe ", "default ", "async "] {
+        for kw in [
+            "pub(crate) ",
+            "pub(super) ",
+            "pub ",
+            "unsafe ",
+            "default ",
+            "async ",
+        ] {
             t = t.strip_prefix(kw).unwrap_or(t);
         }
         let opens = |t: &str, kw: &str| {
@@ -202,7 +254,9 @@ pub fn classify(cand: &Candidate, file_lines: &[&str]) -> Bucket {
 
     // A `#[test]` / `#[tokio::test]` attribute, or living inside a
     // `#[cfg(test)]` module (indented fn + an earlier cfg(test) in the file).
-    let direct_test = attrs.iter().any(|a| a.ends_with("test]") || a.contains("test)]"));
+    let direct_test = attrs
+        .iter()
+        .any(|a| a.ends_with("test]") || a.contains("test)]"));
     let indented = file_lines
         .get(idx)
         .map(|l| l.starts_with(char::is_whitespace))
@@ -419,33 +473,60 @@ mod tests {
     #[test]
     fn a_plain_private_uncalled_fn_is_high_confidence() {
         let src = ["fn helper() {}", "fn dead_one() {}"];
-        assert_eq!(classify(&cand("dead_one", "src/x.rs", 2, false), &src), Bucket::High);
+        assert_eq!(
+            classify(&cand("dead_one", "src/x.rs", 2, false), &src),
+            Bucket::High
+        );
     }
 
     #[test]
     fn exported_and_trait_methods_are_low_confidence() {
         let src = ["pub fn api() {}"];
-        assert_eq!(classify(&cand("api", "src/x.rs", 1, true), &src), Bucket::Low);
+        assert_eq!(
+            classify(&cand("api", "src/x.rs", 1, true), &src),
+            Bucket::Low
+        );
         let src2 = ["    fn fmt(&self) {}"];
-        assert_eq!(classify(&cand("fmt", "src/x.rs", 1, false), &src2), Bucket::Low);
+        assert_eq!(
+            classify(&cand("fmt", "src/x.rs", 1, false), &src2),
+            Bucket::Low
+        );
     }
 
     #[test]
     fn direct_test_attribute_is_excluded() {
         let src = ["#[test]", "fn checks_something() {}"];
-        assert_eq!(classify(&cand("checks_something", "src/x.rs", 2, false), &src), Bucket::Excluded);
+        assert_eq!(
+            classify(&cand("checks_something", "src/x.rs", 2, false), &src),
+            Bucket::Excluded
+        );
         let src2 = ["#[tokio::test]", "async fn checks_async() {}"];
-        assert_eq!(classify(&cand("checks_async", "src/x.rs", 2, false), &src2), Bucket::Excluded);
+        assert_eq!(
+            classify(&cand("checks_async", "src/x.rs", 2, false), &src2),
+            Bucket::Excluded
+        );
     }
 
     #[test]
     fn inline_cfg_test_module_fn_is_excluded() {
         // An indented fn under an earlier #[cfg(test)] — the common Rust
         // pattern (`#[cfg(test)] mod tests { fn it_works() {} }`).
-        let src = ["fn real() {}", "#[cfg(test)]", "mod tests {", "    fn it_works() {}", "}"];
-        assert_eq!(classify(&cand("it_works", "src/x.rs", 4, false), &src), Bucket::Excluded);
+        let src = [
+            "fn real() {}",
+            "#[cfg(test)]",
+            "mod tests {",
+            "    fn it_works() {}",
+            "}",
+        ];
+        assert_eq!(
+            classify(&cand("it_works", "src/x.rs", 4, false), &src),
+            Bucket::Excluded
+        );
         // But a top-level (column-0) fn in the same file is NOT swallowed.
-        assert_eq!(classify(&cand("real", "src/x.rs", 1, false), &src), Bucket::High);
+        assert_eq!(
+            classify(&cand("real", "src/x.rs", 1, false), &src),
+            Bucket::High
+        );
     }
 
     #[test]
@@ -460,38 +541,78 @@ mod tests {
             "",
             "fn genuinely_dead() {}",
         ];
-        assert_eq!(classify(&cand("genuinely_dead", "src/x.rs", 6, false), &src), Bucket::High);
+        assert_eq!(
+            classify(&cand("genuinely_dead", "src/x.rs", 6, false), &src),
+            Bucket::High
+        );
         // But a fn truly inside a trailing cfg(test) module is still excluded.
-        let src2 = ["fn real() {}", "#[cfg(test)]", "mod tests {", "    fn a_test() {}", "}"];
-        assert_eq!(classify(&cand("a_test", "src/x.rs", 4, false), &src2), Bucket::Excluded);
+        let src2 = [
+            "fn real() {}",
+            "#[cfg(test)]",
+            "mod tests {",
+            "    fn a_test() {}",
+            "}",
+        ];
+        assert_eq!(
+            classify(&cand("a_test", "src/x.rs", 4, false), &src2),
+            Bucket::Excluded
+        );
     }
 
     #[test]
     fn test_path_files_are_excluded() {
         let src = ["fn anything() {}"];
-        assert_eq!(classify(&cand("anything", "tests/e2e.rs", 1, false), &src), Bucket::Excluded);
-        assert_eq!(classify(&cand("anything", "src/foo_tests.rs", 1, false), &src), Bucket::Excluded);
+        assert_eq!(
+            classify(&cand("anything", "tests/e2e.rs", 1, false), &src),
+            Bucket::Excluded
+        );
+        assert_eq!(
+            classify(&cand("anything", "src/foo_tests.rs", 1, false), &src),
+            Bucket::Excluded
+        );
     }
 
     #[test]
     fn allow_dead_code_and_ffi_and_main_are_excluded() {
         let allow = ["#[allow(dead_code)]", "fn kept() {}"];
-        assert_eq!(classify(&cand("kept", "src/x.rs", 2, false), &allow), Bucket::Excluded);
+        assert_eq!(
+            classify(&cand("kept", "src/x.rs", 2, false), &allow),
+            Bucket::Excluded
+        );
         let ffi = ["#[no_mangle]", "pub extern \"C\" fn c_entry() {}"];
-        assert_eq!(classify(&cand("c_entry", "src/x.rs", 2, true), &ffi), Bucket::Excluded);
+        assert_eq!(
+            classify(&cand("c_entry", "src/x.rs", 2, true), &ffi),
+            Bucket::Excluded
+        );
         let main = ["fn main() {}"];
-        assert_eq!(classify(&cand("main", "src/main.rs", 1, false), &main), Bucket::Excluded);
+        assert_eq!(
+            classify(&cand("main", "src/main.rs", 1, false), &main),
+            Bucket::Excluded
+        );
     }
 
     #[test]
     fn trait_decls_and_trait_impls_are_low_confidence() {
         let trait_src = ["pub trait Backend {", "    fn id(&self) -> u8;", "}"];
-        assert_eq!(classify(&cand("id", "src/b.rs", 2, false), &trait_src), Bucket::Low);
-        let impl_src = ["impl ApplicationHandler for App {", "    fn resumed(&mut self) {}", "}"];
-        assert_eq!(classify(&cand("resumed", "src/a.rs", 2, false), &impl_src), Bucket::Low);
+        assert_eq!(
+            classify(&cand("id", "src/b.rs", 2, false), &trait_src),
+            Bucket::Low
+        );
+        let impl_src = [
+            "impl ApplicationHandler for App {",
+            "    fn resumed(&mut self) {}",
+            "}",
+        ];
+        assert_eq!(
+            classify(&cand("resumed", "src/a.rs", 2, false), &impl_src),
+            Bucket::Low
+        );
         // An inherent impl method with no callers stays High (statically dispatched).
         let inherent = ["impl App {", "    fn helper(&self) {}", "}"];
-        assert_eq!(classify(&cand("helper", "src/a.rs", 2, false), &inherent), Bucket::High);
+        assert_eq!(
+            classify(&cand("helper", "src/a.rs", 2, false), &inherent),
+            Bucket::High
+        );
     }
 
     #[test]
@@ -588,7 +709,14 @@ mod tests {
         let src3 = ["fn helper() {}", "fn caller() { helper(1); }"];
         assert!(has_textual_call_site(&src3, "helper", 0));
         // Including one split across lines, as rustfmt writes long arg lists.
-        let src4 = ["fn helper() {}", "fn caller() {", "    helper(", "        1,", "    );", "}"];
+        let src4 = [
+            "fn helper() {}",
+            "fn caller() {",
+            "    helper(",
+            "        1,",
+            "    );",
+            "}",
+        ];
         assert!(has_textual_call_site(&src4, "helper", 0));
     }
 
