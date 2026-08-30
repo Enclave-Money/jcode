@@ -139,7 +139,11 @@ fn cloud_cfg() -> CloudCfg {
         project: "enclave-money".into(),
         zone: "asia-south1-a".into(),
         machine_type: "e2-small".into(),
-        template_instance: "blaude-india-1".into(),
+        // No template server by default. "blaude-india-1" used to be the
+        // default and no longer exists, so every create_team spent a failed
+        // gcloud scp discovering that before falling back to the cache. Set
+        // template_instance in ~/.jcode/team-cloud.json to re-enable pulling.
+        template_instance: String::new(),
     };
     if let Some(home) = std::env::var_os("HOME") {
         let path = PathBuf::from(home).join(".jcode/team-cloud.json");
@@ -417,7 +421,11 @@ async fn provision(job_id: String, name: String, region: Option<String>) -> Resu
         .and_then(|m| m.modified())
         .map(|t| t.elapsed().map(|e| e.as_secs() > 86_400).unwrap_or(true))
         .unwrap_or(true);
-    if cache_stale {
+    // An empty template_instance means "there is no template server; the cache
+    // IS the source". The old default named a VM that has since been deleted,
+    // so every create_team paid a failed gcloud fetch before falling back —
+    // slow, and it logged an error that looked like the real failure.
+    if cache_stale && !cfg.template_instance.trim().is_empty() {
         std::fs::create_dir_all(&cache_dir)
             .map_err(|e| format!("could not create the local cache: {e}"))?;
         let pulled = run(
