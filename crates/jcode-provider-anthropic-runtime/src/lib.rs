@@ -2305,8 +2305,26 @@ fn anthropic_recommended_model_from_error(error_str: &str) -> Option<String> {
         .split("please use")
         .nth(1)
         .or_else(|| error_str.split("use ").nth(1))?;
-    // Take up to the next sentence boundary.
-    let hint = hint.split(['.', '!', '\n']).next().unwrap_or(hint).trim();
+    // Take up to the next sentence boundary. A '.' BETWEEN DIGITS is a version
+    // number ("4.8"), not a full stop: treating it as one truncated the hint to
+    // "opus 4", whose tokens score equally against every opus-4-x candidate, and
+    // the tie was then broken by catalog order rather than by the version the
+    // server actually named.
+    let end = hint
+        .char_indices()
+        .find(|&(i, c)| match c {
+            '!' | '\n' => true,
+            '.' => {
+                let bytes = hint.as_bytes();
+                let prev_digit = i > 0 && bytes[i - 1].is_ascii_digit();
+                let next_digit = bytes.get(i + 1).is_some_and(u8::is_ascii_digit);
+                !(prev_digit && next_digit)
+            }
+            _ => false,
+        })
+        .map(|(i, _)| i)
+        .unwrap_or(hint.len());
+    let hint = hint[..end].trim();
     if hint.is_empty() {
         return None;
     }
