@@ -3472,6 +3472,7 @@ dependencies = [
  "objc2-foundation 0.3.2",
  "objc2-user-notifications 0.3.2",
  "open",
+ "openssl",
  "ratatui",
  "reqwest 0.12.28",
  "rustls",

@@ -137,6 +137,9 @@ path = "src/bin/tui_bench.rs"
 required-features = ["dev-bins"]
 
 [dependencies]
+# Present only to enable its `vendored` feature for cross builds; see the
+# `vendored-openssl` feature above. Nothing in this crate calls it.
+openssl = { version = "0.10", features = ["vendored"], optional = true }
 # Memory allocator (reduces fragmentation for long-running server)
 tikv-jemallocator = { version = "0.6", features = ["unprefixed_malloc_on_supported_platforms"], optional = true }
 
@@ -223,6 +226,16 @@ tempfile = "3"
 # to skip optional default feature stacks.
 default = ["pdf", "embeddings", "bedrock"]
 dev-bins = ["jcode-tui/dev-bins"]
+# Build OpenSSL from source instead of linking the host's.
+#
+# Only for cross-compiling the Linux server binary from a Mac, where there is
+# no target libssl to link against and the build fails in openssl-sys. Off by
+# default because vendoring costs a slow C build and a bigger binary, and a
+# native build should use the system library.
+#
+#   cargo zigbuild --release --target x86_64-unknown-linux-gnu \
+#       --features vendored-openssl --bin blaude
+vendored-openssl = ["dep:openssl"]
 jemalloc = [
     "dep:tikv-jemallocator",
     "tikv-jemallocator/stats",
