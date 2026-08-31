@@ -704,6 +704,24 @@ fn member_credentials(member: &str) -> Result<ClaudeCredentials> {
     })
 }
 
+/// The account label a token refresh must be written back to.
+///
+/// Refreshing rotates the stored token, so the result has to land on the
+/// account the token actually came from. `active_account_label` is
+/// process-wide: during a member's turn it names whichever account the server
+/// last made active — the owner's — so refreshing a teammate's expiring token
+/// overwrote the OWNER's stored credentials with the teammate's.
+pub fn refresh_target_label() -> Option<String> {
+    let Some(member) = super::account_store::acting_member() else {
+        return active_account_label();
+    };
+    let auth = load_auth_file().ok()?;
+    auth.anthropic_accounts
+        .iter()
+        .find(|a| a.added_by.as_deref() == Some(member.as_str()))
+        .map(|a| a.label.clone())
+}
+
 /// Load credentials for a specific blaude account by label.
 pub fn load_credentials_for_account(label: &str) -> Result<ClaudeCredentials> {
     let auth = load_auth_file()?;

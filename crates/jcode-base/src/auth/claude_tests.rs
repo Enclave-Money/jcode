@@ -715,3 +715,47 @@ fn signing_in_a_claimed_account_does_not_steal_it() {
     // re-login does not start failing.
     set_account_added_by("claude-otter", "owner@example.com").unwrap();
 }
+
+/// A refresh rewrites the stored token, so it must be written back to the
+/// account it came FROM. The label used to come from the process-wide active
+/// account, so refreshing a teammate's expiring token would have overwritten
+/// the owner's stored credentials with the teammate's.
+#[tokio::test]
+async fn a_refresh_targets_the_acting_members_own_account() {
+    let _lock = crate::storage::lock_test_env();
+    let temp = tempfile::TempDir::new().unwrap();
+    let _home = EnvVarGuard::set("JCODE_HOME", temp.path());
+
+    let account = |label: &str, token: &str, member: &str| AnthropicAccount {
+        label: label.into(),
+        access: token.into(),
+        refresh: format!("{token}-REFRESH"),
+        expires: i64::MAX,
+        email: None,
+        subscription_type: Some("max".into()),
+        scopes: vec!["user:inference".into()],
+        added_by: Some(member.into()),
+    };
+    upsert_account(account("claude-otter", "OWNER", "owner@example.com")).unwrap();
+    upsert_account(account("claude-fox", "MEMBER", "member@example.com")).unwrap();
+    // The server's active account is the owner's — the value that used to be
+    // used for everyone's refresh.
+    crate::auth::claude::set_active_account("claude-otter").unwrap();
+
+    // Positive control: outside a member's turn the active account is correct.
+    assert_eq!(
+        crate::auth::claude::refresh_target_label().as_deref(),
+        Some("claude-otter")
+    );
+
+    let target = crate::auth::account_store::with_acting_member(
+        Some("member@example.com".into()),
+        async { crate::auth::claude::refresh_target_label() },
+    )
+    .await;
+    assert_eq!(
+        target.as_deref(),
+        Some("claude-fox"),
+        "the member's refresh must rewrite THEIR account, not the active one"
+    );
+}

@@ -2155,3 +2155,70 @@ fn test_anthropic_unknown_content_block_start_does_not_drop_event() {
         );
     }
 }
+
+/// One provider instance serves every member on a shared team server, so the
+/// OAuth cache must not hand one person's token to the next. This is the
+/// cross-billing bug the per-member routing exists to prevent: the routing
+/// itself was correct, but the cache short-circuited it before the account
+/// lookup ever ran, so a teammate's turn spent whoever had gone first.
+#[test]
+fn a_cached_token_never_serves_a_different_member() {
+    let now = 1_700_000_000_000i64;
+    let fresh = now + 3_600_000;
+    let cached = CachedCredentials {
+        access_token: "ALICE-TOKEN".to_string(),
+        refresh_token: "ALICE-REFRESH".to_string(),
+        expires_at: fresh,
+        member: Some("alice@example.com".to_string()),
+    };
+
+    // Positive control: Alice's own turn DOES reuse it, so a failure below is
+    // the member check and not an expiry fixture that rejects everything.
+    assert!(
+        cached.usable_by(&Some("alice@example.com".to_string()), now),
+        "the member the token was minted for must still get a cache hit"
+    );
+
+    assert!(
+        !cached.usable_by(&Some("bob@example.com".to_string()), now),
+        "a teammate must never be served Alice's token — that bills her for his turn"
+    );
+    assert!(
+        !cached.usable_by(&None, now),
+        "an unattributed turn must not silently spend a member's account"
+    );
+}
+
+/// The owner's own turns cache under `None`, and a member must not inherit
+/// that entry either — the fall-through this whole feature removes.
+#[test]
+fn a_member_does_not_inherit_the_owners_cached_token() {
+    let now = 1_700_000_000_000i64;
+    let owners = CachedCredentials {
+        access_token: "OWNER-TOKEN".to_string(),
+        refresh_token: "OWNER-REFRESH".to_string(),
+        expires_at: now + 3_600_000,
+        member: None,
+    };
+
+    assert!(owners.usable_by(&None, now), "the owner still gets a hit");
+    assert!(
+        !owners.usable_by(&Some("member@example.com".to_string()), now),
+        "a member must not run on the owner's cached token"
+    );
+}
+
+/// Freshness is still enforced for the right person: matching on member alone
+/// would serve an expired token forever.
+#[test]
+fn an_expired_token_is_a_miss_even_for_its_own_member() {
+    let now = 1_700_000_000_000i64;
+    let stale = CachedCredentials {
+        access_token: "STALE".to_string(),
+        refresh_token: "R".to_string(),
+        // Inside the 5-minute buffer, so it must be treated as expired.
+        expires_at: now + 60_000,
+        member: Some("alice@example.com".to_string()),
+    };
+    assert!(!stale.usable_by(&Some("alice@example.com".to_string()), now));
+}

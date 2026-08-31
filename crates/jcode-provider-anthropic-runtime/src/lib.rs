@@ -459,6 +459,24 @@ struct CachedCredentials {
     access_token: String,
     refresh_token: String,
     expires_at: i64,
+    /// The team member this token belongs to, or `None` for the owner's own
+    /// turns. One provider serves everyone on a shared server, so a cache that
+    /// ignored this handed the first member's token to whoever ran next — the
+    /// exact cross-billing the per-member routing exists to prevent. A token
+    /// is only reusable by the person it was minted for.
+    member: Option<String>,
+}
+
+impl CachedCredentials {
+    /// Whether this cache entry may serve `member`'s turn right now.
+    ///
+    /// Both halves matter: the wrong person must never be served however fresh
+    /// the token is, and the right person must not be served a stale one. Kept
+    /// as a named predicate so the rule is testable — the bug it fixes lived as
+    /// an inline expiry check that silently ignored who was asking.
+    fn usable_by(&self, member: &Option<String>, now_ms: i64) -> bool {
+        self.member == *member && self.expires_at > now_ms + 300_000
+    }
 }
 
 /// Direct Anthropic API provider
@@ -968,13 +986,17 @@ impl AnthropicProvider {
     }
 
     async fn get_oauth_access_token(&self) -> Result<(String, bool)> {
+        let acting = jcode_base::auth::account_store::acting_member();
         // Check cached credentials
         {
             let cached = self.credentials.read().await;
             if let Some(ref creds) = *cached {
                 let now = chrono::Utc::now().timestamp_millis();
-                // Return cached token if not expired (with 5 min buffer)
-                if creds.expires_at > now + 300_000 {
+                // A token cached for someone else is a MISS, however fresh it
+                // is. Skipping this check let a teammate's turn return the
+                // previous member's token and bill them for it, and kept a
+                // deleted account working until the token happened to expire.
+                if creds.usable_by(&acting, now) {
                     return Ok((creds.access_token.clone(), true));
                 }
             }
@@ -1014,7 +1036,10 @@ impl AnthropicProvider {
                 "OAuth token expired or expiring soon, attempting refresh...",
             );
 
-            let active_label = auth::claude::active_account_label()
+            // The MEMBER's account, not the process-wide active one: a
+            // refresh rewrites the stored token, so it must land on the
+            // account the expiring token came from.
+            let active_label = auth::claude::refresh_target_label()
                 .unwrap_or_else(auth::claude::primary_account_label);
             match oauth::refresh_claude_tokens_for_account(
                 &fresh_creds.refresh_token,
@@ -1031,6 +1056,7 @@ impl AnthropicProvider {
                         access_token: refreshed.access_token.clone(),
                         refresh_token: refreshed.refresh_token,
                         expires_at: refreshed.expires_at,
+                        member: acting.clone(),
                     });
 
                     return Ok((refreshed.access_token, true));
@@ -1060,6 +1086,7 @@ impl AnthropicProvider {
             access_token: fresh_creds.access_token.clone(),
             refresh_token: fresh_creds.refresh_token,
             expires_at: fresh_creds.expires_at,
+            member: acting,
         });
 
         Ok((fresh_creds.access_token, true))
@@ -1938,10 +1965,15 @@ async fn run_stream_with_retries(
 async fn force_refresh_oauth_token(
     credentials: Arc<RwLock<Option<CachedCredentials>>>,
 ) -> Result<String> {
+    let acting = jcode_base::auth::account_store::acting_member();
     let refresh_from_cache = {
         let cached = credentials.read().await;
         cached
             .as_ref()
+            // Someone else's refresh token would mint a fresh ACCESS token on
+            // their account, so a member mismatch has to fall through to this
+            // member's own stored credentials.
+            .filter(|c| c.member == acting)
             .map(|c| c.refresh_token.clone())
             .filter(|t| !t.is_empty())
     };
@@ -1958,7 +1990,7 @@ async fn force_refresh_oauth_token(
     };
 
     let active_label =
-        auth::claude::active_account_label().unwrap_or_else(auth::claude::primary_account_label);
+        auth::claude::refresh_target_label().unwrap_or_else(auth::claude::primary_account_label);
     let refreshed =
         match oauth::refresh_claude_tokens_for_account(&refresh_token, &active_label).await {
             Ok(refreshed) => refreshed,
@@ -1973,6 +2005,7 @@ async fn force_refresh_oauth_token(
             access_token: refreshed.access_token.clone(),
             refresh_token: refreshed.refresh_token,
             expires_at: refreshed.expires_at,
+            member: acting,
         });
     }
 
