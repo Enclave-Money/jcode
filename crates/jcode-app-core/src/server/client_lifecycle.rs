@@ -3455,11 +3455,18 @@ pub(super) async fn process_message_streaming_mpsc(
     event_tx: tokio::sync::mpsc::UnboundedSender<ServerEvent>,
 ) -> Result<()> {
     let mut agent = agent.lock().await;
+    // set_turn_author is consumed by the message append, so keep a copy: the
+    // credential layer needs it for the whole turn, not just the append.
+    let member = by_user.clone();
     agent.set_turn_author(by_user);
     let session_id = agent.session_id().to_string();
-    let result = agent
-        .run_once_streaming_mpsc(content, images, system_reminder, event_tx)
-        .await;
+    // Run the turn AS this member, so credentials resolve to their own Claude
+    // account instead of whichever one the process last made active.
+    let result = jcode_base::auth::account_store::with_acting_member(
+        member,
+        agent.run_once_streaming_mpsc(content, images, system_reminder, event_tx),
+    )
+    .await;
     if result.is_ok() {
         crate::runtime_memory_log::emit_event(
             crate::runtime_memory_log::RuntimeMemoryLogEvent::new(

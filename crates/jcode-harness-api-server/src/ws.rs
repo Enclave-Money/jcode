@@ -542,6 +542,10 @@ where
     // the standard bridge loop on the other end. One frame = one line.
     let (client_side, bridge_side) = tokio::io::duplex(1024 * 1024);
     let (bridge_read, bridge_write) = tokio::io::split(bridge_side);
+    // One daemon serves everyone, and that is fine: `identity` rides along in
+    // `subscribe.user`, and the daemon runs each turn under it so credentials
+    // resolve to that member's OWN account. Separate daemons per member would
+    // be a heavier way to get the same property.
     let core = tokio::spawn(handle_api_io(
         BufReader::new(bridge_read),
         bridge_write,

@@ -11,6 +11,41 @@ use std::sync::{LazyLock, RwLock};
 static RUNTIME_ACTIVE_OVERRIDES: LazyLock<RwLock<HashMap<&'static str, String>>> =
     LazyLock::new(|| RwLock::new(HashMap::new()));
 
+tokio::task_local! {
+    /// The team member whose turn is currently running, if any.
+    ///
+    /// One daemon serves several people, and every one of their turns used to
+    /// resolve to the same account, so a teammate spent the owner's quota. The
+    /// bridge already knows who each connection belongs to (it sends
+    /// `subscribe.user`, kept as `connection_user`), and each stored account
+    /// already records the member who signed it in (`added_by`). This carries
+    /// the first to the place that reads the second.
+    ///
+    /// Task-local rather than a global: `RUNTIME_ACTIVE_OVERRIDES` is
+    /// process-wide, so one member switching accounts changed which account the
+    /// NEXT member's turn used. A task-local cannot leak across concurrent
+    /// turns, which is the property that matters here.
+    static ACTING_MEMBER: Option<String>;
+}
+
+/// Run `turn` attributed to `member`, so credential resolution picks that
+/// person's own account.
+pub async fn with_acting_member<T>(
+    member: Option<String>,
+    turn: impl std::future::Future<Output = T>,
+) -> T {
+    ACTING_MEMBER.scope(member, turn).await
+}
+
+/// The member whose turn is running, or `None` outside one (the owner's own
+/// TUI, background refreshes, tests).
+pub fn acting_member() -> Option<String> {
+    ACTING_MEMBER
+        .try_with(|member| member.clone())
+        .ok()
+        .flatten()
+}
+
 pub fn set_runtime_active_override(prefix: &'static str, label: Option<String>) {
     if let Ok(mut overrides) = RUNTIME_ACTIVE_OVERRIDES.write() {
         match label {

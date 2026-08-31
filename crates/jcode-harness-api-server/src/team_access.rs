@@ -268,6 +268,27 @@ pub fn set_team_name(name: &str) -> std::io::Result<()> {
     std::fs::write(dir.join("team-name"), name)
 }
 
+/// The Linux user a member's agent runs as, if they have been provisioned one.
+///
+/// Written by `deploy/team-server/provision-member.sh` into
+/// `~/.jcode/team-users.json` as `{email: linux_user}`. Absent for a server
+/// that has not been migrated, and for the owner, who runs as themselves.
+pub fn member_linux_user(email: &str) -> Option<String> {
+    let dir = jcode_storage::jcode_dir().ok()?;
+    let text = std::fs::read_to_string(dir.join("team-users.json")).ok()?;
+    let map: serde_json::Value = serde_json::from_str(&text).ok()?;
+    let user = map.get(email)?.as_str()?.trim().to_string();
+    // Refuse anything that is not a plain username: this value becomes a path.
+    if user.is_empty()
+        || !user
+            .chars()
+            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-' || c == '_')
+    {
+        return None;
+    }
+    Some(user)
+}
+
 /// Member emails only — never their tokens.
 pub fn member_emails() -> Vec<String> {
     let mut emails: Vec<String> = ws::team_tokens().keys().cloned().collect();

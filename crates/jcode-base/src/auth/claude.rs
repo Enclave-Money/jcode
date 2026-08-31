@@ -570,6 +570,18 @@ pub fn is_max_subscription() -> bool {
 /// Load credentials for the active Anthropic account.
 /// Falls through Claude Code -> blaude accounts -> OpenCode, preferring non-expired tokens.
 pub fn load_credentials() -> Result<ClaudeCredentials> {
+    // A teammate's turn resolves ONLY from the account they signed in, and the
+    // waterfall below is skipped entirely.
+    //
+    // Skipping it is the point. The first source it tries is Claude Code's own
+    // credential file, and after that OpenCode's — on a team server both of
+    // those belong to the OWNER. Guarding only the blaude account store would
+    // have left a member picking up the owner's credentials through the very
+    // first branch.
+    if let Some(member) = super::account_store::acting_member() {
+        return member_credentials(&member);
+    }
+
     let now_ms = chrono::Utc::now().timestamp_millis();
 
     let mut expired_candidates: Vec<(&str, ClaudeCredentials)> = Vec::new();
@@ -643,6 +655,33 @@ pub fn load_credentials() -> Result<ClaudeCredentials> {
     anyhow::bail!("No Claude OAuth credentials found (checked Claude Code, blaude, OpenCode)")
 }
 
+/// Credentials belonging to one team member, or a clear error saying they have
+/// none.
+///
+/// Never falls back to another account: doing so spends someone else's
+/// subscription and quota on this person's work, silently, which is the
+/// behaviour this exists to end.
+fn member_credentials(member: &str) -> Result<ClaudeCredentials> {
+    let auth = load_auth_file().unwrap_or_default();
+    let own = auth
+        .anthropic_accounts
+        .iter()
+        .find(|a| a.added_by.as_deref() == Some(member));
+    let Some(own) = own else {
+        anyhow::bail!(
+            "No Claude account for {member} on this server. Sign in to add your \
+             own; turns never run on a teammate's account."
+        );
+    };
+    Ok(ClaudeCredentials {
+        access_token: own.access.clone(),
+        refresh_token: own.refresh.clone(),
+        expires_at: own.expires,
+        scopes: own.scopes.clone(),
+        subscription_type: own.subscription_type.clone(),
+    })
+}
+
 /// Load credentials for a specific blaude account by label.
 pub fn load_credentials_for_account(label: &str) -> Result<ClaudeCredentials> {
     let auth = load_auth_file()?;
@@ -666,6 +705,32 @@ fn load_jcode_credentials() -> Result<ClaudeCredentials> {
     let auth = load_auth_file()?;
     if auth.anthropic_accounts.is_empty() {
         anyhow::bail!("No anthropic accounts configured in blaude auth.json");
+    }
+
+    // A teammate's turn uses THEIR account, not whichever one happens to be
+    // active. `added_by` records who signed each account in, and the bridge
+    // tells the daemon who the connection belongs to.
+    if let Some(member) = super::account_store::acting_member() {
+        let own = auth
+            .anthropic_accounts
+            .iter()
+            .find(|a| a.added_by.as_deref() == Some(member.as_str()));
+        let Some(own) = own else {
+            // Deliberately an error, not a fallback. Falling through here is
+            // the bug itself: it spends someone else's subscription on this
+            // person's work, silently.
+            anyhow::bail!(
+                "No Claude account for {member} on this server. Sign in to add \
+                 your own; turns do not run on a teammate's account."
+            );
+        };
+        return Ok(ClaudeCredentials {
+            access_token: own.access.clone(),
+            refresh_token: own.refresh.clone(),
+            expires_at: own.expires,
+            scopes: own.scopes.clone(),
+            subscription_type: own.subscription_type.clone(),
+        });
     }
 
     let active_label = get_active_account_override()

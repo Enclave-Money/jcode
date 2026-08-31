@@ -585,3 +585,91 @@ impl Drop for EnvStringGuard {
         }
     }
 }
+
+/// One daemon serves several teammates. A turn must resolve to the account
+/// belonging to the person whose turn it is, not to whichever account the
+/// process last made active.
+///
+/// Before this, every member's turn used the same account, so a teammate spent
+/// the owner's Claude subscription and quota on their own work with nothing
+/// saying so.
+#[tokio::test]
+async fn a_members_turn_uses_their_own_account() {
+    let _lock = crate::storage::lock_test_env();
+    let temp = tempfile::TempDir::new().unwrap();
+    let _home = EnvVarGuard::set("JCODE_HOME", temp.path());
+
+    let account = |label: &str, token: &str, member: &str| AnthropicAccount {
+        label: label.into(),
+        access: token.into(),
+        refresh: String::new(),
+        expires: i64::MAX,
+        email: None,
+        subscription_type: Some("max".into()),
+        scopes: vec!["user:inference".into()],
+        added_by: Some(member.into()),
+    };
+    upsert_account(account("claude-otter", "OWNER-TOKEN", "owner@example.com")).unwrap();
+    upsert_account(account("claude-fox", "MEMBER-TOKEN", "member@example.com")).unwrap();
+
+    // Positive control: with no acting member this resolves to the active
+    // account, so a failure below is the member routing and not a broken fixture.
+    let shared = load_credentials().unwrap();
+    assert_eq!(shared.access_token, "OWNER-TOKEN");
+
+    let mine =
+        crate::auth::account_store::with_acting_member(Some("member@example.com".into()), async {
+            load_credentials()
+        })
+        .await
+        .unwrap();
+    assert_eq!(
+        mine.access_token, "MEMBER-TOKEN",
+        "the member's turn must use the account THEY signed in"
+    );
+
+    let owners =
+        crate::auth::account_store::with_acting_member(Some("owner@example.com".into()), async {
+            load_credentials()
+        })
+        .await
+        .unwrap();
+    assert_eq!(owners.access_token, "OWNER-TOKEN");
+}
+
+/// A teammate with no account of their own must FAIL, not quietly fall through
+/// to someone else's subscription. That fall-through is the whole bug.
+#[tokio::test]
+async fn a_member_without_an_account_fails_instead_of_borrowing_one() {
+    let _lock = crate::storage::lock_test_env();
+    let temp = tempfile::TempDir::new().unwrap();
+    let _home = EnvVarGuard::set("JCODE_HOME", temp.path());
+
+    upsert_account(AnthropicAccount {
+        label: "claude-otter".into(),
+        access: "OWNER-TOKEN".into(),
+        refresh: String::new(),
+        expires: i64::MAX,
+        email: None,
+        subscription_type: Some("max".into()),
+        scopes: vec!["user:inference".into()],
+        added_by: Some("owner@example.com".into()),
+    })
+    .unwrap();
+
+    let error = crate::auth::account_store::with_acting_member(
+        Some("newcomer@example.com".into()),
+        async { load_credentials() },
+    )
+    .await
+    .expect_err("a member with no account must not silently use the owner's");
+    let error = format!("{error:#}");
+    assert!(
+        !error.contains("OWNER-TOKEN"),
+        "the other account's token must never leak into the error: {error}"
+    );
+    assert!(
+        error.contains("newcomer@example.com"),
+        "the error should name who is missing an account: {error}"
+    );
+}
