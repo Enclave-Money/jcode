@@ -47,6 +47,16 @@ pub enum ApiEvent {
     /// Invite result: `{ email, ws_url, token, join_url, emailed, email_error? }`.
     MemberInvited { invite: serde_json::Value },
 
+    /// One still frame of the workspace's screen: `{ attached, image?,
+    /// content_type?, error? }`, where `image` is base64.
+    ///
+    /// `attached: false` is the ordinary state of a workspace with no display
+    /// box, not a failure — the client then hides the control instead of
+    /// offering a button that can only fail. Base64 because this rides the
+    /// same NDJSON text protocol as everything else, and a still image costs
+    /// far less than the second transport a binary channel would need.
+    ScreenFrame { screen: serde_json::Value },
+
     /// One create-team provisioning record: `{ job_id, stage, done, error?,
     /// name?, ws_url?, token?, ca_pem? }`. `stage` is a plain-words progress
     /// line; the endpoint fields are set when `done` without `error`.

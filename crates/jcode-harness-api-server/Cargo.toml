@@ -23,6 +23,9 @@ tokio-rustls = { version = "0.26", default-features = false, features = ["aws_lc
 rustls-pemfile = "2"
 # Clerk invitation emails are sent BRIDGE-side so the app never holds the
 # secret (it lives in ~/.jcode/clerk.env, owner-only).
+# Base64 for the screen frame: the API is NDJSON text, so an image rides
+# as base64 rather than adding a second, binary transport.
+base64 = "0.22"
 reqwest = { version = "0.12", default-features = false, features = ["json", "charset", "http2", "rustls-tls", "rustls-tls-native-roots"] }
 # The provider OAuth exchange (login_jobs) runs BRIDGE-side so the token never
 # crosses the wire and a remote team server logs into its OWN account store.

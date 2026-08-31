@@ -89,6 +89,12 @@ export type ApiRequest =
   | { req: "list_team_members" }
   | { req: "revoke_member"; email: string }
   | { req: "list_accounts"; provider: string }
+  /**
+   * One still frame of the workspace's screen. `max_width` asks the display
+   * box to downscale before sending, so a thumbnail never pulls the full
+   * render across the link.
+   */
+  | { req: "screen_frame"; max_width?: number }
   | { req: "set_active_account"; provider: string; label: string }
   | { req: "archive_session"; session_id: string }
   | { req: "restore_session"; session_id: string }
@@ -153,6 +159,14 @@ export type ApiEvent =
   | { ev: "login_started"; job_id: string }
   | { ev: "login_run"; run: unknown }
   | { ev: "member_invited"; invite: unknown }
+  /**
+   * One still frame of the workspace's screen: `{ attached, image?,
+   * content_type?, error? }`, where `image` is base64.
+   *
+   * `attached: false` is the ordinary state of a workspace with no display
+   * box, not a failure — hide the control rather than offer one that fails.
+   */
+  | { ev: "screen_frame"; screen: unknown }
   | { ev: "team_create_status"; status: unknown }
   | { ev: "github_status"; status: unknown }
   | { ev: "blaude_account"; account?: unknown }
@@ -344,6 +358,7 @@ export const KNOWN_EVENT_KINDS = [
   "login_started",
   "login_run",
   "member_invited",
+  "screen_frame",
   "team_create_status",
   "github_status",
   "blaude_account",
@@ -422,6 +437,7 @@ export const KNOWN_REQUEST_KINDS = [
   "list_team_members",
   "revoke_member",
   "list_accounts",
+  "screen_frame",
   "set_active_account",
   "archive_session",
   "restore_session",

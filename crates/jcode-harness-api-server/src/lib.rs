@@ -29,6 +29,7 @@ pub mod council_jobs;
 pub mod github_auth_jobs;
 pub mod login_jobs;
 pub mod permissions;
+pub mod screen;
 pub mod team_access;
 pub mod team_create_jobs;
 pub mod translate;
@@ -963,6 +964,40 @@ where
                             message: format!("no create-team job `{job_id}`"),
                         }),
                     };
+                    write_json_line(&mut write_half, &frame).await?;
+                    continue;
+                }
+                if request["req"].as_str() == Some("screen_frame") {
+                    let api_id = request["id"].as_u64().unwrap_or(0);
+                    // A workspace with no display box is the ordinary case, so
+                    // it answers `attached: false` rather than an error — the
+                    // client hides the control instead of showing a failure.
+                    let screen = if !screen::is_attached() {
+                        serde_json::json!({ "attached": false })
+                    } else {
+                        let max_width = request["max_width"]
+                            .as_u64()
+                            .map(|w| w.clamp(160, 3840) as u32);
+                        match screen::frame(max_width).await {
+                            Ok(frame) => {
+                                use base64::Engine as _;
+                                serde_json::json!({
+                                    "attached": true,
+                                    "content_type": frame.content_type,
+                                    "image": base64::engine::general_purpose::STANDARD
+                                        .encode(&frame.bytes),
+                                })
+                            }
+                            // Attached but unreachable: say so, and keep
+                            // `attached` true so the panel stays open showing
+                            // why rather than silently vanishing.
+                            Err(error) => serde_json::json!({
+                                "attached": true,
+                                "error": format!("{error:#}"),
+                            }),
+                        }
+                    };
+                    let frame = ServerFrame::reply(api_id, ApiEvent::ScreenFrame { screen });
                     write_json_line(&mut write_half, &frame).await?;
                     continue;
                 }
