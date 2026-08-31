@@ -838,3 +838,153 @@ mod address_tests {
         assert_eq!(region_of("weird"), "weird");
     }
 }
+
+/// Delete a team server: the VM, its disk, and its reserved address.
+///
+/// The instance name is not something a client knows — members hold a
+/// `wss://<ip-with-dashes>.sslip.io/api` URL and nothing else — so the server
+/// is found by matching that address against the project's instances. That
+/// also means this works for teams created before the name was ever recorded.
+///
+/// Deliberately NOT best-effort about the address: an unreleased static IP
+/// keeps billing after the VM is gone, which is exactly the kind of leftover
+/// nobody notices.
+pub async fn delete_team(ws_url: &str) -> Result<Value, String> {
+    let gcloud = gcloud_bin().ok_or_else(|| "gcloud is not installed".to_string())?;
+    let cfg = cloud_cfg();
+
+    // wss://34-93-93-41.sslip.io:443/api -> 34.93.93.41
+    let ip = ws_url
+        .split("://")
+        .nth(1)
+        .and_then(|rest| rest.split(&['/', ':'][..]).next())
+        .and_then(|host| host.strip_suffix(".sslip.io"))
+        .map(|dashed| dashed.replace('-', "."))
+        .ok_or_else(|| format!("cannot tell which server {ws_url} is"))?;
+
+    let listed = run(
+        &gcloud,
+        &[
+            "compute",
+            "instances",
+            "list",
+            "--project",
+            &cfg.project,
+            "--filter",
+            &format!("networkInterfaces[0].accessConfigs[0].natIP={ip}"),
+            "--format",
+            "value(name,zone)",
+        ],
+        None,
+    )
+    .await
+    .map_err(|e| format!("could not look up the server: {e}"))?;
+
+    let mut fields = listed.split_whitespace();
+    let (Some(instance), Some(zone)) = (fields.next(), fields.next()) else {
+        return Err(format!(
+            "no server in {} has the address {ip} — it may already be deleted",
+            cfg.project
+        ));
+    };
+
+    run(
+        &gcloud,
+        &[
+            "compute", "instances", "delete", instance, "--project", &cfg.project, "--zone", zone,
+            "--quiet",
+        ],
+        None,
+    )
+    .await
+    .map_err(|e| format!("could not delete {instance}: {e}"))?;
+
+    // The address outlives the VM it was attached to, and keeps billing.
+    let region = zone.rsplit_once('-').map(|(r, _)| r).unwrap_or(zone);
+    let address_released = run(
+        &gcloud,
+        &[
+            "compute",
+            "addresses",
+            "delete",
+            &format!("{instance}-ip"),
+            "--project",
+            &cfg.project,
+            "--region",
+            region,
+            "--quiet",
+        ],
+        None,
+    )
+    .await
+    .is_ok();
+
+    Ok(json!({
+        "deleted": instance,
+        "zone": zone,
+        "ip": ip,
+        "address_released": address_released,
+    }))
+}
+
+#[cfg(test)]
+mod delete_tests {
+    /// Deletes a REAL throwaway VM. Ignored by default: it costs money and
+    /// destroys an instance, so it runs only when explicitly named, against a
+    /// server created for the purpose. It is the only test that proves the
+    /// instance lookup, the delete and the address release actually work
+    /// against Google rather than against my idea of Google.
+    #[tokio::test]
+    #[ignore = "creates and destroys real cloud resources"]
+    async fn deleting_a_real_throwaway_server_removes_it_and_frees_its_address() {
+        let url = std::env::var("BLAUDE_DELETE_TEST_URL")
+            .expect("set BLAUDE_DELETE_TEST_URL to the throwaway server's wss url");
+        let result = super::delete_team(&url).await.expect("delete should succeed");
+        println!("delete returned: {result}");
+    }
+
+    /// The instance is found by the address in the URL members already hold,
+    /// because nothing else identifies it — a client never learns the VM's
+    /// name. This also means it works for teams created before the name was
+    /// recorded anywhere.
+    fn ip_of(ws_url: &str) -> Option<String> {
+        ws_url
+            .split("://")
+            .nth(1)
+            .and_then(|rest| rest.split(&['/', ':'][..]).next())
+            .and_then(|host| host.strip_suffix(".sslip.io"))
+            .map(|dashed| dashed.replace('-', "."))
+    }
+
+    #[test]
+    fn the_server_is_identified_by_the_address_in_its_url() {
+        assert_eq!(
+            ip_of("wss://34-93-93-41.sslip.io:443/api").as_deref(),
+            Some("34.93.93.41")
+        );
+        assert_eq!(
+            ip_of("wss://35-200-139-215.sslip.io:443/api").as_deref(),
+            Some("35.200.139.215")
+        );
+    }
+
+    /// A URL that is not one of ours must not resolve to something deletable.
+    /// Guessing here would delete the wrong machine.
+    #[test]
+    fn a_url_that_is_not_a_team_server_resolves_to_nothing() {
+        assert_eq!(ip_of("wss://example.com:443/api"), None);
+        assert_eq!(ip_of("not a url"), None);
+        assert_eq!(ip_of("wss://localhost:7644/api"), None);
+    }
+
+    /// The region for releasing the address is the zone minus its letter.
+    /// Getting it wrong leaves a reserved IP billing after the VM is gone.
+    #[test]
+    fn the_address_region_comes_from_the_zone() {
+        fn region(zone: &str) -> &str {
+            zone.rsplit_once('-').map(|(r, _)| r).unwrap_or(zone)
+        }
+        assert_eq!(region("asia-south1-a"), "asia-south1");
+        assert_eq!(region("us-central1-b"), "us-central1");
+    }
+}

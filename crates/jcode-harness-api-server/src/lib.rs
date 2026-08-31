@@ -804,6 +804,8 @@ where
                         // straight into the owner's setup; their own turns are
                         // routed by `added_by` and never consulted it anyway.
                         | Some("set_active_account")
+                        // Destroys the VM every member works on.
+                        | Some("delete_team")
                 ) && !is_owner
                 {
                     let api_id = request["id"].as_u64().unwrap_or(0);
@@ -976,6 +978,28 @@ where
                             code: ErrorCode::UnknownRequest,
                             message: format!("no create-team job `{job_id}`"),
                         }),
+                    };
+                    write_json_line(&mut write_half, &frame).await?;
+                    continue;
+                }
+                if request["req"].as_str() == Some("delete_team") {
+                    let api_id = request["id"].as_u64().unwrap_or(0);
+                    let ws_url = request["ws_url"].as_str().unwrap_or_default().to_string();
+                    let frame = if ws_url.is_empty() {
+                        ServerFrame::reply(api_id, ApiEvent::Error {
+                            code: ErrorCode::InvalidRequest,
+                            message: "delete_team needs `ws_url`".into(),
+                        })
+                    } else {
+                        match team_create_jobs::delete_team(&ws_url).await {
+                            Ok(result) => ServerFrame::reply(api_id, ApiEvent::TeamCreateStatus {
+                                status: result,
+                            }),
+                            Err(error) => ServerFrame::reply(api_id, ApiEvent::Error {
+                                code: ErrorCode::Internal,
+                                message: error,
+                            }),
+                        }
                     };
                     write_json_line(&mut write_half, &frame).await?;
                     continue;
