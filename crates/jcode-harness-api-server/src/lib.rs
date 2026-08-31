@@ -975,6 +975,52 @@ where
                     write_json_line(&mut write_half, &frame).await?;
                     continue;
                 }
+                if request["req"].as_str() == Some("screen_input") {
+                    let api_id = request["id"].as_u64().unwrap_or(0);
+                    let screen_user = match room {
+                        crate::rooms::Room::Shared => crate::rooms::SHARED_USER.to_string(),
+                        crate::rooms::Room::Mine => {
+                            crate::rooms::unix_user_for(identity.as_deref(), &crate::rooms::door_home())
+                                .unwrap_or_else(|| crate::rooms::SHARED_USER.to_string())
+                        }
+                    };
+                    // Coordinates arrive in the frame the user was LOOKING at,
+                    // which is usually a downscaled thumbnail; scaling here is
+                    // what makes a click land where they aimed.
+                    let frame_width = request["frame_width"].as_u64().unwrap_or(0) as u32;
+                    let x = request["x"].as_u64().unwrap_or(0) as u32;
+                    let y = request["y"].as_u64().unwrap_or(0) as u32;
+                    let (dx, dy) = screen::to_desktop(x, y, frame_width);
+                    let input = match request["kind"].as_str().unwrap_or("") {
+                        "click" => Some(screen::Input::Click {
+                            x: dx,
+                            y: dy,
+                            button: request["button"].as_u64().unwrap_or(1) as u8,
+                        }),
+                        "move" => Some(screen::Input::Move { x: dx, y: dy }),
+                        "text" => request["text"].as_str().map(|t| screen::Input::Text(t.to_string())),
+                        "key" => request["key"].as_str().map(|k| screen::Input::Key(k.to_string())),
+                        "scroll" => Some(screen::Input::Scroll(
+                            request["amount"].as_i64().unwrap_or(0) as i32,
+                        )),
+                        _ => None,
+                    };
+                    let frame = match input {
+                        None => ServerFrame::reply(api_id, ApiEvent::Error {
+                            code: ErrorCode::InvalidRequest,
+                            message: "screen_input needs kind: click|move|text|key|scroll".into(),
+                        }),
+                        Some(input) => match screen::send_input(&screen_user, &input) {
+                            Ok(()) => ServerFrame::reply(api_id, ApiEvent::Ok),
+                            Err(error) => ServerFrame::reply(api_id, ApiEvent::Error {
+                                code: ErrorCode::Internal,
+                                message: format!("{error:#}"),
+                            }),
+                        },
+                    };
+                    write_json_line(&mut write_half, &frame).await?;
+                    continue;
+                }
                 if request["req"].as_str() == Some("screen_frame") {
                     let api_id = request["id"].as_u64().unwrap_or(0);
                     // The ROOM decides whose screen this is: each room runs its

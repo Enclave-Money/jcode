@@ -163,3 +163,128 @@ mod tests {
         assert_eq!(1u32.clamp(160, 1920), 160);
     }
 }
+
+/// A click, a key, or a scroll, sent into a room's desktop.
+///
+/// The screen is a still image on a timer, so input is events rather than a
+/// WebRTC media channel. That is a deliberate first step: it makes the browser
+/// genuinely usable — completing a sign-in, clicking through a page you are
+/// testing — over the connection that already exists and is already
+/// authenticated, with no media path exposed to the internet. A real video
+/// channel replaces the transport later without changing this contract.
+#[derive(Debug, Clone)]
+pub enum Input {
+    /// Move to (x, y) in the frame's coordinates and click `button`
+    /// (1 left, 2 middle, 3 right).
+    Click { x: u32, y: u32, button: u8 },
+    /// Move the pointer without pressing anything, so hovers work.
+    Move { x: u32, y: u32 },
+    /// Type literal text — a URL, a password, a search.
+    Text(String),
+    /// One named key, in xdotool's vocabulary (Return, Tab, ctrl+a).
+    Key(String),
+    /// Wheel up (negative) or down (positive), in clicks.
+    Scroll(i32),
+}
+
+/// The screen size a client's coordinates are relative to, so a click on a
+/// 900px-wide thumbnail lands where the user aimed on a 1920px desktop.
+pub const DESKTOP_WIDTH: u32 = 1920;
+pub const DESKTOP_HEIGHT: u32 = 1080;
+
+/// Scale a click from the frame the user actually saw to the real desktop.
+///
+/// Without this every click lands in the top-left corner region: a thumbnail is
+/// a third of the width, so untranslated coordinates hit roughly a third of the
+/// way across, which looks like "clicking does nothing useful".
+pub fn to_desktop(x: u32, y: u32, frame_width: u32) -> (u32, u32) {
+    if frame_width == 0 || frame_width == DESKTOP_WIDTH {
+        return (x.min(DESKTOP_WIDTH), y.min(DESKTOP_HEIGHT));
+    }
+    let scale = DESKTOP_WIDTH as f64 / frame_width as f64;
+    let sx = (x as f64 * scale).round() as u32;
+    let sy = (y as f64 * scale).round() as u32;
+    (sx.min(DESKTOP_WIDTH), sy.min(DESKTOP_HEIGHT))
+}
+
+/// Send one input event into `user`'s desktop.
+pub fn send_input(user: &str, input: &Input) -> Result<()> {
+    let xauth = xauth_path(user);
+    if !xauth.exists() {
+        anyhow::bail!("No screen is running for this room.");
+    }
+    let uid = uid_of(user).with_context(|| format!("no such user: {user}"))?;
+    let display = display_for(uid);
+
+    let args: Vec<String> = match input {
+        Input::Click { x, y, button } => vec![
+            "mousemove".into(),
+            x.to_string(),
+            y.to_string(),
+            "click".into(),
+            button.clamp(&1, &3).to_string(),
+        ],
+        Input::Move { x, y } => vec!["mousemove".into(), x.to_string(), y.to_string()],
+        // `type --` so text beginning with a dash is typed, not parsed as a flag.
+        Input::Text(text) => vec!["type".into(), "--".into(), text.clone()],
+        Input::Key(key) => vec!["key".into(), "--".into(), key.clone()],
+        Input::Scroll(amount) => {
+            // xdotool has no scroll: buttons 4 and 5 ARE the wheel.
+            let button = if *amount < 0 { "4" } else { "5" };
+            let times = amount.unsigned_abs().min(10);
+            let mut args = vec!["click".into(), "--repeat".into(), times.to_string()];
+            args.push(button.into());
+            args
+        }
+    };
+
+    let output = std::process::Command::new("xdotool")
+        .env("DISPLAY", &display)
+        .env("XAUTHORITY", &xauth)
+        .args(&args)
+        .output()
+        .context("running xdotool")?;
+    if !output.status.success() {
+        anyhow::bail!(
+            "input was refused: {}",
+            String::from_utf8_lossy(&output.stderr).trim()
+        );
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod input_tests {
+    use super::*;
+
+    /// A click on the thumbnail must land where the user aimed on the real
+    /// desktop. Untranslated, every click lands about a third of the way
+    /// across — which reads as "clicking does nothing useful".
+    #[test]
+    fn a_click_on_a_thumbnail_scales_to_the_desktop() {
+        // Middle of a 640-wide thumbnail is the middle of a 1920 desktop.
+        assert_eq!(to_desktop(320, 180, 640), (960, 540));
+        // Middle of a 900-wide view.
+        assert_eq!(to_desktop(450, 253, 900), (960, 540));
+        // A full-size frame needs no scaling.
+        assert_eq!(to_desktop(100, 200, 1920), (100, 200));
+    }
+
+    /// A coordinate outside the desktop must be clamped, not sent — xdotool
+    /// would happily park the pointer off-screen and the next click would go
+    /// somewhere the user cannot see.
+    #[test]
+    fn coordinates_are_clamped_to_the_screen() {
+        let (x, y) = to_desktop(99999, 99999, 640);
+        assert_eq!((x, y), (DESKTOP_WIDTH, DESKTOP_HEIGHT));
+        // A zero width must not divide by zero.
+        assert_eq!(to_desktop(10, 10, 0), (10, 10));
+    }
+
+    #[test]
+    fn a_room_with_no_desktop_refuses_input() {
+        let error = send_input("nosuchuser-for-tests", &Input::Key("Return".into()))
+            .expect_err("no desktop, no input");
+        assert!(format!("{error:#}").contains("No screen is running"));
+    }
+}

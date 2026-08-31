@@ -95,6 +95,22 @@ export type ApiRequest =
    * render across the link.
    */
   | { req: "screen_frame"; max_width?: number }
+  /**
+   * A click, key or scroll into the room's desktop. Coordinates are in the
+   * frame the user was looking at; send `frame_width` so a click on a
+   * thumbnail lands where they aimed on the full desktop.
+   */
+  | {
+      req: "screen_input";
+      kind: "click" | "move" | "text" | "key" | "scroll";
+      x?: number;
+      y?: number;
+      frame_width?: number;
+      button?: number;
+      text?: string;
+      key?: string;
+      amount?: number;
+    }
   | { req: "set_active_account"; provider: string; label: string }
   | { req: "archive_session"; session_id: string }
   | { req: "restore_session"; session_id: string }
@@ -359,6 +375,7 @@ export const KNOWN_EVENT_KINDS = [
   "login_run",
   "member_invited",
   "screen_frame",
+  "screen_input",
   "team_create_status",
   "github_status",
   "blaude_account",
