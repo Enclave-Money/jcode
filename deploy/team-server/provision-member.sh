@@ -24,7 +24,12 @@ GROUP="blaude"
 # entirely, since every member is in it.
 DOOR_GROUP="blaude-door"
 SOCKET_DIR="/run/blaude"
-PROJECT="/srv/blaude/project"
+# The SHARED room's checkout: one copy the whole team edits together.
+SHARED_PROJECT="/srv/blaude/project"
+# Set per user below. The shared room works in SHARED_PROJECT; every other room
+# works in its own clone, so two people can edit and TEST at the same time
+# without one person's half-finished change landing in the other's test run.
+PROJECT=""
 PORT_BASE=7700
 # Where the PUBLIC door runs. Its ~/.jcode/member-users.json maps a member's
 # email to the Unix user their own room runs as; the door reads it to decide
@@ -107,21 +112,60 @@ if ! grep -q "umask 002" "$HOME_DIR/.bashrc" 2>/dev/null; then
   chown "$USER_NAME":"$USER_NAME" "$HOME_DIR/.bashrc"
 fi
 
-echo "==> shared project '$PROJECT'"
-install -d -o root -g "$GROUP" -m 2775 "$PROJECT"
+# Where THIS room works.
+#
+# The shared room is the team's one checkout. A member's room gets its own
+# clone of every repo in it: separate ports and separate desktops are not
+# enough on their own, because both would still be serving the same files.
+if [ "$USER_NAME" = "blaude-shared" ]; then
+  PROJECT="$SHARED_PROJECT"
+else
+  PROJECT="$HOME_DIR/project"
+fi
+
+echo "==> shared project '$SHARED_PROJECT'"
+install -d -o root -g "$GROUP" -m 2775 "$SHARED_PROJECT"
 # setgid (the leading 2) makes new entries inherit the group, so a file one
 # teammate creates is editable by the rest without anyone running chgrp.
-chmod g+s "$PROJECT"
+chmod g+s "$SHARED_PROJECT"
 
-if [ -d "$PROJECT/.git" ]; then
+if [ -d "$SHARED_PROJECT/.git" ]; then
   # Git writes objects with the creating user's umask. Without
   # core.sharedRepository=group, teammate A's commit leaves objects teammate B
   # cannot write, and B's next operation fails with a bare "Permission denied"
   # that looks like a git bug rather than a permissions one.
-  git -C "$PROJECT" config core.sharedRepository group
-  find "$PROJECT/.git" -type d -exec chmod g+rwxs {} + 2>/dev/null || true
-  find "$PROJECT/.git" -type f -exec chmod g+rw {} + 2>/dev/null || true
-  chgrp -R "$GROUP" "$PROJECT/.git" 2>/dev/null || true
+  git -C "$SHARED_PROJECT" config core.sharedRepository group
+  find "$SHARED_PROJECT/.git" -type d -exec chmod g+rwxs {} + 2>/dev/null || true
+  find "$SHARED_PROJECT/.git" -type f -exec chmod g+rw {} + 2>/dev/null || true
+  chgrp -R "$GROUP" "$SHARED_PROJECT/.git" 2>/dev/null || true
+fi
+
+# A member's own copy of every repo the team is working on.
+#
+# Clone, not a worktree: a worktree shares only the .git objects, which for a
+# real project is a rounding error next to node_modules — and worktrees are
+# not wanted in this project. Dependencies are copied across on the first
+# provision so the room can run the app immediately; after that each copy is
+# the member's own to install into.
+if [ "$USER_NAME" != "blaude-shared" ]; then
+  install -d -o "$USER_NAME" -g "$USER_NAME" -m 0750 "$PROJECT"
+  for repo in "$SHARED_PROJECT"/*/; do
+    [ -d "$repo/.git" ] || continue
+    name="$(basename "$repo")"
+    dest="$PROJECT/$name"
+    if [ ! -d "$dest/.git" ]; then
+      echo "==> cloning '$name' into $USER_NAME's own copy"
+      sudo -u "$USER_NAME" git clone -q "$repo" "$dest" 2>/dev/null || \
+        { rm -rf "$dest"; cp -a "$repo" "$dest"; chown -R "$USER_NAME":"$USER_NAME" "$dest"; }
+      # Warm the dependencies so the room can run the app straight away; a
+      # fresh npm install of a real project is minutes the member should not
+      # have to wait through before their first test.
+      if [ -d "$repo/node_modules" ] && [ ! -d "$dest/node_modules" ]; then
+        cp -a "$repo/node_modules" "$dest/node_modules" 2>/dev/null || true
+        chown -R "$USER_NAME":"$USER_NAME" "$dest/node_modules" 2>/dev/null || true
+      fi
+    fi
+  done
 fi
 
 # A stable per-member port, derived from the uid so re-running is idempotent.

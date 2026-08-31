@@ -489,6 +489,7 @@ where
     let mut state = translate::BridgeState::default();
     state.identity = identity.clone();
     state.is_owner = is_owner;
+    state.room = room;
 
     // 3. Pump both directions in one select loop so translation state stays
     //    single-threaded. A third branch watches the safety queue so

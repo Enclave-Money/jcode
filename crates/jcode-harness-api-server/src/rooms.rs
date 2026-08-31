@@ -27,9 +27,12 @@ use std::path::{Path, PathBuf};
 /// person's home.
 pub const SHARED_USER: &str = "blaude-shared";
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum Room {
-    /// One checkout and one desktop, for everyone.
+    /// One checkout and one desktop, for everyone. The default everywhere:
+    /// an unknown room, an unprovisioned member and an older client all land
+    /// with the team rather than somewhere private and confusing.
+    #[default]
     Shared,
     /// The member's own user, checkout and desktop.
     Mine,
@@ -89,6 +92,26 @@ pub fn unix_user_for(identity: Option<&str>, home_root: &Path) -> Option<String>
     let raw = std::fs::read_to_string(home_root.join(".jcode/member-users.json")).ok()?;
     let map: serde_json::Value = serde_json::from_str(&raw).ok()?;
     map.get(identity)?.as_str().map(str::to_string)
+}
+
+/// Where a room's work happens.
+///
+/// The shared room is the team's one checkout; a member's room is their own
+/// clone, so two people can edit and test at once. This is the fallback the
+/// bridge uses when a client creates a session without naming a directory —
+/// it used to fall back to the BRIDGE's own $HOME, which put every room's work
+/// in the door's home and quietly undid per-room checkouts.
+pub fn project_dir(room: Room, identity: Option<&str>, home_root: &Path) -> Option<PathBuf> {
+    let user = match room {
+        Room::Shared => return Some(PathBuf::from("/srv/blaude/project")),
+        Room::Mine => unix_user_for(identity, home_root)?,
+    };
+    // Deliberately NOT checked with is_dir(): a member's home is 0750 and the
+    // door is not in their group, so the door cannot stat it — the check was
+    // always false and silently disabled per-room checkouts entirely. The
+    // DAEMON runs as the member and can see its own directory, and being in
+    // the map is what says it was provisioned.
+    Some(PathBuf::from("/home").join(user).join("project"))
 }
 
 /// The daemon socket this connection should be joined to.
@@ -204,6 +227,53 @@ mod tests {
         assert_eq!(
             daemon_socket(Room::Mine, Some("a@b.com"), temp.path(), &default),
             default
+        );
+    }
+}
+
+#[cfg(test)]
+mod project_tests {
+    use super::*;
+
+    /// The shared room is the team's one checkout.
+    #[test]
+    fn the_shared_room_works_in_the_team_checkout() {
+        let temp = tempfile::TempDir::new().unwrap();
+        assert_eq!(
+            project_dir(Room::Shared, None, temp.path()),
+            Some(std::path::PathBuf::from("/srv/blaude/project"))
+        );
+    }
+
+    /// An unprovisioned member has no directory of their own, and the caller
+    /// then falls back rather than inventing one — creating a session in a
+    /// path that does not exist fails in a much more confusing way.
+    #[test]
+    fn an_unmapped_member_has_no_project_directory() {
+        let temp = tempfile::TempDir::new().unwrap();
+        assert_eq!(project_dir(Room::Mine, Some("nobody@example.com"), temp.path()), None);
+        assert_eq!(project_dir(Room::Mine, None, temp.path()), None);
+    }
+
+    /// Being in the member map is what says a member was provisioned — the
+    /// door cannot check the directory itself.
+    ///
+    /// A member's home is 0750 and the door is not in their group, so an
+    /// `is_dir()` guard here is ALWAYS false and silently sends every member's
+    /// work to the door's home instead of their own checkout. Seen live.
+    #[test]
+    fn a_mapped_member_gets_their_own_directory_without_the_door_stat_ing_it() {
+        let temp = tempfile::TempDir::new().unwrap();
+        std::fs::create_dir_all(temp.path().join(".jcode")).unwrap();
+        std::fs::write(
+            temp.path().join(".jcode/member-users.json"),
+            r#"{"a@b.com":"akshay2"}"#,
+        )
+        .unwrap();
+        assert_eq!(
+            project_dir(Room::Mine, Some("a@b.com"), temp.path()),
+            Some(std::path::PathBuf::from("/home/akshay2/project")),
+            "the path must not depend on the door being able to see it"
         );
     }
 }

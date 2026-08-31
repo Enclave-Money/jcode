@@ -139,6 +139,9 @@ pub struct BridgeState {
     /// AI accounts they added themselves; the owner sees the whole store,
     /// including accounts that predate `added_by`.
     pub is_owner: bool,
+    /// Which room this connection belongs to, so a session created without an
+    /// explicit directory lands in THAT room's checkout.
+    pub room: crate::rooms::Room,
     /// A turn triggered by ANOTHER attachment to this session is streaming.
     ///
     /// The daemon fans a turn's stream and terminal `done` to every attached
@@ -632,6 +635,17 @@ impl BridgeState {
                     .as_str()
                     .map(str::to_string)
                     .or(attach_target_dir)
+                    // The ROOM's checkout, not the bridge's $HOME: the bridge
+                    // runs as the door, so falling back to its home put every
+                    // room's sessions in the door's directory.
+                    .or_else(|| {
+                        crate::rooms::project_dir(
+                            self.room,
+                            self.identity.as_deref(),
+                            &crate::rooms::door_home(),
+                        )
+                        .map(|dir| dir.display().to_string())
+                    })
                     .or_else(|| std::env::var("HOME").ok())
                     .or_else(|| {
                         std::env::current_dir()
