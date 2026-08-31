@@ -69,13 +69,38 @@ getent group "$DOOR_GROUP" >/dev/null || groupadd "$DOOR_GROUP"
 
 # The socket directory, recreated on every boot because /run is a tmpfs.
 #
-# 1770 root:$DOOR_GROUP — each room's daemon (which runs with that group)
-# creates its own socket here, the door connects to all of them, and nothing
-# else can even list the directory. The sticky bit is what stops one member's
-# daemon deleting another's socket, since they share the group.
+# 1771 root:$DOOR_GROUP — the door (in that group) reaches every room, and the
+# sticky bit stops one member's daemon deleting another's socket.
+#
+# The final 1 is execute-for-others, and it is load-bearing: a member must
+# traverse this directory to open its OWN X cookie, and at 1770 it could not,
+# so a browser the agent launched died with "Missing X server" while the
+# door's capture kept working — a screen you could watch but never draw on.
+# Traverse is not read: others still cannot LIST the directory, so no member
+# can enumerate the rooms, and every file inside is owner+door only. Isolation
+# rests on those per-file modes, which is why widening the directory is safe
+# and adding members to $DOOR_GROUP would not be — that would hand every
+# member every other member's cookie and socket.
+# Browsers for testing, installed ONCE and shared read-only.
+#
+# The point of the room screen is to watch the app you just built actually
+# run, so a headed browser has to launch as the member. Per-member installs
+# would be the same ~400MB downloaded again for every person on the team, so
+# they live in one world-readable path and every room's daemon is pointed at
+# it. Headless still works; this only adds the ability to SEE it.
+PLAYWRIGHT_PATH="/opt/ms-playwright"
+if [ ! -d "$PLAYWRIGHT_PATH/chromium-"* ] 2>/dev/null; then
+  echo "==> shared browsers for testing ($PLAYWRIGHT_PATH)"
+  mkdir -p "$PLAYWRIGHT_PATH"
+  PLAYWRIGHT_BROWSERS_PATH="$PLAYWRIGHT_PATH" npx --yes playwright@1.47.0 install --with-deps chromium >/dev/null 2>&1 \
+    || echo "    (browser install failed — headless testing still works)"
+  chmod -R a+rX "$PLAYWRIGHT_PATH"
+  npm i -g playwright@1.47.0 >/dev/null 2>&1 || true
+fi
+
 echo "==> socket directory '$SOCKET_DIR'"
-install -d -o root -g "$DOOR_GROUP" -m 1770 "$SOCKET_DIR"
-printf 'd %s 1770 root %s -\n' "$SOCKET_DIR" "$DOOR_GROUP" > /etc/tmpfiles.d/blaude.conf
+install -d -o root -g "$DOOR_GROUP" -m 1771 "$SOCKET_DIR"
+printf 'd %s 1771 root %s -\n' "$SOCKET_DIR" "$DOOR_GROUP" > /etc/tmpfiles.d/blaude.conf
 
 # The DOOR itself must be in the door group, or it cannot reach any room. The
 # door is whoever owns $DOOR_HOME.
@@ -426,6 +451,7 @@ cat > "/etc/systemd/system/blaude-daemon@$USER_NAME.service.d/display.conf" <<UN
 Environment=DISPLAY=:$DISPLAY_NUM
 Environment=XAUTHORITY=$XAUTH
 Environment=PORT=$DEV_PORT
+Environment=PLAYWRIGHT_BROWSERS_PATH=$PLAYWRIGHT_PATH
 UNIT
 systemctl daemon-reload
 
