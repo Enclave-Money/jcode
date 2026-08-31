@@ -756,6 +756,22 @@ echo SETUP_OK
         return Err(format!("Server setup did not finish: {out}"));
     }
 
+    // Rooms: the shared desktop, the owner's own, and the unit that builds a
+    // room for anyone who joins later.
+    //
+    // Without this a new team had ONE daemon and no desktops at all — every
+    // member sharing one checkout and one set of credentials, "Mine" silently
+    // meaning "Shared", and the screen panel with nothing to show. The whole
+    // rooms feature existed only on the server I had provisioned by hand.
+    //
+    // Best-effort: a team that comes up without rooms is still a working team
+    // in the shared sense, so a failure here reports but does not destroy a
+    // server the owner has already waited for.
+    set_stage(&job_id, "Setting up rooms and screens…");
+    if let Err(error) = install_rooms(&gcloud, &cfg.project, &zone, &instance).await {
+        eprintln!("blaude: rooms setup failed for {instance}: {error}");
+    }
+
     // The wss door answering is the readiness signal (the daemon keeps
     // crash-retrying until an AI account lands — that's expected and the
     // bridge serves sign-in through it).
@@ -878,14 +894,15 @@ pub async fn delete_team(ws_url: &str) -> Result<Value, String> {
         None,
     )
     .await
-    .map_err(|e| format!("could not look up the server: {e}"))?;
+    .map_err(|e| friendly_cloud_error("look up the server", &e))?;
 
     let mut fields = listed.split_whitespace();
     let (Some(instance), Some(zone)) = (fields.next(), fields.next()) else {
-        return Err(format!(
-            "no server in {} has the address {ip} — it may already be deleted",
-            cfg.project
-        ));
+        // Already gone is the outcome the caller wanted, not a failure. As an
+        // error it left a destroyed team sitting in the switcher permanently,
+        // with Delete refusing it every time because there was nothing left
+        // to delete.
+        return Ok(json!({ "deleted": Value::Null, "already_gone": true, "ip": ip }));
     };
 
     run(
@@ -927,8 +944,144 @@ pub async fn delete_team(ws_url: &str) -> Result<Value, String> {
     }))
 }
 
+/// Turn a raw gcloud failure into something worth showing a person.
+///
+/// Expired credentials are the common one, and gcloud reports them as a wall
+/// of text ending in a shell command. Printed verbatim it filled the app's
+/// banner with a stack of instructions nobody could act on from there.
+fn friendly_cloud_error(action: &str, error: &str) -> String {
+    if error.contains("Reauthentication failed")
+        || error.contains("gcloud auth login")
+        || error.contains("credentials are no longer valid")
+    {
+        return "Your Google Cloud sign-in has expired. Run `gcloud auth login` in a \
+                terminal, then try again."
+            .to_string();
+    }
+    let first = error.lines().find(|l| !l.trim().is_empty()).unwrap_or(error);
+    format!("Could not {action}: {}", first.trim())
+}
+
+/// The room provisioning script, shipped inside the binary.
+///
+/// Embedded rather than fetched so a new team never depends on a checkout
+/// being present, and so the script can never drift from the server code that
+/// reads what it writes (`member-users.json`, the socket and cookie paths).
+const PROVISION_SCRIPT: &str = include_str!("../../../deploy/team-server/provision-member.sh");
+
+/// Build the shared room, the owner's room, and the auto-provisioner.
+async fn install_rooms(
+    gcloud: &PathBuf,
+    project: &str,
+    zone: &str,
+    instance: &str,
+) -> Result<(), String> {
+    let mut script = std::env::temp_dir();
+    script.push(format!("blaude-provision-{}.sh", std::process::id()));
+    std::fs::write(&script, PROVISION_SCRIPT)
+        .map_err(|e| format!("could not stage the provisioning script: {e}"))?;
+    let staged = script.clone();
+    let _cleanup = scopeguard_remove(staged);
+
+    run_retry(
+        gcloud,
+        &[
+            "compute",
+            "scp",
+            script.to_str().unwrap_or_default(),
+            &format!("{instance}:~/provision-member.sh"),
+            "--project",
+            project,
+            "--zone",
+            zone,
+            "--quiet",
+        ],
+        None,
+        3,
+    )
+    .await
+    .map_err(|e| format!("could not copy the provisioning script: {e}"))?;
+
+    // Sent over stdin like the main setup, so nothing needs shell quoting.
+    // The desktop packages are what make a screen possible at all: Xvfb to
+    // render, openbox so windows have frames, ImageMagick to capture, xdotool
+    // to click, and a browser to point at the app being built.
+    let rooms = r#"set -e
+H=$HOME
+chmod +x "$H/provision-member.sh"
+sudo apt-get update -q >/dev/null 2>&1 || true
+sudo apt-get install -y -q xvfb x11-utils x11-xserver-utils openbox imagemagick xdotool chromium >/dev/null 2>&1 || true
+sudo BLAUDE_BIN="$H/blaude" "$H/provision-member.sh" blaude-shared --door-home "$H" >/tmp/rooms-shared.log 2>&1 || {
+  echo "SHARED_ROOM_FAILED"; tail -5 /tmp/rooms-shared.log; exit 1; }
+OWNER=$(python3 -c "import json,sys;print(json.load(open(sys.argv[1])).get('email',''))" "$H/.jcode/blaude-account.json" 2>/dev/null || echo "")
+if [ -n "$OWNER" ]; then
+  NAME=$(printf '%s' "${OWNER%%@*}" | tr '[:upper:]' '[:lower:]' | tr -cd 'a-z0-9_-')
+  [ -n "$NAME" ] || NAME=owner
+  case "$NAME" in [0-9]*) NAME="m$NAME" ;; esac
+  sudo BLAUDE_BIN="$H/blaude" "$H/provision-member.sh" "$NAME" --email "$OWNER" --door-home "$H" >/tmp/rooms-owner.log 2>&1 || {
+    echo "OWNER_ROOM_FAILED"; tail -5 /tmp/rooms-owner.log; }
+fi
+echo ROOMS_OK
+"#;
+    let out = run_retry(
+        gcloud,
+        &[
+            "compute",
+            "ssh",
+            instance,
+            "--project",
+            project,
+            "--zone",
+            zone,
+            "--command",
+            "bash -s",
+            "--quiet",
+        ],
+        Some(rooms),
+        2,
+    )
+    .await
+    .map_err(|e| format!("rooms setup could not run: {e}"))?;
+    if !out.contains("ROOMS_OK") {
+        return Err(format!("rooms setup did not finish: {out}"));
+    }
+    Ok(())
+}
+
+/// Delete a staged file when the guard drops, so a failed upload does not
+/// leave the script in the temp directory.
+fn scopeguard_remove(path: PathBuf) -> impl Drop {
+    struct Guard(PathBuf);
+    impl Drop for Guard {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_file(&self.0);
+        }
+    }
+    Guard(path)
+}
+
 #[cfg(test)]
 mod delete_tests {
+    /// An expired sign-in must read as one instruction, not as gcloud's wall
+    /// of text — the banner it lands in is one line wide.
+    #[test]
+    fn an_expired_cloud_sign_in_says_what_to_do() {
+        let raw = "ERROR: (gcloud.compute.instances.list) There was a problem \
+                   refreshing your current auth tokens: Reauthentication failed. \
+                   cannot prompt during non-interactive execution.\nPlease run:\n\n  \
+                   $ gcloud auth login\n";
+        let message = super::friendly_cloud_error("look up the server", raw);
+        assert!(message.contains("gcloud auth login"), "must say the fix: {message}");
+        assert!(!message.contains("ERROR:"), "must not echo gcloud: {message}");
+        assert!(message.lines().count() == 1, "one line: {message}");
+    }
+
+    #[test]
+    fn any_other_failure_keeps_its_first_line_only() {
+        let message = super::friendly_cloud_error("delete it", "boom happened\nstack\nmore");
+        assert_eq!(message, "Could not delete it: boom happened");
+    }
+
     /// Deletes a REAL throwaway VM. Ignored by default: it costs money and
     /// destroys an instance, so it runs only when explicitly named, against a
     /// server created for the purpose. It is the only test that proves the
