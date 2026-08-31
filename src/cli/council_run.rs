@@ -21,18 +21,27 @@ pub(crate) fn run(name: &str, prompt: &str, keep: bool) -> Result<()> {
         .ok_or_else(|| anyhow::anyhow!("no council named “{name}” (see `blaude council list`)"))?
         .clone();
 
+    // Council reads the code and hands back text, so it runs in any directory.
+    // A git repository used to be required purely to host one worktree per
+    // member, which failed a council run in a plain workspace.
     let repo_root = git_repo_root()
-        .context("`council run` needs a git repository — each model drafts in its own worktree")?;
-    let base_sha = git_head_sha(&repo_root)?;
+        .or_else(|_| std::env::current_dir())
+        .context("locating the workspace directory")?;
+    let base_sha = git_head_sha(&repo_root).unwrap_or_default();
     let exe = std::env::current_exe().context("locating the blaude binary")?;
 
+    let from = if base_sha.is_empty() {
+        String::new()
+    } else {
+        format!(" from {}", &base_sha[..base_sha.len().min(12)])
+    };
     println!(
-        "Council “{}”: {} models deliberating on “{}” from {}…\n\
+        "Council “{}”: {} models deliberating on “{}”{}…\n\
          (draft independently → critique each other → synthesize a joint plan)\n",
         council.name,
         council.members.len(),
         truncate(prompt, 60),
-        &base_sha[..base_sha.len().min(12)]
+        from
     );
 
     let runner =

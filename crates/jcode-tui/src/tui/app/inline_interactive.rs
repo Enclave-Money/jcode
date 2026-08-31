@@ -1536,24 +1536,13 @@ impl App {
             .unwrap_or_else(|| std::env::current_dir().unwrap_or_default());
         let session_id = self.session.id.clone();
 
-        let repo_root = match jcode_storage::council_run::git_repo_root_from(&working_dir) {
-            Ok(root) => root,
-            Err(_) => {
-                self.push_display_message(DisplayMessage::error(
-                    "Council mode needs a git repository — each model edits in its own worktree. \
-                     cd into a repo, or `/council off` to use a single model.",
-                ));
-                self.set_status_notice("Council needs a git repo");
-                return;
-            }
-        };
-        let base_sha = match jcode_storage::council_run::git_head_sha(&repo_root) {
-            Ok(sha) => sha,
-            Err(e) => {
-                self.push_display_message(DisplayMessage::error(format!("Council: {e}")));
-                return;
-            }
-        };
+        // Council runs wherever the session already is. Members only read the
+        // code and hand back text, so a git repository is not required — it
+        // used to be, because each member was given its own worktree, and the
+        // run failed outright in a plain directory.
+        let repo_root = jcode_storage::council_run::git_repo_root_from(&working_dir)
+            .unwrap_or_else(|_| working_dir.clone());
+        let base_sha = jcode_storage::council_run::git_head_sha(&repo_root).unwrap_or_default();
         let exe = match std::env::current_exe() {
             Ok(exe) => exe,
             Err(e) => {

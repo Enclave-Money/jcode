@@ -1781,3 +1781,59 @@ fn a_refused_attach_poisons_the_connection_until_the_client_reattaches() {
     assert!(matches!(&frames[0].event, ApiEvent::Attached { .. }));
     assert_eq!(state.session_id.as_deref(), Some("session_real"));
 }
+
+/// A team server keeps everyone's AI accounts in one store, so the accounts
+/// list has to be per-person. Listing it unfiltered showed each member their
+/// teammates' email addresses and offered Sign out on them.
+#[test]
+fn a_member_sees_only_the_accounts_they_added() {
+    let mine = StoredAccount {
+        label: "claude-fox".into(),
+        email: "member@example.com".into(),
+        added_by: Some("member@example.com".into()),
+    };
+    let theirs = StoredAccount {
+        label: "claude-otter".into(),
+        email: "owner@example.com".into(),
+        added_by: Some("owner@example.com".into()),
+    };
+
+    // Positive control: the member DOES see their own, so a failure below is
+    // the ownership check and not a filter that rejects everything.
+    assert!(BridgeState::account_is_visible(&mine, Some("member@example.com"), false));
+
+    assert!(
+        !BridgeState::account_is_visible(&theirs, Some("member@example.com"), false),
+        "a teammate's account must not appear in a member's list"
+    );
+}
+
+/// The owner sees the whole store: it is their server, and accounts that
+/// predate `added_by` have no other claimant — hiding them would strand the
+/// owner's own sign-ins behind a field that did not exist when they were made.
+#[test]
+fn the_owner_sees_every_account_including_unattributed_ones() {
+    let legacy = StoredAccount {
+        label: "claude-otter".into(),
+        email: "owner@example.com".into(),
+        added_by: None,
+    };
+    assert!(BridgeState::account_is_visible(&legacy, Some("owner@example.com"), true));
+
+    assert!(
+        !BridgeState::account_is_visible(&legacy, Some("member@example.com"), false),
+        "an unattributed account is the OWNER's, never a member's to see"
+    );
+}
+
+/// An unauthenticated connection must not be the one case that leaks the
+/// whole store.
+#[test]
+fn a_connection_with_no_identity_sees_nothing() {
+    let account = StoredAccount {
+        label: "claude-otter".into(),
+        email: "owner@example.com".into(),
+        added_by: Some("owner@example.com".into()),
+    };
+    assert!(!BridgeState::account_is_visible(&account, None, false));
+}

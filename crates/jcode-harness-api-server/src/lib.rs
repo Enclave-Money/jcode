@@ -293,6 +293,29 @@ pub async fn run_bridge(api_socket: PathBuf, legacy_socket: PathBuf) -> Result<(
     }
 }
 
+/// Who signed in the stored account `label`, if anyone recorded it.
+///
+/// Read straight from the auth file rather than cached: sign-out is rare, and
+/// a stale answer here would either strand a member's own account or let them
+/// remove a teammate's.
+fn account_added_by(provider: &str, label: &str) -> Option<String> {
+    let home = std::env::var("HOME").ok()?;
+    let is_openai = matches!(provider, "openai" | "codex" | "openai-oauth" | "chatgpt");
+    let (file, key) = if is_openai {
+        (".jcode/openai-auth.json", "openai_accounts")
+    } else {
+        (".jcode/auth.json", "anthropic_accounts")
+    };
+    let text = std::fs::read_to_string(std::path::Path::new(&home).join(file)).ok()?;
+    let value: serde_json::Value = serde_json::from_str(&text).ok()?;
+    value[key]
+        .as_array()?
+        .iter()
+        .find(|account| account["label"].as_str() == Some(label))
+        .and_then(|account| account["added_by"].as_str())
+        .map(str::to_string)
+}
+
 /// Best-effort revival of a dead daemon under a live bridge: run our own
 /// binary's `server start` (the exact daemonize `api-bridge` does at startup),
 /// at most once per 15s process-wide. Managed team servers own the daemon via
@@ -456,7 +479,8 @@ where
     };
 
     let mut state = translate::BridgeState::default();
-    state.identity = identity;
+    state.identity = identity.clone();
+    state.is_owner = is_owner;
 
     // 3. Pump both directions in one select loop so translation state stays
     //    single-threaded. A third branch watches the safety queue so
@@ -699,19 +723,29 @@ where
                 // Empty label clears every account for the provider.
                 if request["req"].as_str() == Some("sign_out_account") {
                     let api_id = request["id"].as_u64().unwrap_or(0);
-                    // Destructive on the shared store — a team member's bearer
-                    // token must never wipe the server's pooled accounts. The
-                    // local app owns its unix socket (is_owner = true).
-                    if !is_owner {
-                        let frame = ServerFrame::reply(api_id, ApiEvent::Error {
-                            code: ErrorCode::InvalidRequest,
-                            message: "removing accounts is owner-only".into(),
-                        });
-                        write_json_line(&mut write_half, &frame).await?;
-                        continue;
-                    }
                     let provider = request["provider"].as_str().unwrap_or_default();
                     let label = request["label"].as_str().unwrap_or_default();
+                    // Destructive on a store everyone shares. The owner may
+                    // remove anything (including a clear-all, which is what an
+                    // empty label means); a member may remove ONLY an account
+                    // they added themselves.
+                    //
+                    // Owner-only was too strict in the direction that matters:
+                    // a teammate who signed their own account in could not sign
+                    // it back out, on their own credential.
+                    if !is_owner {
+                        let own = !label.is_empty()
+                            && account_added_by(provider, label).as_deref() == identity.as_deref()
+                            && identity.is_some();
+                        if !own {
+                            let frame = ServerFrame::reply(api_id, ApiEvent::Error {
+                                code: ErrorCode::InvalidRequest,
+                                message: "you can only sign out an account you added".into(),
+                            });
+                            write_json_line(&mut write_half, &frame).await?;
+                            continue;
+                        }
+                    }
                     let result: anyhow::Result<()> = (|| {
                         let is_openai =
                             matches!(provider, "openai" | "codex" | "openai-oauth" | "chatgpt");
@@ -750,6 +784,12 @@ where
                         | Some("connect_github")
                         | Some("account_signin_start") | Some("account_signin_code")
                         | Some("account_signout")
+                        // set_active_account writes ONE process-wide label that
+                        // decides which account the owner's own turns and every
+                        // token refresh land on. A member flipping it reached
+                        // straight into the owner's setup; their own turns are
+                        // routed by `added_by` and never consulted it anyway.
+                        | Some("set_active_account")
                 ) && !is_owner
                 {
                     let api_id = request["id"].as_u64().unwrap_or(0);

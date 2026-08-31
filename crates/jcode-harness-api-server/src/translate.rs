@@ -83,6 +83,18 @@ pub enum Outbound {
 type SessionFileStatus = (bool, String, Option<u64>, Option<u64>);
 type SessionFileStatusResult = Result<SessionFileStatus, (ErrorCode, String)>;
 
+/// One stored AI account, as far as the bridge is allowed to know it.
+///
+/// `added_by` is the member who signed it in; it is what makes the accounts
+/// list per-person instead of a shared roster of everyone's email addresses.
+/// Token material is never carried here.
+#[derive(Debug, Clone)]
+pub(crate) struct StoredAccount {
+    pub label: String,
+    pub email: String,
+    pub added_by: Option<String>,
+}
+
 /// Per-connection translation state.
 #[derive(Debug, Default)]
 pub struct BridgeState {
@@ -120,8 +132,13 @@ pub struct BridgeState {
     /// Legacy id -> API id for simple acked requests (ping, clear, ...).
     pending_simple: Vec<(u64, u64, SimpleKind)>,
     /// Who this connection belongs to (set by the admitting transport,
-    /// e.g. the WS handshake's team token). Attribution only.
+    /// e.g. the WS handshake's team token). Attribution, and which AI
+    /// accounts this connection may see.
     pub identity: Option<String>,
+    /// Whether this connection is the server's owner. A member sees only the
+    /// AI accounts they added themselves; the owner sees the whole store,
+    /// including accounts that predate `added_by`.
+    pub is_owner: bool,
     /// A turn triggered by ANOTHER attachment to this session is streaming.
     ///
     /// The daemon fans a turn's stream and terminal `done` to every attached
@@ -417,11 +434,18 @@ impl BridgeState {
                         Ok((accounts, active)) => {
                             let listed: Vec<Value> = accounts
                                 .into_iter()
-                                .map(|(label, email)| {
+                                .filter(|account| {
+                                    Self::account_is_visible(
+                                        account,
+                                        self.identity.as_deref(),
+                                        self.is_owner,
+                                    )
+                                })
+                                .map(|account| {
                                     json!({
-                                        "label": label,
-                                        "email": email,
-                                        "active": Some(label.as_str()) == active.as_deref(),
+                                        "label": account.label,
+                                        "email": account.email,
+                                        "active": Some(account.label.as_str()) == active.as_deref(),
                                     })
                                 })
                                 .collect();
@@ -447,11 +471,18 @@ impl BridgeState {
                     Ok((accounts, active)) => {
                         let listed: Vec<Value> = accounts
                             .into_iter()
-                            .map(|(label, email)| {
+                            .filter(|account| {
+                                Self::account_is_visible(
+                                    account,
+                                    self.identity.as_deref(),
+                                    self.is_owner,
+                                )
+                            })
+                            .map(|account| {
                                 json!({
-                                    "label": label,
-                                    "email": email,
-                                    "active": Some(label.as_str()) == active.as_deref(),
+                                    "label": account.label,
+                                    "email": account.email,
+                                    "active": Some(account.label.as_str()) == active.as_deref(),
                                 })
                             })
                             .collect();
@@ -1744,7 +1775,7 @@ impl BridgeState {
     /// list, and results are cached because this is on a poll path.
     /// Accounts from ~/.jcode/auth.json — labels and emails ONLY. Token
     /// fields are never read, held, or logged here.
-    fn read_claude_accounts() -> Result<(Vec<(String, String)>, Option<String>), String> {
+    fn read_claude_accounts() -> Result<(Vec<StoredAccount>, Option<String>), String> {
         let home = std::env::var("HOME").map_err(|_| "HOME is not set".to_string())?;
         let path = std::path::Path::new(&home).join(".jcode/auth.json");
         let text = std::fs::read_to_string(&path).map_err(|e| e.to_string())?;
@@ -1753,11 +1784,10 @@ impl BridgeState {
             .as_array()
             .map(|list| {
                 list.iter()
-                    .map(|a| {
-                        (
-                            a["label"].as_str().unwrap_or_default().to_string(),
-                            a["email"].as_str().unwrap_or_default().to_string(),
-                        )
+                    .map(|a| StoredAccount {
+                        label: a["label"].as_str().unwrap_or_default().to_string(),
+                        email: a["email"].as_str().unwrap_or_default().to_string(),
+                        added_by: a["added_by"].as_str().map(str::to_string),
                     })
                     .collect()
             })
@@ -1768,9 +1798,29 @@ impl BridgeState {
         Ok((accounts, active))
     }
 
+    /// Whether `viewer` may see `account` in the AI-accounts list.
+    ///
+    /// A team server holds everyone's accounts in one store, so an unfiltered
+    /// list showed each member their teammates' email addresses and offered
+    /// Sign out on them. The rule: the owner sees the whole store (it is their
+    /// server, and accounts predating `added_by` have no other claimant);
+    /// everyone else sees only what they added themselves.
+    ///
+    /// A member with no identity sees nothing rather than everything — an
+    /// unauthenticated connection must not be the one case that leaks.
+    fn account_is_visible(account: &StoredAccount, viewer: Option<&str>, is_owner: bool) -> bool {
+        if is_owner {
+            return true;
+        }
+        match (viewer, account.added_by.as_deref()) {
+            (Some(viewer), Some(added_by)) => viewer == added_by,
+            _ => false,
+        }
+    }
+
     /// Labels and emails from ~/.jcode/openai-auth.json — token material is
     /// never read past serde's untyped Value and never leaves this function.
-    fn read_openai_accounts() -> Result<(Vec<(String, String)>, Option<String>), String> {
+    fn read_openai_accounts() -> Result<(Vec<StoredAccount>, Option<String>), String> {
         let home = std::env::var("HOME").map_err(|_| "HOME is not set".to_string())?;
         let path = std::path::Path::new(&home).join(".jcode/openai-auth.json");
         let text = std::fs::read_to_string(&path).map_err(|e| e.to_string())?;
@@ -1779,11 +1829,10 @@ impl BridgeState {
             .as_array()
             .map(|list| {
                 list.iter()
-                    .map(|a| {
-                        (
-                            a["label"].as_str().unwrap_or_default().to_string(),
-                            a["email"].as_str().unwrap_or_default().to_string(),
-                        )
+                    .map(|a| StoredAccount {
+                        label: a["label"].as_str().unwrap_or_default().to_string(),
+                        email: a["email"].as_str().unwrap_or_default().to_string(),
+                        added_by: a["added_by"].as_str().map(str::to_string),
                     })
                     .collect()
             })

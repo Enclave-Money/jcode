@@ -5,17 +5,21 @@
 //! members **deliberate**, in three stages:
 //!
 //!   1. Draft — each model independently drafts a plan for the task, blind to
-//!      the others, in its own git worktree off the same commit.
+//!      the others.
 //!   2. Critique — each model reads every draft and says what is strongest in
 //!      each and what to combine.
 //!   3. Synthesize — one member merges the drafts and critiques into a single
 //!      joint plan that takes the best from all of them.
 //!
-//! Each model call runs in an isolated worktree so nothing touches the user's
-//! working tree; the deliberation itself is text (plans and critiques), and the
-//! result is one joint plan. The orchestration is pure over a `runner` closure
-//! so it can be unit-tested with a stub; the production runner ([`spawn_member`])
-//! shells out to `blaude run --json`.
+//! Every member runs in the workspace directory and is told not to modify
+//! files: the deliberation is text (plans and critiques) and the result is one
+//! joint plan, so there is nothing to isolate. It used to give each member its
+//! own git worktree, which bought nothing, required the workspace to be a git
+//! repository at all, and left checkouts inside the user's repo.
+//!
+//! The orchestration is pure over a `runner` closure so it can be unit-tested
+//! with a stub; the production runner ([`spawn_member`]) shells out to
+//! `blaude run --json`.
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -40,7 +44,8 @@ pub struct Deliberation {
     pub synthesizer: String,
     /// Stage 3: the joint plan built from the best of the drafts + critiques.
     pub joint_plan: Result<String>,
-    /// Worktrees kept for inspection (when `keep`), one per member.
+    /// Always empty: council creates no worktrees. Kept so the field's
+    /// consumers keep compiling while the concept is gone.
     pub worktrees: Vec<PathBuf>,
 }
 
@@ -57,32 +62,26 @@ pub struct CouncilProgress {
     pub ok: bool,
 }
 
-/// Run the three-stage deliberation. Pure over `runner` (model, worktree,
-/// prompt) so tests can stub the model call; `observe` receives start/finish
-/// ticks per member per phase. Worktrees are removed afterwards unless
-/// `keep`.
+/// Run the three-stage deliberation. Pure over `runner` (cwd, model, prompt)
+/// so tests can stub the model call; `observe` receives start/finish ticks per
+/// member per phase.
+///
+/// Every member runs in `workspace` itself. There are deliberately no
+/// worktrees: the deliberation's output is TEXT — drafts, critiques and one
+/// joint plan — so the per-member isolation was buying nothing, while it made
+/// council require a git repository and litter the user's repo with checkouts.
+/// Council in a plain directory now simply works.
 pub fn deliberate(
-    repo_root: &Path,
-    base_sha: &str,
+    workspace: &Path,
+    _base_sha: &str,
     members: &[String],
     task: &str,
-    keep: bool,
+    _keep: bool,
     runner: &(dyn Fn(&Path, &str, &str) -> Result<String> + Sync),
     observe: &(dyn Fn(CouncilProgress) + Sync),
 ) -> Deliberation {
-    // One worktree per member, off the base commit, reused across stages so a
-    // member's stages share a cwd. Setup failures leave that slot `None`.
-    let worktrees: Vec<Option<PathBuf>> = members
-        .iter()
-        .enumerate()
-        .map(|(i, model)| {
-            let wt = worktree_path(repo_root, i, model);
-            add_worktree(repo_root, &wt, base_sha).ok().map(|_| wt)
-        })
-        .collect();
-
     // Stage 1: independent drafts.
-    let drafts = run_stage(members, &worktrees, runner, observe, "drafting", |_model| {
+    let drafts = run_stage(members, workspace, runner, observe, "drafting", |_model| {
         draft_prompt(task)
     });
 
@@ -90,7 +89,7 @@ pub fn deliberate(
     let drafts_block = format_block(&drafts);
     let critiques = run_stage(
         members,
-        &worktrees,
+        workspace,
         runner,
         observe,
         "critiquing",
@@ -106,14 +105,11 @@ pub fn deliberate(
         done: false,
         ok: true,
     });
-    let joint_plan = match worktrees.first().and_then(|w| w.as_ref()) {
-        Some(wt) => runner(
-            wt,
-            &synthesizer,
-            &synthesis_prompt(task, &drafts_block, &critiques_block),
-        ),
-        None => Err(anyhow::anyhow!("no worktree for the synthesizer")),
-    };
+    let joint_plan = runner(
+        workspace,
+        &synthesizer,
+        &synthesis_prompt(task, &drafts_block, &critiques_block),
+    );
     observe(CouncilProgress {
         model: synthesizer.clone(),
         phase: "synthesizing",
@@ -121,14 +117,8 @@ pub fn deliberate(
         ok: joint_plan.is_ok(),
     });
 
-    let kept: Vec<PathBuf> = if keep {
-        worktrees.iter().flatten().cloned().collect()
-    } else {
-        for wt in worktrees.iter().flatten() {
-            let _ = remove_worktree(repo_root, wt);
-        }
-        Vec::new()
-    };
+    // Nothing to keep or clean up: no worktrees are created.
+    let kept: Vec<PathBuf> = Vec::new();
 
     Deliberation {
         drafts,
@@ -139,11 +129,11 @@ pub fn deliberate(
     }
 }
 
-/// Run one stage across all members in parallel (each in its own worktree),
-/// building the per-member prompt with `prompt_for`.
+/// Run one stage across all members in parallel, all in the workspace
+/// directory, building the per-member prompt with `prompt_for`.
 fn run_stage(
     members: &[String],
-    worktrees: &[Option<PathBuf>],
+    workspace: &Path,
     runner: &(dyn Fn(&Path, &str, &str) -> Result<String> + Sync),
     observe: &(dyn Fn(CouncilProgress) + Sync),
     phase: &'static str,
@@ -152,9 +142,7 @@ fn run_stage(
     std::thread::scope(|scope| {
         let handles: Vec<_> = members
             .iter()
-            .enumerate()
-            .map(|(i, model)| {
-                let wt = worktrees[i].clone();
+            .map(|model| {
                 let prompt_for = &prompt_for;
                 scope.spawn(move || {
                     observe(CouncilProgress {
@@ -163,10 +151,7 @@ fn run_stage(
                         done: false,
                         ok: true,
                     });
-                    let text = match wt {
-                        Some(wt) => runner(&wt, model, &prompt_for(model)),
-                        None => Err(anyhow::anyhow!("worktree setup failed")),
-                    };
+                    let text = runner(workspace, model, &prompt_for(model));
                     observe(CouncilProgress {
                         model: model.clone(),
                         phase,
@@ -192,7 +177,7 @@ fn run_stage(
 fn draft_prompt(task: &str) -> String {
     format!(
         "You are one member of a council of AI models working a task together. \
-         Your working directory is a checkout of the user's repository: explore \
+         Your working directory is the user's workspace: explore \
          it first (read the layout, key modules, and any code the task touches) \
          and ground your plan in what is actually there — cite concrete files, \
          functions, and constraints from this codebase, not generic advice. \
@@ -307,51 +292,6 @@ pub fn git_head_sha(repo_root: &Path) -> Result<String> {
     Ok(String::from_utf8_lossy(&out.stdout).trim().to_string())
 }
 
-fn worktree_path(repo_root: &Path, index: usize, model: &str) -> PathBuf {
-    repo_root
-        .join(".git")
-        .join("blaude-councils")
-        .join(format!("{}-{index}", sanitize(model)))
-}
-
-fn add_worktree(repo_root: &Path, worktree: &Path, base_sha: &str) -> Result<()> {
-    let _ = remove_worktree(repo_root, worktree);
-    if let Some(parent) = worktree.parent() {
-        std::fs::create_dir_all(parent).ok();
-    }
-    let out = Command::new("git")
-        .args(["worktree", "add", "--detach", "--force"])
-        .arg(worktree)
-        .arg(base_sha)
-        .current_dir(repo_root)
-        .output()
-        .context("git worktree add")?;
-    if !out.status.success() {
-        bail!(
-            "git worktree add failed: {}",
-            String::from_utf8_lossy(&out.stderr).trim()
-        );
-    }
-    Ok(())
-}
-
-fn remove_worktree(repo_root: &Path, worktree: &Path) -> Result<()> {
-    let out = Command::new("git")
-        .args(["worktree", "remove", "--force"])
-        .arg(worktree)
-        .current_dir(repo_root)
-        .output()
-        .context("git worktree remove")?;
-    if !out.status.success() {
-        let _ = std::fs::remove_dir_all(worktree);
-        let _ = Command::new("git")
-            .args(["worktree", "prune"])
-            .current_dir(repo_root)
-            .output();
-    }
-    Ok(())
-}
-
 // --- small pure helpers --------------------------------------------------
 
 /// A filesystem-safe fragment of a model id (`openai:gpt-5` -> `openai-gpt-5`).
@@ -404,6 +344,47 @@ mod tests {
     #[test]
     fn sanitize_makes_a_safe_fragment() {
         assert_eq!(sanitize("openai:gpt-5-codex"), "openai-gpt-5-codex");
+    }
+
+    /// Council must run in a PLAIN directory. It used to give every member its
+    /// own git worktree, so a council in a non-repo workspace failed outright
+    /// with "needs a git repository" — and worktrees are not wanted anywhere in
+    /// this project regardless.
+    #[test]
+    fn a_council_runs_in_a_plain_directory_with_no_git_repo() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let workspace = dir.path().to_path_buf();
+        assert!(
+            !workspace.join(".git").exists(),
+            "fixture must not be a git repo, or this proves nothing"
+        );
+        let members = vec!["alpha".to_string(), "beta".to_string()];
+
+        // Every member must be handed the workspace itself as its cwd.
+        let runner = |cwd: &Path, model: &str, prompt: &str| -> Result<String> {
+            assert_eq!(cwd, workspace, "members run in the workspace, not a worktree");
+            if prompt.contains("output only your plan") {
+                Ok(format!("{model} draft"))
+            } else if prompt.contains("only your critique") {
+                Ok(format!("{model} critique"))
+            } else {
+                Ok("JOINT PLAN".to_string())
+            }
+        };
+
+        // No base sha: there is no commit to take one from.
+        let d = deliberate(&workspace, "", &members, "task", false, &runner, &|_| {});
+
+        assert_eq!(d.joint_plan.as_ref().unwrap(), "JOINT PLAN");
+        assert_eq!(d.drafts.len(), 2);
+        assert!(
+            d.worktrees.is_empty(),
+            "a council must never create a worktree"
+        );
+        assert!(
+            !workspace.join(".git").exists(),
+            "a council must not turn the workspace into a repo"
+        );
     }
 
     #[test]
