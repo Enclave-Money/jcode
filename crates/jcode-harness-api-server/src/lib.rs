@@ -766,6 +766,11 @@ where
                         }
                     })();
                     jcode_base::auth::AuthStatus::invalidate_cache();
+                    // Rooms read their OWN user's auth file, so an account
+                    // removed at the door has to be removed from the rooms as
+                    // well — otherwise a room keeps working on a credential
+                    // the owner just revoked.
+                    let _ = crate::rooms::request_credential_sync(&crate::rooms::door_home());
                     let frame = match result {
                         Ok(()) => ServerFrame::reply(api_id, ApiEvent::Ok),
                         Err(error) => ServerFrame::reply(
@@ -971,6 +976,24 @@ where
                             code: ErrorCode::UnknownRequest,
                             message: format!("no create-team job `{job_id}`"),
                         }),
+                    };
+                    write_json_line(&mut write_half, &frame).await?;
+                    continue;
+                }
+                if request["req"].as_str() == Some("sync_room_credentials") {
+                    let api_id = request["id"].as_u64().unwrap_or(0);
+                    // Owner-only: it reads the whole account store and writes
+                    // into every room's home.
+                    let frame = if !is_owner {
+                        ServerFrame::reply(api_id, ApiEvent::Error {
+                            code: ErrorCode::InvalidRequest,
+                            message: "syncing room credentials is owner-only".into(),
+                        })
+                    } else {
+                        let ok = crate::rooms::request_credential_sync(&crate::rooms::door_home());
+                        ServerFrame::reply(api_id, ApiEvent::ScreenFrame {
+                            screen: serde_json::json!({ "attached": true, "sync_requested": ok }),
+                        })
                     };
                     write_json_line(&mut write_half, &frame).await?;
                     continue;

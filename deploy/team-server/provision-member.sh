@@ -98,11 +98,22 @@ HOME_DIR="$(getent passwd "$USER_NAME" | cut -d: -f6)"
 # 0750 not 0755: a teammate's home is not world-readable. The group bit lets
 # group-owned tooling traverse; nothing outside the team can.
 chmod 0750 "$HOME_DIR"
-chown "$USER_NAME":"$USER_NAME" "$HOME_DIR"
+chown "$USER_NAME":"$DOOR_GROUP" "$HOME_DIR"
 
 echo "==> credential store"
-install -d -o "$USER_NAME" -g "$USER_NAME" -m 0700 "$HOME_DIR/.jcode"
-install -d -o "$USER_NAME" -g "$USER_NAME" -m 0700 "$HOME_DIR/.jcode/runtime"
+# 0770 owned by the member, group-owned by the DOOR.
+#
+# Sign-in happens at the door, so every credential lands there and has to be
+# distributed to the room that will actually run the turn. 0700 made that
+# impossible — the door could not even stat the directory. The door already
+# holds every one of these credentials, so this leaks nothing to it; what it
+# preserves is the boundary that matters, MEMBER to MEMBER, because no member
+# is in the door group.
+install -d -o "$USER_NAME" -g "$DOOR_GROUP" -m 0770 "$HOME_DIR/.jcode"
+install -d -o "$USER_NAME" -g "$DOOR_GROUP" -m 0770 "$HOME_DIR/.jcode/runtime"
+# The home itself must be traversable by the door to reach .jcode at all.
+chgrp "$DOOR_GROUP" "$HOME_DIR"
+chmod 0750 "$HOME_DIR"
 
 # umask 002 so files this member creates in the shared project stay
 # group-writable. Without it the setgid group is inherited but the group write
@@ -307,8 +318,97 @@ RestartSec=2
 WantedBy=multi-user.target
 UNIT
 
+# --- credential distribution ------------------------------------------------
+#
+# Sign-in happens at the DOOR, so every account lands in the door's auth file.
+# Turns run in a ROOM, as that room's user, reading that user's own file — so
+# without distribution the rooms have no credentials and no turn can run.
+#
+# Done by ROOT, on a path trigger, rather than by the door writing directly:
+# the daemon owns ~/.jcode and re-tightens it to 0700 on startup, so a door
+# write there is racing a process whose job is to close that door. Root can
+# write and chown correctly and does not have to win a race.
+#
+# Who gets what preserves the isolation rooms exist for: the shared room gets
+# every account (a turn there runs as whoever sent it, and `added_by` picks
+# their account); a member's room gets only the accounts they added.
+install -m 0755 /dev/stdin /usr/local/bin/blaude-sync-room-auth <<'SYNC'
+#!/usr/bin/env python3
+import json, os, pwd, shutil, subprocess, sys
+
+DOOR_HOME = sys.argv[1] if len(sys.argv) > 1 else "/home/sumermalhotra"
+SHARED = "blaude-shared"
+
+def load(path):
+    try:
+        with open(path) as handle:
+            return json.load(handle)
+    except Exception:
+        return None
+
+auth = load(os.path.join(DOOR_HOME, ".jcode", "auth.json"))
+if not auth:
+    sys.exit(0)
+accounts = auth.get("anthropic_accounts") or []
+members = load(os.path.join(DOOR_HOME, ".jcode", "member-users.json")) or {}
+
+targets = {SHARED: accounts}
+for email, user in members.items():
+    targets[user] = [a for a in accounts if a.get("added_by") == email]
+
+for user, mine in targets.items():
+    try:
+        entry = pwd.getpwnam(user)
+    except KeyError:
+        continue
+    store = os.path.join(entry.pw_dir, ".jcode")
+    if not os.path.isdir(store):
+        continue
+    out = dict(auth)
+    out["anthropic_accounts"] = mine
+    if mine:
+        out["active_anthropic_account"] = mine[0].get("label")
+    else:
+        out.pop("active_anthropic_account", None)
+    path = os.path.join(store, "auth.json")
+    tmp = path + ".tmp"
+    with open(tmp, "w") as handle:
+        json.dump(out, handle, indent=2)
+    os.chmod(tmp, 0o600)
+    os.chown(tmp, entry.pw_uid, entry.pw_gid)
+    os.replace(tmp, path)
+    print(f"synced {len(mine)} account(s) to {user}")
+SYNC
+
+cat > /etc/systemd/system/blaude-sync-room-auth.service <<UNIT
+[Unit]
+Description=distribute AI accounts from the door to each room
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/blaude-sync-room-auth $DOOR_HOME
+UNIT
+
+# A path unit, so a sign-in at the door reaches the rooms without anyone
+# remembering to run anything.
+cat > /etc/systemd/system/blaude-sync-room-auth.path <<UNIT
+[Unit]
+Description=watch the door's account store
+
+[Path]
+PathChanged=$DOOR_HOME/.jcode/auth.json
+Unit=blaude-sync-room-auth.service
+
+[Install]
+WantedBy=multi-user.target
+UNIT
+
 systemctl daemon-reload
-systemctl enable --now "blaude-daemon@$USER_NAME.service" "blaude-bridge@$USER_NAME.service"
+systemctl enable --now blaude-sync-room-auth.path >/dev/null 2>&1
+systemctl start blaude-sync-room-auth.service >/dev/null 2>&1
+
+systemctl daemon-reload
+systemctl enable --now "blaude-daemon@$USER_NAME.service"
 systemctl enable --now "blaude-desktop@$USER_NAME.service" "blaude-wm@$USER_NAME.service"
 
 # The room's daemon needs to know which display to launch browsers into, and

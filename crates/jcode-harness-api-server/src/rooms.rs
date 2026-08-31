@@ -277,3 +277,24 @@ mod project_tests {
         );
     }
 }
+
+/// Ask for the door's accounts to be redistributed to the rooms.
+///
+/// Sign-in lands every account in the DOOR's auth file, but turns run in a
+/// ROOM as that room's user, reading that user's own file. Distribution is
+/// done by a root-owned unit (`blaude-sync-room-auth`) watching the door's
+/// file, because the daemon owns `~/.jcode` and re-tightens it to 0700 on
+/// startup — a door write there is racing a process whose job is to close it.
+///
+/// So this only touches the watched file, and the path unit does the rest.
+/// Returns whether the nudge succeeded, not whether rooms were written.
+pub fn request_credential_sync(home_root: &Path) -> bool {
+    let path = home_root.join(".jcode/auth.json");
+    let Ok(contents) = std::fs::read(&path) else {
+        return false;
+    };
+    // Rewriting identical bytes is enough for PathChanged to fire, and cannot
+    // corrupt the store the way an edit could.
+    std::fs::write(&path, contents).is_ok()
+}
+

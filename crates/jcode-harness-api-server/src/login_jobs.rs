@@ -152,6 +152,13 @@ fn set_state(job_id: &str, state: &str) {
 }
 
 fn finish(job_id: &str, state: &str, error: Option<String>) {
+    // A sign-in lands in the DOOR's auth file, but turns run in a ROOM as that
+    // room's Unix user, reading that user's own file. Without this the account
+    // never reaches the place that needs it and every turn fails with "no
+    // Claude account for you" moments after a successful sign-in.
+    if state == "done" {
+        let _ = crate::rooms::request_credential_sync(&crate::rooms::door_home());
+    }
     {
         let mut table = jobs().lock().unwrap();
         if let Some(job) = table.get_mut(job_id) {
