@@ -138,7 +138,16 @@ fn cloud_cfg() -> CloudCfg {
     let mut cfg = CloudCfg {
         project: "enclave-money".into(),
         zone: "asia-south1-a".into(),
-        machine_type: "e2-small".into(),
+        // Sized for the desktop, because everyone opens the browser.
+        //
+        // An e2-small (2 shared vCPU, 1.9 GB, 10 GB disk) runs the agent and
+        // nothing else: Chrome alone wants 400-800 MB resident and the install
+        // does not fit in the disk. docs/display-stack.md measured the floor
+        // for this stack at 4 vCPU / 8 GiB / 40 GB, so that is the size a team
+        // gets. Sizing down and resizing on demand was rejected deliberately:
+        // a resize needs a stop/start, so it would drop the team exactly when
+        // someone reaches for the screen.
+        machine_type: "e2-standard-4".into(),
         // No template server by default. "blaude-india-1" used to be the
         // default and no longer exists, so every create_team spent a failed
         // gcloud scp discovering that before falling back to the cache. Set
@@ -360,31 +369,73 @@ async fn provision(job_id: String, name: String, region: Option<String>) -> Resu
         }
     }
 
-    run(
+    // A STATIC address, reserved before the VM exists.
+    //
+    // An ephemeral IP is released on every stop/start, and a team server's
+    // whole identity is built from its address: members hold
+    // `wss://<ip-with-dashes>.sslip.io/api`, and the Let's Encrypt cert is
+    // issued for that same name. So one restart silently invalidated both the
+    // saved URL and the certificate for every member — seen live when resizing
+    // a running team moved it from 34.93.93.41 to 35.200.139.215.
+    //
+    // Reserving costs nothing while attached to a running VM, and a failure
+    // here is not fatal: the instance is created either way and falls back to
+    // an ephemeral address rather than refusing to make the team.
+    let address_name = format!("{instance}-ip");
+    // An address is a REGIONAL resource and the zone is `<region>-<letter>`,
+    // so the region is the zone with its last segment removed.
+    let address_region = zone
+        .rsplit_once('-')
+        .map(|(region, _)| region.to_string())
+        .unwrap_or_else(|| zone.clone());
+    let reserved = run(
         &gcloud,
         &[
             "compute",
-            "instances",
+            "addresses",
             "create",
-            &instance,
+            &address_name,
             "--project",
             &cfg.project,
-            "--zone",
-            &zone,
-            "--machine-type",
-            &cfg.machine_type,
-            "--image-family",
-            "debian-12",
-            "--image-project",
-            "debian-cloud",
-            "--tags",
-            "blaude-team",
+            "--region",
+            &address_region,
             "--quiet",
         ],
         None,
     )
     .await
-    .map_err(|e| format!("Could not create the server: {e}"))?;
+    .is_ok();
+
+    let mut create_args: Vec<&str> = vec![
+        "compute",
+        "instances",
+        "create",
+        &instance,
+        "--project",
+        &cfg.project,
+        "--zone",
+        &zone,
+        // The display stack needs room: the base image plus Chrome does not
+        // fit the 10 GB default (a live e2-small sat at 2.9 GB free).
+        "--boot-disk-size",
+        "40GB",
+        "--machine-type",
+        &cfg.machine_type,
+        "--image-family",
+        "debian-12",
+        "--image-project",
+        "debian-cloud",
+        "--tags",
+        "blaude-team",
+        "--quiet",
+    ];
+    if reserved {
+        create_args.extend_from_slice(&["--address", &address_name]);
+    }
+
+    run(&gcloud, &create_args, None)
+        .await
+        .map_err(|e| format!("Could not create the server: {e}"))?;
 
     let ip = run(
         &gcloud,
@@ -765,4 +816,25 @@ echo SETUP_OK
 
     finish_ok(&job_id, &format!("wss://{domain}:443/api"), &token, &ca_pem);
     Ok(())
+}
+
+#[cfg(test)]
+mod address_tests {
+    /// An address is a regional resource; the zone is `<region>-<letter>`.
+    /// Getting this wrong makes every reservation fail, and the team then
+    /// silently falls back to an ephemeral IP — the exact failure this is
+    /// meant to prevent, and one that only shows up on a later restart.
+    #[test]
+    fn the_address_region_is_the_zone_without_its_letter() {
+        let region_of = |zone: &str| {
+            zone.rsplit_once('-')
+                .map(|(region, _)| region.to_string())
+                .unwrap_or_else(|| zone.to_string())
+        };
+        assert_eq!(region_of("asia-south1-a"), "asia-south1");
+        assert_eq!(region_of("us-central1-b"), "us-central1");
+        assert_eq!(region_of("europe-west4-c"), "europe-west4");
+        // Degenerate input must not panic or produce an empty region.
+        assert_eq!(region_of("weird"), "weird");
+    }
 }
