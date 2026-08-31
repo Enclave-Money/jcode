@@ -425,6 +425,83 @@ const JOIN_INSTRUCTIONS: &str = r#"<!doctype html><meta charset="utf-8"><meta na
 <p style="color:#999;font-size:.85rem;margin-top:1rem">Invited at a different address? Ask your teammate to invite the email you actually use.</p>
 </div>"#;
 
+/// One query parameter from a request target, percent-decoding not required
+/// for the values we read (tickets are hex with a `jt-` prefix).
+fn query_param(target: &str, name: &str) -> String {
+    target
+        .split_once('?')
+        .map(|(_, query)| query)
+        .unwrap_or("")
+        .split('&')
+        .find_map(|pair| pair.strip_prefix(&format!("{name}=")))
+        .unwrap_or("")
+        .to_string()
+}
+
+/// Percent-encode a query VALUE. Deliberately conservative: everything that is
+/// not unreserved gets encoded, so a team name with spaces, `&` or `#` cannot
+/// break out of the parameter it belongs to.
+fn percent_encode(value: &str) -> String {
+    let mut out = String::with_capacity(value.len());
+    for byte in value.as_bytes() {
+        match byte {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
+                out.push(*byte as char)
+            }
+            _ => out.push_str(&format!("%{byte:02X}")),
+        }
+    }
+    out
+}
+
+/// Escape for an HTML attribute or text node.
+fn html_escape(value: &str) -> String {
+    value
+        .replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+        .replace('\'', "&#39;")
+}
+
+/// The join page for a LIVE ticket: one button that opens the app on this
+/// team, with the manual route kept underneath for anyone who has not
+/// installed blaude yet.
+///
+/// The link carries the team's ws_url and the ticket, which is everything
+/// `blaude://join` needs — the app claims the ticket itself, so this page
+/// still never spends it.
+fn invite_deep_link(ticket: &str, ws_url: &str, name: &str) -> String {
+    format!(
+        "blaude://join?ws_url={}&ticket={}&name={}",
+        percent_encode(ws_url),
+        percent_encode(ticket),
+        percent_encode(name)
+    )
+}
+
+/// The join page for a LIVE ticket (see [`invite_deep_link`]).
+fn join_page_with_link(ticket: &str, ws_url: &str, name: &str) -> String {
+    let deep_link = invite_deep_link(ticket, ws_url, name);
+    let team = if name.trim().is_empty() {
+        "your team".to_string()
+    } else {
+        html_escape(name)
+    };
+    format!(
+        r#"<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Join {team} on blaude</title>
+<body style="margin:0;display:grid;place-items:center;min-height:100vh;background:#111;color:#eee;font:16px/1.6 -apple-system,system-ui,sans-serif">
+<div style="max-width:30rem;padding:2rem">
+<h1 style="font-size:1.4rem">You're invited to {team} 🎉</h1>
+<p><a href="{link}" style="display:inline-block;background:#2f6df6;color:#fff;text-decoration:none;padding:.7rem 1.2rem;border-radius:.5rem;font-weight:600">Open blaude and join</a></p>
+<p style="color:#999;font-size:.85rem">Don't have blaude yet? <a href="https://blaude-website.vercel.app" style="color:#8ab4ff">Download it</a>, sign in with the email that was invited, and your team attaches itself.</p>
+</div>"#,
+        team = team,
+        link = html_escape(&deep_link)
+    )
+}
+
 /// Serve health, the join landing page, or a 404 to a non-upgrade HTTP
 /// request. There is deliberately no browser session UI here: blaude's client
 /// is the desktop app, and a second half-featured client sharing the API port
@@ -435,20 +512,25 @@ async fn serve_http<S: AsyncRead + AsyncWrite + Unpin>(mut tcp: S, head: &str) -
     let join_page;
     let (status, body, content_type) = match path {
         "/health" => ("200 OK", "ok", "text/plain"),
-        // Ticket or not, a browser visit gets instructions only — the
-        // ticket stays unburned for the app's /join/claim at sign-in.
-        "/join" => ("200 OK", JOIN_INSTRUCTIONS, "text/html; charset=utf-8"),
+        // A browser visit still NEVER burns the ticket (da2e5ff): it only
+        // READS it, to offer a link that opens the app straight onto this
+        // team. Without that link the app cannot know the team exists and has
+        // to discover it by polling Clerk once a minute.
+        "/join" => {
+            let ticket = query_param(target, "ticket");
+            join_page = match crate::team_access::peek_ticket(&ticket) {
+                Some((ws_url, name)) => join_page_with_link(&ticket, &ws_url, &name),
+                // No ticket, or an expired one: plain instructions rather
+                // than a button that cannot work.
+                None => JOIN_INSTRUCTIONS.to_string(),
+            };
+            ("200 OK", join_page.as_str(), "text/html; charset=utf-8")
+        }
         // The app's machine-readable claim: same one-time semantics, JSON
         // body ({"email","token"}) instead of the join page.
         "/join/claim" => {
-            let ticket = target
-                .split_once('?')
-                .map(|(_, query)| query)
-                .unwrap_or("")
-                .split('&')
-                .find_map(|pair| pair.strip_prefix("ticket="))
-                .unwrap_or("");
-            match claim_join_ticket(ticket) {
+            let ticket = query_param(target, "ticket");
+            match claim_join_ticket(&ticket) {
                 Some(grant) => {
                     join_page = grant;
                     ("200 OK", join_page.as_str(), "application/json")
@@ -866,4 +948,52 @@ mod ws_tests {
         };
         assert!(text.contains(r#""ev":"hello_ok""#));
     }
+
+    /// The invitation link is the whole reason the URL scheme exists: it hands
+    /// the app the team's ws_url, so nothing has to be discovered by polling.
+    #[test]
+    fn the_join_page_offers_a_link_that_carries_the_team() {
+        let page = join_page_with_link("jt-abc123", "wss://team.example:443/api", "gm");
+
+        assert!(page.contains("blaude://join?"), "page must offer the app link: {page}");
+        assert!(
+            page.contains("ws_url=wss%3A%2F%2Fteam.example%3A443%2Fapi"),
+            "the team URL must be carried, percent-encoded: {page}"
+        );
+        assert!(page.contains("ticket=jt-abc123"), "the ticket must be carried: {page}");
+        assert!(page.contains("gm"), "the team name should be shown: {page}");
+    }
+
+    /// A team name is free text. Unencoded, an `&` would split the link into a
+    /// bogus extra parameter and a `"` would escape the href entirely.
+    /// The link is built from a free-text team name and a ticket from the
+    /// query string. Unencoded, an `&` in the name would split the link into a
+    /// bogus extra parameter and the app would read the wrong team.
+    #[test]
+    fn a_team_name_cannot_inject_extra_link_parameters() {
+        let link = invite_deep_link("jt-1", "wss://h/api", "a&ticket=evil");
+
+        assert!(
+            !link.contains("&ticket=evil"),
+            "the name must not be able to add a parameter: {link}"
+        );
+        assert_eq!(
+            link.matches("&ticket=").count(),
+            1,
+            "exactly one ticket parameter: {link}"
+        );
+        assert!(link.contains("a%26ticket%3Devil"), "name must be encoded: {link}");
+    }
+
+    #[test]
+    fn a_hostile_team_name_cannot_break_out_of_the_link() {
+        let page = join_page_with_link("jt-1", "wss://h/api", "a&b\" onmouseover=x");
+
+        assert!(!page.contains("\" onmouseover"), "must not break the attribute: {page}");
+        assert!(
+            page.contains("a%26b") || page.contains("a&amp;b"),
+            "the ampersand must be encoded or escaped: {page}"
+        );
+    }
+
 }

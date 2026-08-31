@@ -98,6 +98,34 @@ fn is_expired(record: &Value) -> bool {
     created == 0 || now_ms().saturating_sub(created) > TICKET_TTL_MS
 }
 
+/// What an unredeemed ticket points at, WITHOUT redeeming it.
+///
+/// The join page needs the team's websocket URL and name to build the
+/// `blaude://join` link that hands the app its team. Reading must not burn the
+/// ticket: the app claims it moments later, and a browser preview burning it
+/// first is exactly the bug that made invitation links stop working (da2e5ff).
+///
+/// Returns `(ws_url, team_name)`. Expired tickets return `None`, so a stale
+/// link offers no button rather than a broken one.
+pub fn peek_ticket(code: &str) -> Option<(String, String)> {
+    if code.len() < 16 {
+        return None;
+    }
+    let _guard = store_lock().lock().unwrap_or_else(|p| p.into_inner());
+    let tickets = read_tickets();
+    let record = tickets.get(code)?;
+    if is_expired(record) {
+        return None;
+    }
+    let ws_url = record.get("ws_url")?.as_str()?.to_string();
+    let name = record
+        .get("name")
+        .and_then(|v| v.as_str())
+        .unwrap_or_default()
+        .to_string();
+    Some((ws_url, name))
+}
+
 /// Redeem a join ticket for its bearer token.
 ///
 /// The ticket is one-time, but MEMBERSHIP IS NOT A ONE-SHOT EVENT: a person
@@ -607,4 +635,58 @@ pub async fn invite(
         "emailed": emailed,
         "email_error": email_error,
     }))
+}
+
+#[cfg(test)]
+mod ticket_tests {
+    use super::*;
+
+    /// Reading a ticket to build the invitation link must NEVER spend it.
+    ///
+    /// A browser preview burning the ticket is exactly the bug that made
+    /// invitation links stop working (da2e5ff): the app claims the ticket
+    /// moments after the page is opened, and a page that spent it left the
+    /// invitee holding a dead link.
+    #[test]
+    fn peeking_a_ticket_does_not_burn_it() {
+        let _lock = crate::jcode_home_test_lock();
+        let temp = tempfile::TempDir::new().unwrap();
+        unsafe { std::env::set_var("JCODE_HOME", temp.path()) };
+
+        let ticket = mint_join_ticket("who@example.com", "wss://team.example/api", "gm").unwrap();
+
+        let first = peek_ticket(&ticket);
+        assert_eq!(
+            first,
+            Some(("wss://team.example/api".to_string(), "gm".to_string())),
+            "a fresh ticket must read back the team it points at"
+        );
+        assert_eq!(
+            peek_ticket(&ticket),
+            first,
+            "reading must be repeatable — a page visit must not spend the ticket"
+        );
+
+        // The real claim still works after the page looked at it.
+        assert!(
+            claim_ticket(&ticket).is_some(),
+            "the app must still claim a ticket a browser has read"
+        );
+        // And now it IS spent, so the read no longer resolves the old code.
+        assert!(
+            peek_ticket(&ticket).is_none(),
+            "a claimed ticket must stop resolving"
+        );
+    }
+
+    /// An unknown or malformed code must not resolve to a team.
+    #[test]
+    fn an_unknown_ticket_reads_as_nothing() {
+        let _lock = crate::jcode_home_test_lock();
+        let temp = tempfile::TempDir::new().unwrap();
+        unsafe { std::env::set_var("JCODE_HOME", temp.path()) };
+
+        assert!(peek_ticket("jt-doesnotexist0000").is_none());
+        assert!(peek_ticket("short").is_none(), "a too-short code is rejected outright");
+    }
 }
