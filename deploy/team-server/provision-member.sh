@@ -20,8 +20,17 @@ set -euo pipefail
 GROUP="blaude"
 PROJECT="/srv/blaude/project"
 PORT_BASE=7700
+# Where the PUBLIC door runs. Its ~/.jcode/member-users.json maps a member's
+# email to the Unix user their own room runs as; the door reads it to decide
+# which daemon a `?room=mine` connection is joined to. Defaults to the home of
+# whoever invoked sudo, which is the account running the door today.
+DOOR_HOME="${SUDO_USER:+/home/$SUDO_USER}"
+DOOR_HOME="${DOOR_HOME:-$HOME}"
+# The member's blaude identity (their email). Without it the member cannot be
+# mapped to this Unix user and their own room is unreachable.
+EMAIL=""
 
-usage() { echo "usage: sudo $0 <username> [--project DIR] [--port-base N]" >&2; exit 2; }
+usage() { echo "usage: sudo $0 <username> [--email addr] [--project DIR] [--port-base N] [--door-home DIR]" >&2; exit 2; }
 
 [ $# -ge 1 ] || usage
 USER_NAME="$1"; shift
@@ -29,6 +38,8 @@ while [ $# -gt 0 ]; do
   case "$1" in
     --project) PROJECT="$2"; shift 2 ;;
     --port-base) PORT_BASE="$2"; shift 2 ;;
+    --email) EMAIL="$2"; shift 2 ;;
+    --door-home) DOOR_HOME="$2"; shift 2 ;;
     *) usage ;;
   esac
 done
@@ -132,7 +143,12 @@ Environment=HOME=$HOME_DIR
 Environment=JCODE_RUNTIME_DIR=$HOME_DIR/.jcode/runtime
 Environment=JCODE_BRIDGE_NO_SPAWN=1
 Environment=JCODE_SERVER_MODE=1
-Environment=JCODE_API_WS_BIND=0.0.0.0
+# LOOPBACK, not 0.0.0.0. There is ONE public door (:443); it authenticates the
+# bearer token and forwards to the right member's bridge here. Binding these
+# publicly would put a lightly-guarded port per member on the internet, need a
+# firewall rule per member, and could not use the team's certificate — which
+# is issued for the single hostname.
+Environment=JCODE_API_WS_BIND=127.0.0.1
 Environment=JCODE_API_WS_PORT=$PORT
 ExecStart=$BINARY api-bridge
 Restart=always
@@ -144,6 +160,35 @@ UNIT
 
 systemctl daemon-reload
 systemctl enable --now "blaude-daemon@$USER_NAME.service" "blaude-bridge@$USER_NAME.service"
+
+# Map the member's email to this Unix user, so the public door can route their
+# `?room=mine` connections here. Written with python rather than jq (which the
+# image does not ship) and merged, never overwritten — re-provisioning one
+# member must not forget the others.
+if [ -n "$EMAIL" ]; then
+  MAP="$DOOR_HOME/.jcode/member-users.json"
+  install -d -m 0700 "$DOOR_HOME/.jcode"
+  python3 - "$MAP" "$EMAIL" "$USER_NAME" <<'PY'
+import json, os, sys
+path, email, user = sys.argv[1], sys.argv[2], sys.argv[3]
+try:
+    with open(path) as handle:
+        data = json.load(handle)
+    if not isinstance(data, dict):
+        data = {}
+except Exception:
+    data = {}
+data[email] = user
+tmp = path + ".tmp"
+with open(tmp, "w") as handle:
+    json.dump(data, handle, indent=2, sort_keys=True)
+os.replace(tmp, path)
+PY
+  DOOR_OWNER="$(stat -c %U "$DOOR_HOME")"
+  chown "$DOOR_OWNER":"$DOOR_OWNER" "$MAP" 2>/dev/null || true
+  chmod 0600 "$MAP"
+  echo "==> mapped $EMAIL -> $USER_NAME in $MAP"
+fi
 
 echo
 echo "provisioned: $USER_NAME"

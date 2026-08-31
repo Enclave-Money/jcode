@@ -29,6 +29,7 @@ pub mod council_jobs;
 pub mod github_auth_jobs;
 pub mod login_jobs;
 pub mod permissions;
+pub mod rooms;
 pub mod screen;
 pub mod team_access;
 pub mod team_create_jobs;

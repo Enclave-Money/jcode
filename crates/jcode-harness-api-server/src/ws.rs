@@ -600,23 +600,37 @@ where
         // responder only writes.
         return serve_http(tcp, &head_text).await;
     }
-    let auth = std::sync::Arc::new(std::sync::Mutex::new(None::<(Option<String>, bool)>));
+    // The ROOM is chosen by the client on the URL (`?room=mine`), so it is
+    // known here, before any request — which is what lets this connection be
+    // joined to the right member's daemon rather than always the door's own.
+    let auth = std::sync::Arc::new(std::sync::Mutex::new(
+        None::<(Option<String>, bool, crate::rooms::Room)>,
+    ));
     let auth_cb = std::sync::Arc::clone(&auth);
     let ws = tokio_tungstenite::accept_hdr_async(tcp, |request: &Request, response: Response| {
-        let who = authorize(request, token).inspect_err(|_| note_auth_failure(peer))?;
+        let (who, owner) = authorize(request, token).inspect_err(|_| note_auth_failure(peer))?;
+        let room = crate::rooms::Room::from_query(request.uri().query());
         *auth_cb
             .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(who);
+            .unwrap_or_else(|poisoned| poisoned.into_inner()) = Some((who, owner, room));
         Ok(response)
     })
     .await
     .context("websocket handshake")?;
-    let (identity, is_owner) = auth
+    let (identity, is_owner, room) = auth
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner())
         .take()
-        .map(|(who, owner)| (who, owner))
-        .unwrap_or((None, false));
+        .unwrap_or((None, false, crate::rooms::Room::Shared));
+    // Join this connection to the room's daemon. Each room is a daemon running
+    // as its own Unix user, so the filesystem and the desktop come with it;
+    // an unprovisioned member or a stopped daemon falls back to this door's
+    // own daemon rather than failing the connection.
+    let home_root = std::env::var("HOME")
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|_| std::path::PathBuf::from("/"));
+    let legacy_socket =
+        crate::rooms::daemon_socket(room, identity.as_deref(), &home_root, &legacy_socket);
 
     let (mut ws_write, mut ws_read) = ws.split();
 
