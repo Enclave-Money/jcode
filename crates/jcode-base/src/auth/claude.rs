@@ -480,21 +480,43 @@ pub fn update_account_profile(label: &str, email: Option<String>) -> Result<()> 
 
 /// Record which team member signed in this pooled account (their email/identity).
 /// Set once at sign-in; a later refresh of the same account preserves it.
+/// Record who signed an account in, WITHOUT stealing one that already belongs
+/// to someone else.
+///
+/// `added_by` decides whose turns may use an account, so it is load-bearing.
+/// Sign-in reuses an existing entry when the Anthropic profile email matches
+/// (see `decide_login_label`), so a second member signing in the SAME Anthropic
+/// account would otherwise reassign it to themselves and leave the first person
+/// unable to run a turn at all.
+///
+/// First claim wins. A second member signing in an already-claimed account is
+/// told to use their own rather than silently taking it over.
 pub fn set_account_added_by(label: &str, member: &str) -> Result<()> {
     let mut auth = load_auth_file()?;
-    if let Some(account) = auth
+    let Some(account) = auth
         .anthropic_accounts
         .iter_mut()
         .find(|a| a.label == label)
-    {
-        account.added_by = Some(member.to_string());
-        save_auth_file(&auth)?;
-        Ok(())
-    } else {
+    else {
         anyhow::bail!(
             "No account with label '{}' found for added_by update",
             label
         );
+    };
+
+    match account.added_by.as_deref() {
+        Some(owner) if owner != member => {
+            anyhow::bail!(
+                "That Claude account is already signed in by {owner}. Use your own \
+                 Anthropic account so turns run on your subscription, not theirs."
+            );
+        }
+        Some(_) => Ok(()),
+        None => {
+            account.added_by = Some(member.to_string());
+            save_auth_file(&auth)?;
+            Ok(())
+        }
     }
 }
 

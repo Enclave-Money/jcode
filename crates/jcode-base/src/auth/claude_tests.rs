@@ -673,3 +673,45 @@ async fn a_member_without_an_account_fails_instead_of_borrowing_one() {
         "the error should name who is missing an account: {error}"
     );
 }
+
+/// A second member signing in an account someone else already claimed must not
+/// take it over.
+///
+/// Sign-in reuses an existing entry when the Anthropic profile email matches,
+/// so without this guard the newcomer's stamp would overwrite the first
+/// person's `added_by` and leave THEM unable to run a turn at all.
+#[test]
+fn signing_in_a_claimed_account_does_not_steal_it() {
+    let _lock = crate::storage::lock_test_env();
+    let temp = tempfile::TempDir::new().unwrap();
+    let _home = EnvVarGuard::set("JCODE_HOME", temp.path());
+
+    upsert_account(AnthropicAccount {
+        label: "claude-otter".into(),
+        access: "OWNER-TOKEN".into(),
+        refresh: String::new(),
+        expires: i64::MAX,
+        email: Some("shared@example.com".into()),
+        subscription_type: Some("max".into()),
+        scopes: vec!["user:inference".into()],
+        added_by: Some("owner@example.com".into()),
+    })
+    .unwrap();
+
+    let error = set_account_added_by("claude-otter", "newcomer@example.com")
+        .expect_err("a claimed account must not be reassigned");
+    assert!(
+        format!("{error:#}").contains("owner@example.com"),
+        "the error should name who already holds it: {error:#}"
+    );
+
+    // And the owner still owns it, so their turns keep working.
+    assert_eq!(
+        list_accounts().unwrap()[0].added_by.as_deref(),
+        Some("owner@example.com")
+    );
+
+    // Re-stamping for the SAME member stays a no-op success, so an ordinary
+    // re-login does not start failing.
+    set_account_added_by("claude-otter", "owner@example.com").unwrap();
+}
