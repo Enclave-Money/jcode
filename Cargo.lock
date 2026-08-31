@@ -3724,6 +3724,7 @@ dependencies = [
  "chrono",
  "libc",
  "rand 0.9.3",
+ "tempfile",
  "unicode-properties",
  "unicode-segmentation",
  "windows-sys 0.59.0",

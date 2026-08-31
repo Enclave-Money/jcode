@@ -167,7 +167,9 @@ fn copy_dir_recursive(src: &Path, dst: &Path) -> std::io::Result<()> {
     Ok(())
 }
 
-pub use jcode_core::fs::{set_directory_permissions_owner_only, set_permissions_owner_only};
+pub use jcode_core::fs::{
+    set_directory_permissions_owner_only, set_permissions_owner_only, share_socket_with_group,
+};
 
 /// Set file permissions to owner read/write/execute (0o755).
 /// No-op on Windows (executability is determined by file extension).

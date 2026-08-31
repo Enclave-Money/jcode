@@ -2299,8 +2299,38 @@ impl Server {
         }
 
         // Restrict socket files to owner-only so other local users cannot connect.
-        let _ = crate::platform::set_permissions_owner_only(&self.socket_path);
-        let _ = crate::platform::set_permissions_owner_only(&self.debug_socket_path);
+        //
+        // A team server needs exactly one exception: each room is a daemon
+        // running as its own Unix user, and the single public door must reach
+        // every room's socket. `JCODE_SOCKET_GROUP` names a group holding ONLY
+        // the door, so the socket opens to it and to nothing else — members
+        // still cannot reach each other's daemons.
+        //
+        // Opt-in by environment, so the default here and on every laptop stays
+        // owner-only. Doing it from systemd instead raced this line and lost:
+        // the daemon re-restricts the socket after binding.
+        match std::env::var("JCODE_SOCKET_GROUP")
+            .ok()
+            .filter(|group| !group.trim().is_empty())
+        {
+            Some(group) => {
+                for path in [&self.socket_path, &self.debug_socket_path] {
+                    if let Err(error) = crate::platform::share_socket_with_group(path, &group) {
+                        crate::logging::warn(&format!(
+                            "could not share {} with group {group}: {error}"
+                            , path.display()
+                        ));
+                        // Fall back to owner-only rather than leaving the socket
+                        // at whatever the umask happened to produce.
+                        let _ = crate::platform::set_permissions_owner_only(path);
+                    }
+                }
+            }
+            None => {
+                let _ = crate::platform::set_permissions_owner_only(&self.socket_path);
+                let _ = crate::platform::set_permissions_owner_only(&self.debug_socket_path);
+            }
+        }
 
         // Set logging context for this server
         crate::logging::set_server(&self.identity.name);

@@ -18,6 +18,12 @@
 set -euo pipefail
 
 GROUP="blaude"
+# A SECOND group, holding only the public door. Room sockets are group-owned by
+# it so the door can connect to every room while members cannot connect to each
+# other's. Using the shared `blaude` group for that would defeat the isolation
+# entirely, since every member is in it.
+DOOR_GROUP="blaude-door"
+SOCKET_DIR="/run/blaude"
 PROJECT="/srv/blaude/project"
 PORT_BASE=7700
 # Where the PUBLIC door runs. Its ~/.jcode/member-users.json maps a member's
@@ -52,8 +58,27 @@ esac
 BINARY="${BLAUDE_BIN:-/usr/local/bin/blaude}"
 [ -x "$BINARY" ] || { echo "error: blaude binary not found at $BINARY (set BLAUDE_BIN)" >&2; exit 1; }
 
-echo "==> shared group '$GROUP'"
+echo "==> groups '$GROUP' (all members) and '$DOOR_GROUP' (the door only)"
 getent group "$GROUP" >/dev/null || groupadd "$GROUP"
+getent group "$DOOR_GROUP" >/dev/null || groupadd "$DOOR_GROUP"
+
+# The socket directory, recreated on every boot because /run is a tmpfs.
+#
+# 1770 root:$DOOR_GROUP — each room's daemon (which runs with that group)
+# creates its own socket here, the door connects to all of them, and nothing
+# else can even list the directory. The sticky bit is what stops one member's
+# daemon deleting another's socket, since they share the group.
+echo "==> socket directory '$SOCKET_DIR'"
+install -d -o root -g "$DOOR_GROUP" -m 1770 "$SOCKET_DIR"
+printf 'd %s 1770 root %s -\n' "$SOCKET_DIR" "$DOOR_GROUP" > /etc/tmpfiles.d/blaude.conf
+
+# The DOOR itself must be in the door group, or it cannot reach any room. The
+# door is whoever owns $DOOR_HOME.
+DOOR_OWNER="$(stat -c %U "$DOOR_HOME" 2>/dev/null || true)"
+if [ -n "$DOOR_OWNER" ]; then
+  usermod -aG "$DOOR_GROUP" "$DOOR_OWNER"
+  echo "==> door '$DOOR_OWNER' added to '$DOOR_GROUP'"
+fi
 
 echo "==> user '$USER_NAME'"
 if id -u "$USER_NAME" >/dev/null 2>&1; then
@@ -112,10 +137,24 @@ Wants=network-online.target
 
 [Service]
 User=$USER_NAME
+# The DOOR's group, so the socket this daemon creates is reachable by the door
+# and by nobody else. Files in the shared project still land in the '$GROUP'
+# group, because that directory is setgid.
+Group=$DOOR_GROUP
 WorkingDirectory=$PROJECT
-UMask=0002
+# 0007: the socket comes out rw for the user and the door group, and closed to
+# everyone else. 0002 would have left it world-readable.
+UMask=0007
 Environment=HOME=$HOME_DIR
 Environment=JCODE_RUNTIME_DIR=$HOME_DIR/.jcode/runtime
+# Explicit, so the daemon and the door agree on the path by construction
+# rather than both deriving it and hoping they match.
+Environment=JCODE_SOCKET=$SOCKET_DIR/$USER_NAME.sock
+# The daemon restricts its socket to owner-only AFTER binding, so a chmod from
+# here would race it and lose. This tells the daemon to open the socket to the
+# door's group itself — the door can reach every room, members can reach none
+# but their own.
+Environment=JCODE_SOCKET_GROUP=$DOOR_GROUP
 Environment=JCODE_IDLE_TIMEOUT_SECS=0
 Environment=JCODE_DEFERRED_AUTH_BOOTSTRAP=1
 # This process serves exactly one person, but the flag stays on: it also
@@ -141,6 +180,7 @@ User=$USER_NAME
 UMask=0002
 Environment=HOME=$HOME_DIR
 Environment=JCODE_RUNTIME_DIR=$HOME_DIR/.jcode/runtime
+Environment=JCODE_SOCKET=$SOCKET_DIR/$USER_NAME.sock
 Environment=JCODE_BRIDGE_NO_SPAWN=1
 Environment=JCODE_SERVER_MODE=1
 # LOOPBACK, not 0.0.0.0. There is ONE public door (:443); it authenticates the

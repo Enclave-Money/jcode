@@ -17,6 +17,53 @@ pub fn set_permissions_owner_only(path: &Path) -> std::io::Result<()> {
     }
 }
 
+/// Open a socket to one named group, and to nobody else (0o660, group `group`).
+///
+/// For team servers: each room is a daemon running as its own Unix user, and a
+/// single public door must reach every room's socket. The group is expected to
+/// hold ONLY the door, so members still cannot connect to each other's daemons
+/// — the isolation that matters survives, and the one process that has to
+/// cross it can.
+///
+/// Fails rather than silently loosening, so an unknown group leaves the caller
+/// to fall back to owner-only.
+#[cfg(unix)]
+pub fn share_socket_with_group(path: &Path, group: &str) -> std::io::Result<()> {
+    use std::ffi::CString;
+    use std::os::unix::ffi::OsStrExt;
+    use std::os::unix::fs::PermissionsExt;
+
+    let name = CString::new(group)
+        .map_err(|_| std::io::Error::new(std::io::ErrorKind::InvalidInput, "group name has a NUL"))?;
+    // getgrnam returns a pointer into a static buffer: read the gid out
+    // immediately rather than holding it.
+    let gid = unsafe {
+        let entry = libc::getgrnam(name.as_ptr());
+        if entry.is_null() {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::NotFound,
+                format!("no such group: {group}"),
+            ));
+        }
+        (*entry).gr_gid
+    };
+    let c_path = CString::new(path.as_os_str().as_bytes())
+        .map_err(|_| std::io::Error::new(std::io::ErrorKind::InvalidInput, "path has a NUL"))?;
+    // u32::MAX (-1) leaves the owner unchanged.
+    if unsafe { libc::chown(c_path.as_ptr(), u32::MAX, gid) } != 0 {
+        return Err(std::io::Error::last_os_error());
+    }
+    std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o660))
+}
+
+#[cfg(not(unix))]
+pub fn share_socket_with_group(_path: &Path, _group: &str) -> std::io::Result<()> {
+    Err(std::io::Error::new(
+        std::io::ErrorKind::Unsupported,
+        "group-shared sockets are a Unix concept",
+    ))
+}
+
 /// Set directory permissions to owner-only read/write/execute (0o700).
 /// Windows child objects inherit the same current-user-only access rule.
 pub fn set_directory_permissions_owner_only(path: &Path) -> std::io::Result<()> {
@@ -132,4 +179,52 @@ fn set_windows_acl_owner_only(
         CloseHandle(token);
     }
     result
+}
+
+#[cfg(all(test, unix))]
+mod share_socket_tests {
+    use super::*;
+
+    /// An unknown group must FAIL rather than quietly leaving the socket at
+    /// whatever the umask produced. The daemon relies on that error to fall
+    /// back to owner-only; a silent success would publish a room's socket.
+    #[test]
+    fn an_unknown_group_is_an_error_not_a_silent_loosening() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let path = dir.path().join("s.sock");
+        std::fs::write(&path, b"").unwrap();
+
+        let error = share_socket_with_group(&path, "no-such-group-for-tests")
+            .expect_err("an unknown group must not be treated as success");
+        assert_eq!(error.kind(), std::io::ErrorKind::NotFound);
+    }
+
+    /// Sharing with the caller's OWN primary group is always possible, so this
+    /// exercises the success path without needing root or a fixture group.
+    #[test]
+    fn sharing_sets_group_read_write_and_nothing_wider() {
+        use std::os::unix::fs::MetadataExt;
+        use std::os::unix::fs::PermissionsExt;
+
+        let dir = tempfile::TempDir::new().unwrap();
+        let path = dir.path().join("s.sock");
+        std::fs::write(&path, b"").unwrap();
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600)).unwrap();
+
+        let gid = std::fs::metadata(&path).unwrap().gid();
+        let group = unsafe {
+            let entry = libc::getgrgid(gid);
+            if entry.is_null() {
+                return; // No name for this gid in the test environment.
+            }
+            std::ffi::CStr::from_ptr((*entry).gr_name)
+                .to_string_lossy()
+                .into_owned()
+        };
+
+        share_socket_with_group(&path, &group).unwrap();
+        let mode = std::fs::metadata(&path).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode, 0o660, "group rw, and closed to everyone else");
+        assert_eq!(mode & 0o007, 0, "world must have no access at all");
+    }
 }

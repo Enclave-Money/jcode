@@ -55,6 +55,21 @@ impl Room {
     }
 }
 
+/// Where a room's daemon listens.
+///
+/// Deliberately NOT inside the member's home. A member's `~/.jcode` is 0700
+/// because it holds their Claude tokens, so the door could not reach a socket
+/// there; opening that directory up so it could would hand every member read
+/// access to every other member's credentials. The sockets therefore live in
+/// one directory of their own, each owned by its member and group-owned by the
+/// door's group, so the door can connect and other members cannot.
+///
+/// `provision-member.sh` sets `JCODE_SOCKET` to this exact path, so the daemon
+/// and the door agree by construction rather than by both guessing.
+pub fn room_socket(user: &str) -> PathBuf {
+    PathBuf::from("/run/blaude").join(format!("{user}.sock"))
+}
+
 /// The Unix username a member's own room runs as.
 ///
 /// Read from `~/.jcode/member-users.json` (`{"email": "unixname"}`), written by
@@ -89,7 +104,7 @@ pub fn daemon_socket(
             None => return default_socket.to_path_buf(),
         },
     };
-    let socket = PathBuf::from("/home").join(&user).join(".jcode/jcode.sock");
+    let socket = room_socket(&user);
     // A room whose daemon is not running must not black-hole the connection:
     // fall back to the door's own daemon, which is the shared room in the
     // un-split deployment.
@@ -149,6 +164,20 @@ mod tests {
         );
         assert_eq!(unix_user_for(Some("someone@else.com"), temp.path()), None);
         assert_eq!(unix_user_for(None, temp.path()), None);
+    }
+
+    /// The socket must not live in the member's home: `~/.jcode` is 0700
+    /// because it holds their Claude tokens, and opening it so the door could
+    /// reach a socket there would expose every member's credentials to every
+    /// other member.
+    #[test]
+    fn a_rooms_socket_is_outside_the_members_home() {
+        let socket = room_socket("akshay2");
+        assert_eq!(socket, std::path::Path::new("/run/blaude/akshay2.sock"));
+        assert!(
+            !socket.starts_with("/home"),
+            "a room socket must never sit inside a member's home: {socket:?}"
+        );
     }
 
     /// A room whose daemon is not running must not black-hole the connection.
