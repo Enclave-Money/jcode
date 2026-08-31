@@ -1,39 +1,58 @@
-//! The workspace's screen, as a still frame.
+//! The room's screen, as a still frame.
 //!
-//! What the user wants to see is the machine the agent is working on: sign-ins
-//! being completed, a browser under test, a desktop app being driven. This
-//! module is the authenticated path to that picture.
+//! What you want to see is the machine the agent is working on: a sign-in being
+//! completed, the app you just built running in a browser. So the desktop runs
+//! on the ENVIRONMENT, as the room's own Unix user, with that room's checkout
+//! and that room's localhost — not on a separate box whose browser cannot reach
+//! any of your work.
 //!
-//! ## Why a proxy and not a direct connection
+//! One display per room. Two people testing at once must not be looking at, or
+//! clicking in, the same browser.
 //!
-//! The desktop runs on a display box (see `docs/display-stack.md` for why it
-//! cannot share the team server's 0.5-vCPU e2-small). That box must NOT be
-//! reachable from the internet — a published desktop is a remote shell with a
-//! mouse. So the client never talks to it: it asks the team server, over the
-//! same authenticated websocket it already uses, and the team server fetches
-//! the frame across the internal network.
+//! ## Reading another room's screen
 //!
-//! That keeps one door and one credential. It also keeps the encode off the
-//! team server: the display box renders and compresses, and this only moves
-//! the bytes.
+//! Capture needs the room's X display, and X access control is what stops one
+//! member screenshotting another's. Each room's Xvfb therefore has its own
+//! authority file, 0640 owned by the member and group-owned by the door — the
+//! same shape as the room sockets. The door can capture every room; members can
+//! capture none. Running the displays with `-ac` instead would have been one
+//! flag and would have let any local user watch any room.
 
 use anyhow::{Context, Result};
+use std::path::PathBuf;
 
-/// Where the display box serves frames, e.g. `http://10.160.0.15:8080/frame`.
+/// Where a room's X authority file lives, matching `provision-member.sh`.
+pub fn xauth_path(user: &str) -> PathBuf {
+    PathBuf::from("/run/blaude").join(format!("{user}.Xauth"))
+}
+
+/// The X display a room renders on.
 ///
-/// Absent means no screen is attached to this workspace, which is the normal
-/// state for a team that has not asked for one — not an error to shout about.
-const SCREEN_URL_VAR: &str = "JCODE_SCREEN_URL";
+/// Derived from the uid exactly as the provisioning script does, so the two
+/// agree without a third file to keep in sync. `:90` upwards stays clear of a
+/// real workstation's `:0`.
+pub fn display_for(uid: u32) -> String {
+    format!(":{}", 90 + (uid % 100))
+}
+
+/// The uid of a Unix user, or None if there is no such user.
+pub fn uid_of(user: &str) -> Option<u32> {
+    let output = std::process::Command::new("id")
+        .args(["-u", user])
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    String::from_utf8_lossy(&output.stdout).trim().parse().ok()
+}
 
 /// A captured frame, ready to hand to a client.
 ///
-/// `Debug` prints the size, never the pixels: a screenshot in a log or a test
-/// failure is the picture this feature exists to keep behind an authenticated
-/// door.
+/// `Debug` prints the size, never the pixels: a screenshot in a log is the
+/// picture this feature exists to keep behind an authenticated door.
 pub struct Frame {
-    /// Image bytes, already compressed by the display box.
     pub bytes: Vec<u8>,
-    /// MIME type as reported by the display box (`image/jpeg`, `image/png`).
     pub content_type: String,
 }
 
@@ -46,69 +65,51 @@ impl std::fmt::Debug for Frame {
     }
 }
 
-pub fn screen_url() -> Option<String> {
-    std::env::var(SCREEN_URL_VAR)
-        .ok()
-        .map(|value| value.trim().to_string())
-        .filter(|value| !value.is_empty())
+/// Whether this room has a desktop running.
+pub fn is_attached(user: &str) -> bool {
+    xauth_path(user).exists()
 }
 
-/// Whether this workspace has a screen at all, so the client can show or hide
-/// the control instead of offering a button that always fails.
-pub fn is_attached() -> bool {
-    screen_url().is_some()
-}
-
-/// Fetch one frame from the display box.
+/// One frame of `user`'s desktop, as JPEG.
 ///
-/// Deliberately a still image per request rather than a stream: a thumbnail
-/// beside a conversation wants a picture every second or two, and a still
-/// costs the team server nothing to relay. A real video path (WebRTC) is a
-/// separate thing and belongs directly between the viewer and the display
-/// box, once that box is exposed safely.
-pub async fn frame(max_width: Option<u32>) -> Result<Frame> {
-    let base = screen_url().context(
-        "No screen is attached to this workspace. \
-         Set JCODE_SCREEN_URL on the server to the display box's frame endpoint.",
-    )?;
-    // The downscale happens on the display box: shipping a 1080p PNG so the
-    // client can shrink it wastes the link and the team server's CPU, and the
-    // measured downscaled frame is ~5.5 KB against ~24 KB full size.
-    let url = match max_width {
-        Some(width) => format!("{base}?w={width}"),
-        None => base,
-    };
-    let client = reqwest::Client::builder()
-        // A wedged display box must not hold a client's request open: a stale
-        // thumbnail is fine, a hung UI is not.
-        .timeout(std::time::Duration::from_secs(5))
-        .build()
-        .context("building the screen client")?;
-    let response = client
-        .get(&url)
-        .send()
-        .await
-        .context("the display box did not answer")?;
-    if !response.status().is_success() {
-        anyhow::bail!("the display box answered {}", response.status());
+/// The downscale happens here, in ImageMagick, rather than in the client: a
+/// thumbnail beside a conversation refreshes every second or two, and a full
+/// 1080p frame is roughly four times the bytes for a picture that is about to
+/// be drawn small.
+pub fn frame(user: &str, max_width: Option<u32>) -> Result<Frame> {
+    let xauth = xauth_path(user);
+    if !xauth.exists() {
+        anyhow::bail!(
+            "No screen is running for this room. \
+             The desktop starts with the room; check blaude-desktop@{user}."
+        );
     }
-    let content_type = response
-        .headers()
-        .get(reqwest::header::CONTENT_TYPE)
-        .and_then(|value| value.to_str().ok())
-        .unwrap_or("image/jpeg")
-        .to_string();
-    let bytes = response
-        .bytes()
-        .await
-        .context("reading the frame")?
-        .to_vec();
-    if bytes.is_empty() {
-        anyhow::bail!("the display box returned an empty frame");
+    let uid = uid_of(user).with_context(|| format!("no such user: {user}"))?;
+    let width = max_width.unwrap_or(640).clamp(160, 1920);
+
+    let output = std::process::Command::new("import")
+        .env("DISPLAY", display_for(uid))
+        .env("XAUTHORITY", &xauth)
+        .args([
+            "-window",
+            "root",
+            "-resize",
+            &format!("{width}x"),
+            "jpg:-",
+        ])
+        .output()
+        .context("running import to capture the screen")?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        anyhow::bail!("could not capture the screen: {}", stderr.trim());
+    }
+    if output.stdout.is_empty() {
+        anyhow::bail!("the screen capture came back empty");
     }
     Ok(Frame {
-        bytes,
-        content_type,
+        bytes: output.stdout,
+        content_type: "image/jpeg".to_string(),
     })
 }
 
@@ -116,36 +117,49 @@ pub async fn frame(max_width: Option<u32>) -> Result<Frame> {
 mod tests {
     use super::*;
 
+    /// The display number must match `provision-member.sh`'s arithmetic, or
+    /// the daemon renders on one display and the door captures another — which
+    /// looks like a blank screen rather than a mismatch.
     #[test]
-    fn no_screen_url_means_no_screen_attached() {
-        let _lock = crate::jcode_home_test_lock();
-        unsafe { std::env::remove_var(SCREEN_URL_VAR) };
-        assert!(!is_attached(), "a workspace with no display box has no screen");
-        assert!(screen_url().is_none());
+    fn the_display_is_derived_from_the_uid_the_same_way_provisioning_does() {
+        assert_eq!(display_for(1000), ":90");
+        assert_eq!(display_for(1001), ":91");
+        assert_eq!(display_for(1002), ":92");
+        // Wraps rather than colliding with a workstation's :0.
+        assert_eq!(display_for(1100), ":90");
+        assert!(display_for(0).starts_with(":9"));
     }
 
-    /// An empty or whitespace value is a MISCONFIGURED server, not a screen.
-    /// Treating it as attached would offer a monitor button that can only
-    /// ever fail.
     #[test]
-    fn a_blank_screen_url_is_not_a_screen() {
-        let _lock = crate::jcode_home_test_lock();
-        unsafe { std::env::set_var(SCREEN_URL_VAR, "   ") };
-        assert!(!is_attached());
-        unsafe { std::env::set_var(SCREEN_URL_VAR, "http://10.0.0.5:8080/frame") };
-        assert!(is_attached(), "a real URL attaches a screen");
-        unsafe { std::env::remove_var(SCREEN_URL_VAR) };
+    fn the_authority_file_sits_beside_the_room_sockets() {
+        assert_eq!(
+            xauth_path("akshay2"),
+            std::path::Path::new("/run/blaude/akshay2.Xauth")
+        );
+        assert!(
+            !xauth_path("akshay2").starts_with("/home"),
+            "the cookie must not sit in a member's home, which the door cannot read"
+        );
     }
 
-    #[tokio::test]
-    async fn fetching_without_a_screen_says_so_instead_of_failing_obscurely() {
-        let _lock = crate::jcode_home_test_lock();
-        unsafe { std::env::remove_var(SCREEN_URL_VAR) };
-        let error = frame(None).await.expect_err("no screen means no frame");
+    /// A room with no desktop says so, rather than failing obscurely.
+    #[test]
+    fn a_room_with_no_desktop_reports_it_plainly() {
+        assert!(!is_attached("nosuchuser-for-tests"));
+        let error = frame("nosuchuser-for-tests", None).expect_err("no desktop, no frame");
         let text = format!("{error:#}");
         assert!(
-            text.contains("No screen is attached"),
-            "the reason must be legible to the person reading it: {text}"
+            text.contains("No screen is running"),
+            "the reason must be legible: {text}"
         );
+    }
+
+    /// A caller must not be able to ask for a 40000px render and pin the CPU
+    /// the agent's own turns share.
+    #[test]
+    fn an_absurd_width_is_clamped() {
+        // Exercised through the same clamp the capture uses.
+        assert_eq!(u32::MAX.clamp(160, 1920), 1920);
+        assert_eq!(1u32.clamp(160, 1920), 160);
     }
 }

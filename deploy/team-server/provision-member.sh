@@ -198,8 +198,92 @@ RestartSec=2
 WantedBy=multi-user.target
 UNIT
 
+# --- the room's desktop -----------------------------------------------------
+#
+# A screen is only useful if it is the machine the agent works on, so the
+# desktop runs HERE, as this room's user, with this room's checkout and this
+# room's localhost. One display per room: two people testing at once must not
+# be looking at, or clicking in, the same browser.
+#
+# The X authority file gets the same treatment as the socket: 0640 owned by the
+# member and group-owned by the door, so the door can capture every room's
+# screen and members can capture none. An `-ac` display would have been simpler
+# and would let any local user screenshot any room.
+DISPLAY_NUM=$((90 + (UID_NUM % 100)))
+XAUTH="$SOCKET_DIR/$USER_NAME.Xauth"
+
+cat > "/etc/systemd/system/blaude-desktop@$USER_NAME.service" <<UNIT
+[Unit]
+Description=blaude desktop ($USER_NAME, display :$DISPLAY_NUM)
+After=network-online.target
+
+[Service]
+User=$USER_NAME
+Group=$DOOR_GROUP
+UMask=0007
+Environment=HOME=$HOME_DIR
+Environment=DISPLAY=:$DISPLAY_NUM
+Environment=XAUTHORITY=$XAUTH
+WorkingDirectory=$PROJECT
+# A fresh cookie per start: a stale one silently denies every capture.
+# chmod AFTER xauth, not before: `xauth add` REWRITES the file and resets it
+# to 0600, silently undoing a chmod that ran first — leaving the door unable
+# to read the cookie, and every capture failing with "unable to open X server".
+ExecStartPre=/bin/sh -c 'rm -f $XAUTH; xauth -f $XAUTH add :$DISPLAY_NUM . $(head -c 16 /dev/urandom | od -An -tx1 | tr -d " \n"); chgrp $DOOR_GROUP $XAUTH; chmod 0640 $XAUTH'
+ExecStart=/usr/bin/Xvfb :$DISPLAY_NUM -screen 0 1920x1080x24 -auth $XAUTH
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target
+UNIT
+
+# A window manager, so windows have frames and can be arranged — a bare Xvfb
+# renders unmanaged windows with no decoration and no stacking.
+cat > "/etc/systemd/system/blaude-wm@$USER_NAME.service" <<UNIT
+[Unit]
+Description=blaude window manager ($USER_NAME)
+After=blaude-desktop@$USER_NAME.service
+Requires=blaude-desktop@$USER_NAME.service
+
+[Service]
+User=$USER_NAME
+Group=$DOOR_GROUP
+Environment=HOME=$HOME_DIR
+Environment=DISPLAY=:$DISPLAY_NUM
+Environment=XAUTHORITY=$XAUTH
+# Xvfb takes a moment to accept connections; without the wait openbox exits
+# and systemd restart-loops it against a display that is not up yet.
+ExecStartPre=/bin/sh -c 'for i in \$(seq 1 50); do xdpyinfo -display :$DISPLAY_NUM >/dev/null 2>&1 && exit 0; sleep 0.2; done; exit 0'
+ExecStart=/usr/bin/openbox
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target
+UNIT
+
 systemctl daemon-reload
 systemctl enable --now "blaude-daemon@$USER_NAME.service" "blaude-bridge@$USER_NAME.service"
+systemctl enable --now "blaude-desktop@$USER_NAME.service" "blaude-wm@$USER_NAME.service"
+
+# The room's daemon needs to know which display to launch browsers into, and
+# which port to serve on.
+#
+# Ports are system-wide, so two rooms cannot both have 3000: whoever started
+# second would fail to bind, or worse, silently attach to the other room's
+# server and show a teammate's build. PORT is what `next dev`, `vite` and most
+# dev servers read, so setting it here means "npm run dev" just works in every
+# room and lands somewhere different.
+DEV_PORT=$((3000 + (UID_NUM % 100)))
+mkdir -p "/etc/systemd/system/blaude-daemon@$USER_NAME.service.d"
+cat > "/etc/systemd/system/blaude-daemon@$USER_NAME.service.d/display.conf" <<UNIT
+[Service]
+Environment=DISPLAY=:$DISPLAY_NUM
+Environment=XAUTHORITY=$XAUTH
+Environment=PORT=$DEV_PORT
+UNIT
+systemctl daemon-reload
 
 # Map the member's email to this Unix user, so the public door can route their
 # `?room=mine` connections here. Written with python rather than jq (which the
@@ -234,7 +318,8 @@ echo
 echo "provisioned: $USER_NAME"
 echo "  home:      $HOME_DIR         (0750, .jcode 0700)"
 echo "  project:   $PROJECT          (2775, group $GROUP)"
-echo "  port:      $PORT"
+echo "  port:      $PORT (bridge)"
+echo "  display:   :$DISPLAY_NUM   dev server: $DEV_PORT"
 echo "  sign-in:   this member signs in from their own client; their tokens"
 echo "             land in $HOME_DIR/.jcode/auth.json and nowhere else."
 echo

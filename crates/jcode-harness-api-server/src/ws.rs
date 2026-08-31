@@ -626,11 +626,12 @@ where
     // as its own Unix user, so the filesystem and the desktop come with it;
     // an unprovisioned member or a stopped daemon falls back to this door's
     // own daemon rather than failing the connection.
-    let home_root = std::env::var("HOME")
-        .map(std::path::PathBuf::from)
-        .unwrap_or_else(|_| std::path::PathBuf::from("/"));
-    let legacy_socket =
-        crate::rooms::daemon_socket(room, identity.as_deref(), &home_root, &legacy_socket);
+    let legacy_socket = crate::rooms::daemon_socket(
+        room,
+        identity.as_deref(),
+        &crate::rooms::door_home(),
+        &legacy_socket,
+    );
 
     let (mut ws_write, mut ws_read) = ws.split();
 
@@ -648,6 +649,7 @@ where
         legacy_socket,
         identity,
         is_owner,
+        room,
     ));
 
     let (relay_read, mut relay_write) = tokio::io::split(client_side);

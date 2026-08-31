@@ -367,6 +367,9 @@ async fn handle_api_client(stream: Stream, legacy_socket: PathBuf) -> Result<()>
         legacy_socket,
         identity,
         true,
+        // A local runtime has one user and one filesystem: rooms mean nothing
+        // there, so it is always the shared one.
+        crate::rooms::Room::Shared,
     )
     .await
 }
@@ -381,6 +384,9 @@ pub(crate) async fn handle_api_io<R, W>(
     legacy_socket: PathBuf,
     identity: Option<String>,
     is_owner: bool,
+    // Which room this connection belongs to. It decides whose desktop
+    // `screen_frame` captures, so it has to reach the request loop.
+    room: crate::rooms::Room,
 ) -> Result<()>
 where
     R: tokio::io::AsyncBufRead + Unpin,
@@ -970,16 +976,26 @@ where
                 }
                 if request["req"].as_str() == Some("screen_frame") {
                     let api_id = request["id"].as_u64().unwrap_or(0);
-                    // A workspace with no display box is the ordinary case, so
-                    // it answers `attached: false` rather than an error — the
-                    // client hides the control instead of showing a failure.
-                    let screen = if !screen::is_attached() {
+                    // The ROOM decides whose screen this is: each room runs its
+                    // own desktop as its own Unix user, so a member sees their
+                    // work and the shared room shows the team's.
+                    let screen_user = match room {
+                        crate::rooms::Room::Shared => crate::rooms::SHARED_USER.to_string(),
+                        crate::rooms::Room::Mine => {
+                            crate::rooms::unix_user_for(identity.as_deref(), &crate::rooms::door_home())
+                                .unwrap_or_else(|| crate::rooms::SHARED_USER.to_string())
+                        }
+                    };
+                    // A room with no desktop is the ordinary case, so it answers
+                    // `attached: false` rather than an error — the client hides
+                    // the control instead of showing a failure.
+                    let screen = if !screen::is_attached(&screen_user) {
                         serde_json::json!({ "attached": false })
                     } else {
                         let max_width = request["max_width"]
                             .as_u64()
                             .map(|w| w.clamp(160, 3840) as u32);
-                        match screen::frame(max_width).await {
+                        match screen::frame(&screen_user, max_width) {
                             Ok(frame) => {
                                 use base64::Engine as _;
                                 serde_json::json!({

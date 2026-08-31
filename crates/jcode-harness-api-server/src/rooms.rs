@@ -70,6 +70,13 @@ pub fn room_socket(user: &str) -> PathBuf {
     PathBuf::from("/run/blaude").join(format!("{user}.sock"))
 }
 
+/// The home of whoever runs the door, where the member map lives.
+pub fn door_home() -> PathBuf {
+    std::env::var("HOME")
+        .map(PathBuf::from)
+        .unwrap_or_else(|_| PathBuf::from("/"))
+}
+
 /// The Unix username a member's own room runs as.
 ///
 /// Read from `~/.jcode/member-users.json` (`{"email": "unixname"}`), written by
