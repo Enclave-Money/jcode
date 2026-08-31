@@ -66,6 +66,15 @@ pub enum ApiEvent {
         /// real owner instead of assuming it is whoever is looking.
         #[serde(default, skip_serializing_if = "String::is_empty")]
         owner: String,
+        /// What this team is called, as the SERVER knows it.
+        ///
+        /// The name used to exist only on whichever client happened to run the
+        /// join flow. Any other client fell back to showing the hostname, so
+        /// two people on one team saw two different names for it, and so did
+        /// one person across two profiles. The server is the source of truth
+        /// for what the team is called, like everything else here.
+        #[serde(default, skip_serializing_if = "String::is_empty")]
+        name: String,
         emails: Vec<String>,
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         pending: Vec<String>,

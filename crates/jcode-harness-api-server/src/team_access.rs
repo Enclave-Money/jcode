@@ -242,6 +242,32 @@ pub fn pending_invites() -> Vec<String> {
     pending
 }
 
+/// What this team is called, as the server knows it.
+///
+/// Written at provisioning time to `~/.jcode/team-name`. Empty when the server
+/// predates this or was hand-built; clients then keep whatever name they
+/// already had, so an older server never blanks out an existing label.
+pub fn team_name() -> String {
+    let Ok(dir) = jcode_storage::jcode_dir() else {
+        return String::new();
+    };
+    std::fs::read_to_string(dir.join("team-name"))
+        .map(|text| text.trim().to_string())
+        .unwrap_or_default()
+}
+
+/// Record this team's name so every client is told the same thing.
+pub fn set_team_name(name: &str) -> std::io::Result<()> {
+    let name = name.trim();
+    if name.is_empty() {
+        return Ok(());
+    }
+    let dir = jcode_storage::jcode_dir()
+        .map_err(|e| std::io::Error::other(format!("no jcode dir: {e}")))?;
+    std::fs::create_dir_all(&dir)?;
+    std::fs::write(dir.join("team-name"), name)
+}
+
 /// Member emails only — never their tokens.
 pub fn member_emails() -> Vec<String> {
     let mut emails: Vec<String> = ws::team_tokens().keys().cloned().collect();

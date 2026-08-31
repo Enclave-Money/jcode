@@ -952,6 +952,7 @@ where
                     let api_id = request["id"].as_u64().unwrap_or(0);
                     let frame = ServerFrame::reply(api_id, ApiEvent::TeamMembers {
                         owner: blaude_account::identity().unwrap_or_default(),
+                        name: team_access::team_name(),
                         emails: team_access::member_emails(),
                         pending: team_access::pending_invites(),
                     });

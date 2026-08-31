@@ -553,11 +553,18 @@ async fn provision(job_id: String, name: String, region: Option<String>) -> Resu
     // lands). Sent over stdin (`bash -s`) to dodge quoting entirely.
     set_stage(&job_id, "Securing it…");
     let domain = format!("{}.sslip.io", ip.replace('.', "-"));
+    // Single-quoted for the shell, with embedded quotes escaped the POSIX way
+    // ('\''), so a team called O'Brien's does not break the setup script.
+    let name_quoted = format!("'{}'", name.replace('\'', r"'\''"));
     let setup = format!(
         r#"set -e
 U=$(whoami)
 H=$HOME
 mkdir -p "$H/.jcode/tls" "$H/.jcode/runtime" "$H/team"
+# The team's name, so the SERVER can tell every client what it is called.
+# Without this the name lived only on whichever client ran the join flow, and
+# everyone else fell back to displaying the hostname.
+printf '%s' {name_quoted} > "$H/.jcode/team-name"
 chmod +x "$H/blaude"
 [ -f "$H/blaude-tools" ] && chmod +x "$H/blaude-tools"
 [ -f "$H/clerk.env" ] && {{ mv "$H/clerk.env" "$H/.jcode/clerk.env"; chmod 600 "$H/.jcode/clerk.env"; }}
