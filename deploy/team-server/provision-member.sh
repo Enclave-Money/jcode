@@ -36,7 +36,11 @@ PORT_BASE=7700
 # which daemon a `?room=mine` connection is joined to. Defaults to the home of
 # whoever invoked sudo, which is the account running the door today.
 DOOR_HOME="${SUDO_USER:+/home/$SUDO_USER}"
-DOOR_HOME="${DOOR_HOME:-$HOME}"
+# HOME is not set for a systemd service, and `set -u` makes reading it fatal —
+# which killed every automatic provision before it parsed --door-home, the very
+# flag that would have supplied the answer. Left empty here and checked after
+# the arguments are read.
+DOOR_HOME="${DOOR_HOME:-${HOME:-}}"
 # The member's blaude identity (their email). Without it the member cannot be
 # mapped to this Unix user and their own room is unreachable.
 EMAIL=""
@@ -56,6 +60,7 @@ while [ $# -gt 0 ]; do
 done
 
 [ "$(id -u)" = "0" ] || { echo "error: must run as root (use sudo)" >&2; exit 1; }
+[ -n "$DOOR_HOME" ] || { echo "error: could not tell where the door runs — pass --door-home" >&2; exit 1; }
 case "$USER_NAME" in
   ''|*[!a-z0-9_-]*) echo "error: '$USER_NAME' is not a valid Linux username" >&2; exit 1 ;;
 esac
@@ -431,6 +436,108 @@ UNIT
 systemctl daemon-reload
 systemctl enable --now blaude-sync-room-auth.path >/dev/null 2>&1
 systemctl start blaude-sync-room-auth.service >/dev/null 2>&1
+
+# Build a member's room the moment they accept an invitation.
+#
+# Creating a user, a checkout and a desktop needs root, so the door cannot do
+# it; it appends the email to a queue and this runs here. Without it a member
+# who joined by invitation never had an own room at all, and "Mine" quietly
+# gave them the shared one — the picker asking a question and ignoring the
+# answer, which is the bug class this whole feature kept producing.
+# Skipped when this IS that file: the automatic runner invokes the installed
+# copy, and `install` refuses a file onto itself, which aborted the whole
+# provision under `set -e` after the user had already been created.
+if [ "$(readlink -f "$0")" != "/usr/local/bin/blaude-provision-member" ]; then
+  install -m 0755 "$0" /usr/local/bin/blaude-provision-member
+fi
+install -m 0755 /dev/stdin /usr/local/bin/blaude-provision-room <<'RUNNER'
+#!/bin/bash
+# Provision every member sitting in the door's queue. Idempotent: an email
+# that already has a room is skipped, so a re-run costs nothing.
+set -uo pipefail
+DOOR_HOME="${1:?door home}"
+QUEUE="$DOOR_HOME/.jcode/provision-queue"
+MAP="$DOOR_HOME/.jcode/member-users.json"
+[ -f "$QUEUE" ] || exit 0
+
+# `cat; echo` above guarantees a final newline: a queue whose last line is
+# unterminated (a partial write, or any writer that does not end with \n) has
+# that line silently dropped by `read`, which strands exactly the member who
+# just joined.
+# Is this Linux name already the room of a DIFFERENT member?
+taken_by_another() {
+  [ -f "$MAP" ] || return 1
+  python3 - "$MAP" "$1" "$2" <<'PY'
+import json, sys
+try: m = json.load(open(sys.argv[1]))
+except Exception: m = {}
+name, email = sys.argv[2], sys.argv[3]
+sys.exit(0 if any(u == name and e != email for e, u in m.items()) else 1)
+PY
+}
+
+while IFS= read -r email; do
+  email="$(echo "$email" | tr -d '[:space:]' | tr '[:upper:]' '[:lower:]')"
+  [ -n "$email" ] || continue
+  case "$email" in *@*) ;; *) continue ;; esac
+
+  # Already has a room? Nothing to do.
+  if [ -f "$MAP" ] && python3 - "$MAP" "$email" <<'PY'
+import json, sys
+try: m = json.load(open(sys.argv[1]))
+except Exception: m = {}
+sys.exit(0 if sys.argv[2] in m else 1)
+PY
+  then continue; fi
+
+  # A Linux name from the email, and a distinct one if that is taken by
+  # somebody else — two people called "sam" must not share a room.
+  base="$(echo "${email%%@*}" | tr '[:upper:]' '[:lower:]' | tr -cd 'a-z0-9_-')"
+  [ -n "$base" ] || base="member"
+  case "$base" in [0-9]*) base="m$base" ;; esac
+  # Bump only past a name that ALREADY BELONGS to a different member. The
+  # earlier version bumped past any existing user, so each failed retry of the
+  # same email created another account — provisioning that failed twice left
+  # `sam`, `sam2` and `sam3` behind, unbounded. A user that exists but is
+  # mapped to nobody is this member's own leftover from a failed attempt, and
+  # re-running provisioning over it is exactly what "idempotent" means.
+  name="$base"; n=2
+  while id "$name" >/dev/null 2>&1 && taken_by_another "$name" "$email"; do
+    name="$base$n"; n=$((n+1))
+  done
+
+  echo "provisioning room for $email as $name"
+  /usr/local/bin/blaude-provision-member "$name" --email "$email" --door-home "$DOOR_HOME" \
+    || echo "  failed for $email — leaving it queued"
+done < <(cat "$QUEUE"; echo)
+RUNNER
+
+cat > /etc/systemd/system/blaude-provision-room.service <<UNIT
+[Unit]
+Description=build a room for each newly joined member
+
+[Service]
+Type=oneshot
+# The path is recorded here because a systemd service inherits none of the
+# environment the operator had, and the binary is not always in /usr/local/bin.
+Environment=BLAUDE_BIN=$BINARY
+ExecStart=/usr/local/bin/blaude-provision-room $DOOR_HOME
+UNIT
+
+cat > /etc/systemd/system/blaude-provision-room.path <<UNIT
+[Unit]
+Description=watch for members who need a room
+
+[Path]
+PathChanged=$DOOR_HOME/.jcode/provision-queue
+Unit=blaude-provision-room.service
+
+[Install]
+WantedBy=multi-user.target
+UNIT
+
+systemctl daemon-reload
+systemctl enable --now blaude-provision-room.path >/dev/null 2>&1
 
 systemctl daemon-reload
 systemctl enable --now "blaude-daemon@$USER_NAME.service"

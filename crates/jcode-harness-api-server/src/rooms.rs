@@ -288,6 +288,37 @@ mod project_tests {
 ///
 /// So this only touches the watched file, and the path unit does the rest.
 /// Returns whether the nudge succeeded, not whether rooms were written.
+/// Ask for this member's own room to be built.
+///
+/// Provisioning a room means creating a Unix user, a checkout and a desktop,
+/// which needs root — so the door cannot do it. It appends the email to a
+/// queue a root path-unit watches, exactly as the credential sync does. Until
+/// that runs the member has no own room and `?room=mine` falls back to the
+/// shared daemon, so the queue is what stops "Mine" quietly meaning "Shared"
+/// forever for everyone who joined by invitation.
+///
+/// Append-only and deduplicated: the runner is free to be slow or to fail and
+/// retry, and a member claiming a second ticket must not queue twice.
+pub fn request_member_provision(email: &str, home_root: &Path) -> bool {
+    let email = email.trim().to_lowercase();
+    if email.is_empty() || !email.contains('@') {
+        return false;
+    }
+    let dir = home_root.join(".jcode");
+    if std::fs::create_dir_all(&dir).is_err() {
+        return false;
+    }
+    let path = dir.join("provision-queue");
+    let existing = std::fs::read_to_string(&path).unwrap_or_default();
+    if existing.lines().any(|line| line.trim() == email) {
+        // Already queued. Touch it so a runner that died mid-queue is woken
+        // again rather than leaving this member waiting forever.
+        return std::fs::write(&path, existing.as_bytes()).is_ok();
+    }
+    let next = format!("{existing}{email}\n");
+    std::fs::write(&path, next).is_ok()
+}
+
 pub fn request_credential_sync(home_root: &Path) -> bool {
     let path = home_root.join(".jcode/auth.json");
     let Ok(contents) = std::fs::read(&path) else {
@@ -298,3 +329,43 @@ pub fn request_credential_sync(home_root: &Path) -> bool {
     std::fs::write(&path, contents).is_ok()
 }
 
+
+#[cfg(test)]
+mod provision_queue_tests {
+    use super::*;
+
+    #[test]
+    fn a_member_is_queued_once_however_often_they_claim() {
+        let temp = tempfile::tempdir().expect("temp");
+        assert!(request_member_provision("Akshay@Enclave.money", temp.path()));
+        assert!(request_member_provision("akshay@enclave.money", temp.path()));
+        let queue =
+            std::fs::read_to_string(temp.path().join(".jcode/provision-queue")).expect("queue");
+        assert_eq!(
+            queue.lines().filter(|l| !l.trim().is_empty()).count(),
+            1,
+            "a second claim must not queue a second room: {queue}"
+        );
+        // Normalised, so the runner does not create two users for one person.
+        assert_eq!(queue.trim(), "akshay@enclave.money");
+    }
+
+    #[test]
+    fn two_members_both_get_queued() {
+        let temp = tempfile::tempdir().expect("temp");
+        request_member_provision("a@b.com", temp.path());
+        request_member_provision("c@d.com", temp.path());
+        let queue =
+            std::fs::read_to_string(temp.path().join(".jcode/provision-queue")).expect("queue");
+        let lines: Vec<&str> = queue.lines().filter(|l| !l.trim().is_empty()).collect();
+        assert_eq!(lines, vec!["a@b.com", "c@d.com"]);
+    }
+
+    #[test]
+    fn nonsense_is_not_queued() {
+        let temp = tempfile::tempdir().expect("temp");
+        assert!(!request_member_provision("", temp.path()));
+        assert!(!request_member_provision("not-an-email", temp.path()));
+        assert!(!temp.path().join(".jcode/provision-queue").exists());
+    }
+}

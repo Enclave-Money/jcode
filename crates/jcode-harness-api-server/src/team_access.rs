@@ -179,6 +179,10 @@ pub fn claim_ticket(code: &str) -> Option<Grant> {
     // pre-existing token made a revoke-then-rejoin (or any token-store loss)
     // burn the ticket and then 410, stranding the invitee.
     let token = issue_token(&email).ok()?;
+    // Claiming an invitation is the moment someone becomes a member, so it is
+    // the moment to build their own room. Without this a member only ever had
+    // the shared one and "Mine" silently meant "Shared" for them forever.
+    crate::rooms::request_member_provision(&email, &crate::rooms::door_home());
     if !ws_url.is_empty() {
         restamp_with_fresh_ticket(email.clone(), ws_url, name, fresh);
     }

@@ -32,11 +32,22 @@ id -u "$USER_NAME" >/dev/null 2>&1 || { echo "error: no such user: $USER_NAME" >
 HOME_DIR="$(getent passwd "$USER_NAME" | cut -d: -f6)"
 
 echo "==> stopping services"
-systemctl disable --now "blaude-bridge@$USER_NAME.service" 2>/dev/null || true
-systemctl disable --now "blaude-daemon@$USER_NAME.service" 2>/dev/null || true
-rm -f "/etc/systemd/system/blaude-daemon@$USER_NAME.service" \
-      "/etc/systemd/system/blaude-bridge@$USER_NAME.service"
+# The desktop and window manager belong to the room too. Leaving them behind
+# left an Xvfb running for a user that no longer exists, holding a display
+# number that the next member with the same uid would then collide with.
+for unit in bridge daemon desktop wm; do
+  systemctl disable --now "blaude-$unit@$USER_NAME.service" 2>/dev/null || true
+  rm -f "/etc/systemd/system/blaude-$unit@$USER_NAME.service"
+done
+rm -rf "/etc/systemd/system/blaude-daemon@$USER_NAME.service.d"
 systemctl daemon-reload
+
+# The room's socket, X cookie and their hashes live in a tmpfs directory that
+# survives the user. A stale cookie is what `is_attached` reads, so the screen
+# panel would offer a display for a member who no longer exists.
+echo "==> removing the room's runtime files"
+rm -f "/run/blaude/$USER_NAME.sock" "/run/blaude/$USER_NAME-debug.sock" \
+      "/run/blaude/$USER_NAME.sock.hash" "/run/blaude/$USER_NAME.Xauth"
 
 echo "==> killing any surviving processes"
 pkill -u "$USER_NAME" 2>/dev/null || true
