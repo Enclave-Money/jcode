@@ -183,6 +183,7 @@ fn test_same_provider_account_candidates_include_other_openai_accounts() {
             account_id: Some("acct-a".to_string()),
             expires_at: Some(now_ms),
             email: Some("a@example.com".to_string()),
+            added_by: None,
         })
         .unwrap();
         crate::auth::codex::upsert_account(crate::auth::codex::OpenAiAccount {
@@ -193,6 +194,7 @@ fn test_same_provider_account_candidates_include_other_openai_accounts() {
             account_id: Some("acct-b".to_string()),
             expires_at: Some(now_ms),
             email: Some("b@example.com".to_string()),
+            added_by: None,
         })
         .unwrap();
 

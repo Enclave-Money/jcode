@@ -157,23 +157,35 @@ where
     Ok(())
 }
 
-pub fn upsert_account<T, FGet, FSet>(
+/// Insert `account`, or replace the stored one with the same label.
+///
+/// `carry` runs as `carry(&existing, &mut incoming)` before a replacement, to
+/// move fields that belong to the STORED record onto the incoming one. A
+/// refresh rebuilds an account from credentials alone, so without this the
+/// replacement silently dropped `added_by` — and a member's account stopped
+/// being theirs a few hours after they signed in, which read as "no Claude
+/// account for you" out of nowhere.
+pub fn upsert_account<T, FGet, FSet, FCarry>(
     prefix: &str,
     accounts: &mut Vec<T>,
     stored_active_label: &mut Option<String>,
     account: T,
     label_of: FGet,
     set_label: FSet,
+    carry: FCarry,
 ) -> String
 where
     FGet: Fn(&T) -> &str + Copy,
     FSet: Fn(&mut T, String) + Copy,
+    FCarry: Fn(&T, &mut T),
 {
     let requested_label = label_of(&account).to_string();
     if let Some(existing) = accounts
         .iter_mut()
         .find(|existing| label_of(existing) == requested_label)
     {
+        let mut account = account;
+        carry(existing, &mut account);
         *existing = account;
         return requested_label;
     }
@@ -316,6 +328,7 @@ mod tests {
             },
             |account| account.label.as_str(),
             |account, label| account.label = label,
+            |_existing, _incoming| {},
         );
 
         assert_eq!(label, "claude-otter");

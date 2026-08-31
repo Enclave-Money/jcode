@@ -209,6 +209,7 @@ fn multi_account_active_switch_works() {
         account_id: Some("acct_personal".to_string()),
         expires_at: Some(10),
         email: Some("personal@example.com".to_string()),
+        added_by: None,
     })
     .unwrap();
     upsert_account(OpenAiAccount {
@@ -219,6 +220,7 @@ fn multi_account_active_switch_works() {
         account_id: Some("acct_work".to_string()),
         expires_at: Some(20),
         email: Some("work@example.com".to_string()),
+        added_by: None,
     })
     .unwrap();
 

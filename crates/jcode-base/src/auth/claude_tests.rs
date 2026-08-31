@@ -759,3 +759,50 @@ async fn a_refresh_targets_the_acting_members_own_account() {
         "the member's refresh must rewrite THEIR account, not the active one"
     );
 }
+
+/// A token refresh rebuilds the account from credentials alone, and the store
+/// replaces the record wholesale. Without carrying `added_by` across, a
+/// member's account stopped being theirs a few hours after they signed in —
+/// their next turn failed with "No Claude account for you" for no visible
+/// reason, and the per-member routing decayed silently on a live server.
+#[tokio::test]
+async fn a_token_refresh_does_not_un_claim_the_member_who_signed_in() {
+    let _lock = crate::storage::lock_test_env();
+    let temp = tempfile::TempDir::new().unwrap();
+    let _home = EnvVarGuard::set("JCODE_HOME", temp.path());
+
+    upsert_account(AnthropicAccount {
+        label: "claude-otter".into(),
+        access: "OLD".into(),
+        refresh: "OLD-REFRESH".into(),
+        expires: 1,
+        email: Some("member@example.com".into()),
+        subscription_type: Some("max".into()),
+        scopes: vec!["user:inference".into()],
+        added_by: Some("member@example.com".into()),
+    })
+    .unwrap();
+    crate::auth::claude::set_account_added_by("claude-otter", "member@example.com").unwrap();
+
+    // A refresh: same label, new tokens, and no idea who owns it.
+    upsert_account(AnthropicAccount {
+        label: "claude-otter".into(),
+        access: "REFRESHED".into(),
+        refresh: "NEW-REFRESH".into(),
+        expires: i64::MAX,
+        email: Some("member@example.com".into()),
+        subscription_type: Some("max".into()),
+        scopes: vec!["user:inference".into()],
+        added_by: None,
+    })
+    .unwrap();
+
+    // The refresh must have landed (positive control) AND kept the claim.
+    let creds = crate::auth::account_store::with_acting_member(
+        Some("member@example.com".into()),
+        async { load_credentials() },
+    )
+    .await
+    .expect("the member still owns this account after a refresh");
+    assert_eq!(creds.access_token, "REFRESHED", "the refresh must apply");
+}

@@ -406,6 +406,14 @@ pub fn upsert_account(account: AnthropicAccount) -> Result<String> {
         account,
         |account| account.label.as_str(),
         |account, label| account.label = label,
+        // Who signed the account in is a property of the STORED account, not
+        // of the credentials a refresh brings; carry it across or a refresh
+        // un-claims the member who owns it.
+        |existing, incoming| {
+            if incoming.added_by.is_none() {
+                incoming.added_by = existing.added_by.clone();
+            }
+        },
     );
     save_auth_file(&auth)?;
     Ok(label)

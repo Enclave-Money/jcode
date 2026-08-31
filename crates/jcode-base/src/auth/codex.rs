@@ -29,6 +29,12 @@ pub struct OpenAiAccount {
     pub expires_at: Option<i64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub email: Option<String>,
+    /// The team member who signed this account in, mirroring
+    /// `AnthropicAccount::added_by`. Without it a member's own OpenAI account
+    /// is indistinguishable from the owner's, so the accounts list shows it to
+    /// the wrong person.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub added_by: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -226,9 +232,41 @@ pub fn upsert_account(account: OpenAiAccount) -> Result<String> {
         account,
         |account| account.label.as_str(),
         |account, label| account.label = label,
+        // See the Claude counterpart: a refresh must not un-claim the member
+        // who signed this account in.
+        |existing, incoming| {
+            if incoming.added_by.is_none() {
+                incoming.added_by = existing.added_by.clone();
+            }
+        },
     );
     save_auth_file(&auth)?;
     Ok(label)
+}
+
+/// Record who signed this OpenAI account in. The Claude counterpart is
+/// [`crate::auth::claude::set_account_added_by`]; the rules are identical, and
+/// the first claim wins — a second member signing into an account someone else
+/// already registered must not take it over, because that would silently
+/// reassign whose subscription the original member's turns run on.
+pub fn set_account_added_by(label: &str, member: &str) -> Result<()> {
+    let mut auth = load_auth_file()?;
+    let Some(account) = auth.openai_accounts.iter_mut().find(|a| a.label == label) else {
+        anyhow::bail!("No account with label '{label}' found for added_by update");
+    };
+
+    match account.added_by.as_deref() {
+        Some(owner) if owner != member => anyhow::bail!(
+            "That OpenAI account is already signed in by {owner}. Use your own \
+             account so turns run on your subscription, not theirs."
+        ),
+        Some(_) => Ok(()),
+        None => {
+            account.added_by = Some(member.to_string());
+            save_auth_file(&auth)?;
+            Ok(())
+        }
+    }
 }
 
 pub fn remove_account(label: &str) -> Result<()> {
@@ -525,6 +563,10 @@ fn account_from_credentials(
             .or_else(|| credentials.id_token.as_deref().and_then(extract_account_id)),
         expires_at: credentials.expires_at,
         email,
+        // Stamped separately by `set_account_added_by` once the sign-in
+        // completes and the member is known; an upsert must not clear an
+        // existing claim by rebuilding the record.
+        added_by: None,
     }
 }
 

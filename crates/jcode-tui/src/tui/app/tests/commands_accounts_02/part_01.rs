@@ -181,6 +181,7 @@ fn test_account_openai_command_opens_account_picker() {
             account_id: Some("acct_work".to_string()),
             expires_at: Some(now_ms + 60_000),
             email: Some("user@example.com".to_string()),
+            added_by: None,
         })
         .unwrap();
 
@@ -248,6 +249,7 @@ fn test_account_command_opens_account_picker() {
             account_id: Some("acct_work".to_string()),
             expires_at: Some(now_ms + 60_000),
             email: Some("user@example.com".to_string()),
+            added_by: None,
         })
         .unwrap();
 
@@ -314,6 +316,7 @@ fn test_account_picker_supports_arrow_and_vim_navigation() {
             account_id: Some("acct_1".to_string()),
             expires_at: Some(now_ms + 60_000),
             email: Some("first@example.com".to_string()),
+            added_by: None,
         })
         .unwrap();
         crate::auth::codex::upsert_account(crate::auth::codex::OpenAiAccount {
@@ -324,6 +327,7 @@ fn test_account_picker_supports_arrow_and_vim_navigation() {
             account_id: Some("acct_2".to_string()),
             expires_at: Some(now_ms + 60_000),
             email: Some("second@example.com".to_string()),
+            added_by: None,
         })
         .unwrap();
 
@@ -372,6 +376,7 @@ fn test_account_picker_preview_from_input_filters_accounts() {
             account_id: Some("acct_1".to_string()),
             expires_at: Some(now_ms + 60_000),
             email: Some("first@example.com".to_string()),
+            added_by: None,
         })
         .unwrap();
         crate::auth::codex::upsert_account(crate::auth::codex::OpenAiAccount {
@@ -382,6 +387,7 @@ fn test_account_picker_preview_from_input_filters_accounts() {
             account_id: Some("acct_2".to_string()),
             expires_at: Some(now_ms + 60_000),
             email: Some("second@example.com".to_string()),
+            added_by: None,
         })
         .unwrap();
 
@@ -439,6 +445,7 @@ fn test_account_command_combines_claude_and_openai_accounts() {
             account_id: Some("acct_openai_1".to_string()),
             expires_at: Some(now_ms + 60_000),
             email: Some("openai@example.com".to_string()),
+            added_by: None,
         })
         .unwrap();
 
@@ -535,6 +542,7 @@ fn test_account_switch_shorthand_switches_openai_account_by_label() {
             account_id: Some("acct_openai2".to_string()),
             expires_at: Some(now_ms + 60_000),
             email: Some("user2@example.com".to_string()),
+            added_by: None,
         })
         .unwrap();
 

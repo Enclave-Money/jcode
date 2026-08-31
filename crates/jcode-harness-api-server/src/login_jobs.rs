@@ -321,7 +321,14 @@ pub async fn complete(job_id: &str, input: &str) {
             .await?;
             // Identity-aware append (pooling), mirroring the Claude path.
             let requested = codex::login_target_label(None)?;
-            let _ = oauth::save_openai_login(&tokens, &requested).await?;
+            let (label, _email) = oauth::save_openai_login(&tokens, &requested).await?;
+            // Stamp the member, exactly as the Claude branch below does.
+            // Skipping it left every OpenAI account unattributed, so the
+            // accounts list could not tell a member's own sign-in from the
+            // owner's and showed it to the wrong person.
+            if let Some(member) = member.as_deref() {
+                let _ = codex::set_account_added_by(&label, member);
+            }
         } else {
             let tokens = oauth::exchange_claude_code(&verifier, &input, &redirect_uri).await?;
             // Identity-aware save: fetch the account's profile email and, when it
