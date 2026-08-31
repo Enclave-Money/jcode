@@ -182,7 +182,11 @@ impl Client {
             }
             let event: ServerEvent = serde_json::from_str(&line)?;
             match event {
-                ServerEvent::Ack { .. } => continue,
+                // Skip events that are broadcasts rather than the answer to
+                // THIS request. Presence fires whenever anyone attaches or
+                // detaches, so subscribing then asking for history raced it and
+                // returned "who is viewing" as if it were the transcript.
+                ServerEvent::Ack { .. } | ServerEvent::Presence { .. } => continue,
                 _ => return Ok(event),
             }
         }
