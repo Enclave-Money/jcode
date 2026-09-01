@@ -979,6 +979,49 @@ fn friendly_cloud_error(action: &str, error: &str) -> String {
 /// reads what it writes (`member-users.json`, the socket and cookie paths).
 const PROVISION_SCRIPT: &str = include_str!("../../../deploy/team-server/provision-member.sh");
 
+/// The browser helper, baked into the binary so a created team carries it with
+/// no repo checkout on the server. Written to /opt/blaude-browser by the
+/// install script, which npm-installs Playwright and its Chromium alongside.
+const BROWSER_INSTALL_SCRIPT: &str =
+    include_str!("../../../deploy/team-server/install-browser-helper.sh");
+const BROWSER_HELPER_JS: &str = include_str!("../../../deploy/browser-helper/helper.js");
+const BROWSER_DETECT_JS: &str = include_str!("../../../deploy/browser-helper/detect.js");
+const BROWSER_FILL_JS: &str = include_str!("../../../deploy/browser-helper/fill.js");
+const BROWSER_HELPER_PKG: &str = include_str!("../../../deploy/browser-helper/package.json");
+
+/// A bash snippet that stages the browser-helper files (base64, so no quoting
+/// hazard) and runs the installer. Idempotent — safe to run on every create.
+fn browser_helper_install_snippet() -> String {
+    use base64::Engine as _;
+    let b64 = |s: &str| base64::engine::general_purpose::STANDARD.encode(s);
+    format!(
+        r#"mkdir -p "$HOME/browser-helper"
+base64 -d > "$HOME/browser-helper/helper.js" <<'B64H'
+{}
+B64H
+base64 -d > "$HOME/browser-helper/detect.js" <<'B64D'
+{}
+B64D
+base64 -d > "$HOME/browser-helper/fill.js" <<'B64F'
+{}
+B64F
+base64 -d > "$HOME/browser-helper/package.json" <<'B64P'
+{}
+B64P
+base64 -d > "$HOME/browser-helper/install-browser-helper.sh" <<'B64I'
+{}
+B64I
+sudo bash "$HOME/browser-helper/install-browser-helper.sh" "$HOME/browser-helper" >/tmp/browser-helper-install.log 2>&1 || {{
+  echo "BROWSER_HELPER_FAILED"; tail -5 /tmp/browser-helper-install.log; }}
+"#,
+        b64(BROWSER_HELPER_JS),
+        b64(BROWSER_DETECT_JS),
+        b64(BROWSER_FILL_JS),
+        b64(BROWSER_HELPER_PKG),
+        b64(BROWSER_INSTALL_SCRIPT),
+    )
+}
+
 /// Build the shared room, the owner's room, and the auto-provisioner.
 async fn install_rooms(
     gcloud: &PathBuf,
@@ -1016,7 +1059,8 @@ async fn install_rooms(
     // The desktop packages are what make a screen possible at all: Xvfb to
     // render, a desktop environment for the furniture, ImageMagick to capture, xdotool
     // to click, and a browser to point at the app being built.
-    let rooms = r#"set -e
+    let rooms = format!(
+        r#"set -e
 H=$HOME
 chmod +x "$H/provision-member.sh"
 sudo apt-get update -q >/dev/null 2>&1 || true
@@ -1025,18 +1069,24 @@ sudo apt-get install -y -q xvfb x11-utils x11-xserver-utils imagemagick xdotool 
 # manager, nothing to click. openbox rides along as the fallback the session
 # unit uses if this install fails.
 sudo apt-get install -y -q --no-install-recommends xfce4 xfce4-terminal dbus-x11 openbox >/dev/null 2>&1 || true
-sudo BLAUDE_BIN="$H/blaude" "$H/provision-member.sh" blaude-shared --door-home "$H" >/tmp/rooms-shared.log 2>&1 || {
-  echo "SHARED_ROOM_FAILED"; tail -5 /tmp/rooms-shared.log; exit 1; }
+# The harness-owned browser: Playwright + its Chromium at /opt/blaude-browser,
+# the thing that types a fill into a login form. Without it a room has a
+# screen and input but no browser the harness controls.
+{browser_install}
+sudo BLAUDE_BIN="$H/blaude" "$H/provision-member.sh" blaude-shared --door-home "$H" >/tmp/rooms-shared.log 2>&1 || {{
+  echo "SHARED_ROOM_FAILED"; tail -5 /tmp/rooms-shared.log; exit 1; }}
 OWNER=$(python3 -c "import json,sys;print(json.load(open(sys.argv[1])).get('email',''))" "$H/.jcode/blaude-account.json" 2>/dev/null || echo "")
 if [ -n "$OWNER" ]; then
-  NAME=$(printf '%s' "${OWNER%%@*}" | tr '[:upper:]' '[:lower:]' | tr -cd 'a-z0-9_-')
+  NAME=$(printf '%s' "${{OWNER%%@*}}" | tr '[:upper:]' '[:lower:]' | tr -cd 'a-z0-9_-')
   [ -n "$NAME" ] || NAME=owner
   case "$NAME" in [0-9]*) NAME="m$NAME" ;; esac
-  sudo BLAUDE_BIN="$H/blaude" "$H/provision-member.sh" "$NAME" --email "$OWNER" --door-home "$H" >/tmp/rooms-owner.log 2>&1 || {
-    echo "OWNER_ROOM_FAILED"; tail -5 /tmp/rooms-owner.log; }
+  sudo BLAUDE_BIN="$H/blaude" "$H/provision-member.sh" "$NAME" --email "$OWNER" --door-home "$H" >/tmp/rooms-owner.log 2>&1 || {{
+    echo "OWNER_ROOM_FAILED"; tail -5 /tmp/rooms-owner.log; }}
 fi
 echo ROOMS_OK
-"#;
+"#,
+        browser_install = browser_helper_install_snippet(),
+    );
     let out = run_retry(
         gcloud,
         &[
@@ -1051,7 +1101,7 @@ echo ROOMS_OK
             "bash -s",
             "--quiet",
         ],
-        Some(rooms),
+        Some(rooms.as_str()),
         2,
     )
     .await
