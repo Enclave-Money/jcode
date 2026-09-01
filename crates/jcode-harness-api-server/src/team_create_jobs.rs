@@ -744,25 +744,9 @@ sudo systemctl enable --now blaude-daemon.service blaude-bridge.service
 echo SETUP_OK
 "#
     );
-    let out = run_retry(
-        &gcloud,
-        &[
-            "compute",
-            "ssh",
-            &instance,
-            "--project",
-            &cfg.project,
-            "--zone",
-            &zone,
-            "--command",
-            "bash -s",
-            "--quiet",
-        ],
-        Some(&setup),
-        4,
-    )
-    .await
-    .map_err(|e| format!("Could not set the server up: {e}"))?;
+    let out = run_remote_script(&gcloud, &cfg.project, &zone, &instance, "setup", &setup, 4)
+        .await
+        .map_err(|e| format!("Could not set the server up: {e}"))?;
     if !out.contains("SETUP_OK") {
         return Err(format!("Server setup did not finish: {out}"));
     }
@@ -1033,6 +1017,56 @@ sudo bash "$HOME/browser-helper/install-browser-helper.sh" "$HOME/browser-helper
     )
 }
 
+/// Run a script ON the instance by COPYING it there and executing it — never by
+/// piping it into `bash -s`.
+///
+/// Piping is what wedged team creation: with a script of any size, when the
+/// remote bash finishes (or dies) while the local side still has bytes to
+/// write, the local `ssh` never exits. gcloud then hangs forever and the whole
+/// create sits on one stage — "Securing it…" — with the server already fully
+/// built. Copy-then-run has no stdin at all, so there is nothing to wedge on.
+async fn run_remote_script(
+    gcloud: &PathBuf,
+    project: &str,
+    zone: &str,
+    instance: &str,
+    name: &str,
+    script: &str,
+    attempts: u32,
+) -> Result<String, String> {
+    let mut local = std::env::temp_dir();
+    local.push(format!("blaude-{name}-{}.sh", std::process::id()));
+    std::fs::write(&local, script).map_err(|e| format!("could not stage {name}: {e}"))?;
+    let _cleanup = scopeguard_remove(local.clone());
+
+    run_retry(
+        gcloud,
+        &[
+            "compute", "scp",
+            local.to_str().unwrap_or_default(),
+            &format!("{instance}:~/{name}.sh"),
+            "--project", project, "--zone", zone, "--quiet",
+        ],
+        None,
+        attempts,
+    )
+    .await
+    .map_err(|e| format!("could not copy {name}: {e}"))?;
+
+    run_retry(
+        gcloud,
+        &[
+            "compute", "ssh", instance,
+            "--project", project, "--zone", zone,
+            "--command", &format!("bash ~/{name}.sh"),
+            "--quiet",
+        ],
+        None,
+        attempts,
+    )
+    .await
+}
+
 /// Build the shared room, the owner's room, and the auto-provisioner.
 async fn install_rooms(
     gcloud: &PathBuf,
@@ -1073,6 +1107,7 @@ async fn install_rooms(
     let rooms = format!(
         r#"set -e
 H=$HOME
+if [ ! -f "$H/provision-member.sh" ]; then echo "PROVISION_SCRIPT_MISSING"; exit 1; fi
 chmod +x "$H/provision-member.sh"
 sudo apt-get update -q >/dev/null 2>&1 || true
 sudo apt-get install -y -q xvfb x11-utils x11-xserver-utils imagemagick xdotool chromium ffmpeg >/dev/null 2>&1 || true
@@ -1106,25 +1141,9 @@ echo ROOMS_OK
 "#,
         browser_install = browser_helper_install_snippet(),
     );
-    let out = run_retry(
-        gcloud,
-        &[
-            "compute",
-            "ssh",
-            instance,
-            "--project",
-            project,
-            "--zone",
-            zone,
-            "--command",
-            "bash -s",
-            "--quiet",
-        ],
-        Some(rooms.as_str()),
-        2,
-    )
-    .await
-    .map_err(|e| format!("rooms setup could not run: {e}"))?;
+    let out = run_remote_script(gcloud, project, zone, instance, "rooms", &rooms, 2)
+        .await
+        .map_err(|e| format!("rooms setup could not run: {e}"))?;
     if !out.contains("ROOMS_OK") {
         return Err(format!("rooms setup did not finish: {out}"));
     }
@@ -1246,6 +1265,23 @@ mod delete_tests {
         }
         assert_eq!(region("asia-south1-a"), "asia-south1");
         assert_eq!(region("us-central1-b"), "us-central1");
+    }
+
+    /// Remote provisioning scripts must be COPIED and executed, never piped
+    /// into `bash -s`. Piping wedges: when the remote bash finishes or dies
+    /// while the local ssh still has bytes to write, ssh never exits and the
+    /// whole create hangs on one stage with the server already built. This
+    /// caught it twice in production; a grep is the cheapest guard that it
+    /// cannot come back.
+    #[test]
+    fn provisioning_never_pipes_a_script_into_bash_dash_s() {
+        let src = include_str!("team_create_jobs.rs");
+        // Ignore this test's own mention of the pattern.
+        let hits = src
+            .lines()
+            .filter(|l| l.contains("\"bash -s\""))
+            .count();
+        assert_eq!(hits, 0, "provisioning must copy-and-run, not pipe into `bash -s`");
     }
 
     /// run() must not deadlock when the stdin it feeds is larger than a pipe
