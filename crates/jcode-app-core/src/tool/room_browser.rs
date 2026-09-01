@@ -42,10 +42,23 @@ fn field_str<'a>(input: &'a Value, key: &str) -> Option<&'a str> {
 
 /// Where provisioning installs the helper and its browser.
 fn helper_script() -> String {
-    std::env::var("BLAUDE_BROWSER_HELPER").unwrap_or_else(|_| "/opt/blaude-browser/helper.js".into())
+    std::env::var("BLAUDE_BROWSER_HELPER")
+        .ok()
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| "/opt/blaude-browser/helper.js".into())
 }
+
+/// The browser build that goes with the helper's OWN Playwright — derived from
+/// the helper's directory, NOT the ambient `PLAYWRIGHT_BROWSERS_PATH`. The
+/// daemon inherits a `PLAYWRIGHT_BROWSERS_PATH` pointing at a different,
+/// older Playwright install (the global CLI's), and using it makes the helper
+/// look for a browser build that install does not have — a launch failure that
+/// looks like a missing browser. This path is a sibling of the helper script.
 fn browsers_path() -> String {
-    std::env::var("PLAYWRIGHT_BROWSERS_PATH").unwrap_or_else(|_| "/opt/blaude-browser/ms-playwright".into())
+    std::path::Path::new(&helper_script())
+        .parent()
+        .map(|dir| dir.join("ms-playwright").to_string_lossy().into_owned())
+        .unwrap_or_else(|| "/opt/blaude-browser/ms-playwright".into())
 }
 
 /// The current Unix user's name, or None off a Unix host.
@@ -454,6 +467,14 @@ mod tests {
         assert_eq!(origin_of("http://localhost:3000/app").as_deref(), Some("http://localhost:3000"));
         assert_eq!(origin_of("https://a.b.com").as_deref(), Some("https://a.b.com"));
         assert_eq!(origin_of("not a url"), None);
+    }
+
+    #[test]
+    fn browsers_path_follows_the_helper_not_the_ambient_env() {
+        // The daemon inherits PLAYWRIGHT_BROWSERS_PATH pointing at a different
+        // Playwright install; the helper's browser must come from beside the
+        // helper script instead, or chromium fails to launch.
+        assert_eq!(browsers_path(), "/opt/blaude-browser/ms-playwright");
     }
 
     #[test]
