@@ -750,6 +750,17 @@ impl BridgeState {
             // tool without ever touching disk. `input` is a JSON envelope the
             // tool parses; for `fill_credentials` it carries the secret, which
             // is why the request logging below redacts these verbs.
+            "vault_index_sync" => {
+                let id = self.legacy_id();
+                vec![
+                    Outbound::Legacy(json!({
+                        "type": "vault_index_sync",
+                        "id": id,
+                        "entries": request.get("entries").cloned().unwrap_or(json!([])),
+                    })),
+                    Outbound::Reply(ServerFrame::reply(api_id, ApiEvent::Ok)),
+                ]
+            }
             "fill_credentials" | "fill_deny" | "fill_needs_human" => {
                 let request_id = request["request_id"].as_str().unwrap_or("").to_string();
                 let input = match req {

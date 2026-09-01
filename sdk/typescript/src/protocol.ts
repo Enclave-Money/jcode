@@ -97,6 +97,20 @@ export type ApiRequest =
   | { req: "screen_frame"; max_width?: number }
   | { req: "screen_stream_start" }
   | { req: "screen_stream_stop" }
+  /** Sync the teammate's login index (no secrets) into their room. */
+  | { req: "vault_index_sync"; entries: unknown[] }
+  /** Answer a fill_approval. fill_credentials carries the secret straight to
+   * the waiting tool and is never logged; the others carry nothing. */
+  | {
+      req: "fill_credentials";
+      request_id: string;
+      username: string;
+      password: string;
+      item_id?: string;
+      totp?: string;
+    }
+  | { req: "fill_deny"; request_id: string }
+  | { req: "fill_needs_human"; request_id: string }
   /**
    * A click, key or scroll into the room's desktop. Coordinates are in the
    * frame the user was looking at; send `frame_width` so a click on a
@@ -186,6 +200,7 @@ export type ApiEvent =
    */
   | { ev: "screen_frame"; screen: unknown }
   | { ev: "screen_video"; video: unknown }
+  | { ev: "fill_approval"; fill: unknown }
   | { ev: "team_create_status"; status: unknown }
   | { ev: "github_status"; status: unknown }
   | { ev: "blaude_account"; account?: unknown }
@@ -381,6 +396,10 @@ export const KNOWN_EVENT_KINDS = [
   "screen_input",
   "screen_stream_start",
   "screen_stream_stop",
+  "vault_index_sync",
+  "fill_credentials",
+  "fill_deny",
+  "fill_needs_human",
   "team_create_status",
   "github_status",
   "blaude_account",
@@ -461,6 +480,7 @@ export const KNOWN_REQUEST_KINDS = [
   "list_accounts",
   "screen_frame",
   "screen_video",
+  "fill_approval",
   "set_active_account",
   "archive_session",
   "restore_session",

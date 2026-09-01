@@ -1116,6 +1116,42 @@ pub(super) async fn handle_stdin_response(
     let _ = client_event_tx.send(ServerEvent::Done { id });
 }
 
+/// Persist the teammate's login index in this room's home. Written as the room
+/// user (this daemon IS the room user), 0600, holding no secrets — the browser
+/// tool reads it to know which origins can be filled. An empty list deletes it.
+pub(super) fn handle_vault_index_sync(
+    id: u64,
+    entries: serde_json::Value,
+    client_event_tx: &mpsc::UnboundedSender<ServerEvent>,
+) {
+    let dir = std::env::var("JCODE_HOME")
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|_| {
+            dirs::home_dir().unwrap_or_default().join(".jcode")
+        });
+    let path = dir.join("vault-index.json");
+    let list = entries.as_array().cloned().unwrap_or_default();
+    if list.is_empty() {
+        let _ = std::fs::remove_file(&path);
+    } else {
+        let doc = serde_json::json!({
+            "synced_at": std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_secs()).unwrap_or(0),
+            "entries": list,
+        });
+        if let Ok(s) = serde_json::to_string(&doc) {
+            let _ = std::fs::write(&path, s);
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt as _;
+                let _ = std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600));
+            }
+        }
+    }
+    let _ = client_event_tx.send(ServerEvent::Done { id });
+}
+
 pub(super) struct AgentTaskContext<'a> {
     pub(super) client_event_tx: &'a mpsc::UnboundedSender<ServerEvent>,
     pub(super) swarm_members: &'a Arc<RwLock<HashMap<String, SwarmMember>>>,

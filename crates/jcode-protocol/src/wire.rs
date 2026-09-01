@@ -384,6 +384,15 @@ pub enum Request {
         input: String,
     },
 
+    /// Write the teammate's login index into the room's home, so the browser
+    /// tool can tell which origins have a saved login. Carries NO secrets —
+    /// only `{ origin, item_id, username, has_totp }` per entry.
+    #[serde(rename = "vault_index_sync")]
+    VaultIndexSync {
+        id: u64,
+        entries: serde_json::Value,
+    },
+
     // === Agent-to-agent communication ===
     /// Register as an external agent
     #[serde(rename = "agent_register")]
