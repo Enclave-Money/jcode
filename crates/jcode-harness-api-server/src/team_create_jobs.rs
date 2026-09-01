@@ -1020,7 +1020,7 @@ async fn install_rooms(
 H=$HOME
 chmod +x "$H/provision-member.sh"
 sudo apt-get update -q >/dev/null 2>&1 || true
-sudo apt-get install -y -q xvfb x11-utils x11-xserver-utils imagemagick xdotool chromium >/dev/null 2>&1 || true
+sudo apt-get install -y -q xvfb x11-utils x11-xserver-utils imagemagick xdotool chromium ffmpeg >/dev/null 2>&1 || true
 # A desktop environment, because a cloud image has none: no panel, no file
 # manager, nothing to click. openbox rides along as the fallback the session
 # unit uses if this install fails.
