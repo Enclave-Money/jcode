@@ -1239,4 +1239,26 @@ mod delete_tests {
         assert_eq!(region("asia-south1-a"), "asia-south1");
         assert_eq!(region("us-central1-b"), "us-central1");
     }
+
+    /// run() must not deadlock when the stdin it feeds is larger than a pipe
+    /// buffer AND the child echoes it back concurrently — which is exactly the
+    /// provisioning script through `gcloud … bash -s`. `cat` is that child: it
+    /// writes stdout as it reads stdin, so a 1 MiB payload fills its stdout
+    /// pipe (64 KiB) long before the writer is done. The OLD run() wrote all of
+    /// stdin before reading a byte of stdout and wedged here forever; a brand-
+    /// new team hung at "Securing…" for 15+ minutes. The 5 s timeout is the
+    /// guard: on the deadlocking version this test times out, on the fixed one
+    /// it returns the payload intact.
+    #[tokio::test]
+    async fn run_does_not_deadlock_on_a_large_stdin_that_is_echoed_back() {
+        let big = "x".repeat(1024 * 1024); // 1 MiB, way past a 64 KiB pipe
+        let cat = std::path::PathBuf::from("/bin/cat");
+        let result = tokio::time::timeout(
+            std::time::Duration::from_secs(5),
+            super::run(&cat, &[], Some(&big)),
+        )
+        .await
+        .expect("run() deadlocked writing a large stdin (the create_team hang)");
+        assert_eq!(result.expect("cat succeeds").len(), big.len(), "the whole payload round-trips");
+    }
 }
