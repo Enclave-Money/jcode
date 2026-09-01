@@ -1908,3 +1908,40 @@ fn fill_credentials_answer_becomes_a_stdin_response() {
     assert_eq!(input["denied"], true);
     assert!(input.get("password").is_none());
 }
+
+/// CANARY: a credential must appear ONLY on the frame bound for the waiting
+/// tool, never on any client-facing surface. This is the redaction guarantee
+/// the product bar demands, as a test that cannot pass vacuously — the canary
+/// IS present on the tool-bound frame, so the assertions have teeth.
+#[test]
+fn credential_canary_never_reaches_a_client_surface() {
+    const CANARY: &str = "CANARY-vault-CI-77";
+    let mut state = BridgeState::default();
+
+    // The answer carrying the secret.
+    let out = state.api_request_to_legacy(&serde_json::json!({
+        "req": "fill_credentials", "id": 9, "request_id": "fill-1",
+        "username": "u@x.com", "password": CANARY, "item_id": "op://v/1",
+    }));
+    for o in &out {
+        match o {
+            // The tool-bound legacy frame MUST carry it (else the fill fails).
+            Outbound::Legacy(v) => assert!(
+                serde_json::to_string(v).unwrap().contains(CANARY),
+                "the tool-bound frame must carry the credential, or nothing fills"),
+            // The client-facing reply must NOT.
+            Outbound::Reply(f) => assert!(
+                !serde_json::to_string(f).unwrap().contains(CANARY),
+                "a client-facing reply leaked the credential"),
+        }
+    }
+
+    // The request direction (approval prompt) never carries a secret at all.
+    let frames = state.legacy_event_to_api(&serde_json::json!({
+        "type": "stdin_request", "request_id": "fill-1",
+        "prompt": serde_json::json!({"blaude_fill": {"origin": "https://x.com",
+            "candidates": [{"item_id": "op://v/1", "username": "u@x.com", "has_totp": false}]}}).to_string(),
+    }));
+    assert!(!serde_json::to_string(&frames).unwrap().contains(CANARY),
+        "the approval event must never carry a credential");
+}
