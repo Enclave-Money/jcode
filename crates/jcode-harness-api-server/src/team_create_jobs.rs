@@ -902,7 +902,10 @@ pub async fn delete_team(ws_url: &str) -> Result<Value, String> {
         // error it left a destroyed team sitting in the switcher permanently,
         // with Delete refusing it every time because there was nothing left
         // to delete.
-        return Ok(json!({ "deleted": Value::Null, "already_gone": true, "ip": ip }));
+        return Ok(json!({
+            "job_id": "", "stage": "Deleted", "done": true,
+            "deleted": Value::Null, "already_gone": true, "ip": ip
+        }));
     };
 
     run(
@@ -936,7 +939,14 @@ pub async fn delete_team(ws_url: &str) -> Result<Value, String> {
     .await
     .is_ok();
 
+    // job_id/stage/done ride along because this reply is carried by the
+    // team_create_status event, whose record REQUIRES them. Without them the
+    // client's decode threw, the reply was dropped, and the app sat on
+    // "Deleting…" until it timed out while the server really was destroyed.
     Ok(json!({
+        "job_id": "",
+        "stage": "Deleted",
+        "done": true,
         "deleted": instance,
         "zone": zone,
         "ip": ip,
@@ -1004,13 +1014,17 @@ async fn install_rooms(
 
     // Sent over stdin like the main setup, so nothing needs shell quoting.
     // The desktop packages are what make a screen possible at all: Xvfb to
-    // render, openbox so windows have frames, ImageMagick to capture, xdotool
+    // render, a desktop environment for the furniture, ImageMagick to capture, xdotool
     // to click, and a browser to point at the app being built.
     let rooms = r#"set -e
 H=$HOME
 chmod +x "$H/provision-member.sh"
 sudo apt-get update -q >/dev/null 2>&1 || true
-sudo apt-get install -y -q xvfb x11-utils x11-xserver-utils openbox imagemagick xdotool chromium >/dev/null 2>&1 || true
+sudo apt-get install -y -q xvfb x11-utils x11-xserver-utils imagemagick xdotool chromium >/dev/null 2>&1 || true
+# A desktop environment, because a cloud image has none: no panel, no file
+# manager, nothing to click. openbox rides along as the fallback the session
+# unit uses if this install fails.
+sudo apt-get install -y -q --no-install-recommends xfce4 xfce4-terminal dbus-x11 openbox >/dev/null 2>&1 || true
 sudo BLAUDE_BIN="$H/blaude" "$H/provision-member.sh" blaude-shared --door-home "$H" >/tmp/rooms-shared.log 2>&1 || {
   echo "SHARED_ROOM_FAILED"; tail -5 /tmp/rooms-shared.log; exit 1; }
 OWNER=$(python3 -c "import json,sys;print(json.load(open(sys.argv[1])).get('email',''))" "$H/.jcode/blaude-account.json" 2>/dev/null || echo "")
@@ -1062,6 +1076,30 @@ fn scopeguard_remove(path: PathBuf) -> impl Drop {
 
 #[cfg(test)]
 mod delete_tests {
+    /// The delete reply travels on team_create_status, whose record requires
+    /// job_id, stage and done. Omit any of them and the client cannot decode
+    /// the frame, drops it, and waits out the whole timeout on a delete that
+    /// already finished.
+    #[test]
+    fn the_delete_reply_carries_what_the_event_requires() {
+        for value in [
+            serde_json::json!({
+                "job_id": "", "stage": "Deleted", "done": true,
+                "deleted": serde_json::Value::Null, "already_gone": true, "ip": "1.2.3.4"
+            }),
+            serde_json::json!({
+                "job_id": "", "stage": "Deleted", "done": true,
+                "deleted": "blaude-x", "zone": "asia-south1-a", "ip": "1.2.3.4",
+                "address_released": true
+            }),
+        ] {
+            for key in ["job_id", "stage", "done"] {
+                assert!(value.get(key).is_some(), "{key} missing from {value}");
+            }
+            assert_eq!(value["done"], serde_json::json!(true));
+        }
+    }
+
     /// An expired sign-in must read as one instruction, not as gcloud's wall
     /// of text — the banner it lands in is one line wide.
     #[test]

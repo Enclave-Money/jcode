@@ -1045,6 +1045,15 @@ where
                             button: request["button"].as_u64().unwrap_or(1) as u8,
                         }),
                         "move" => Some(screen::Input::Move { x: dx, y: dy }),
+                        // A drag: press, then moves, then release.
+                        "mousedown" => Some(screen::Input::MouseDown {
+                            x: dx,
+                            y: dy,
+                            button: request["button"].as_u64().unwrap_or(1) as u8,
+                        }),
+                        "mouseup" => Some(screen::Input::MouseUp {
+                            button: request["button"].as_u64().unwrap_or(1) as u8,
+                        }),
                         "text" => request["text"].as_str().map(|t| screen::Input::Text(t.to_string())),
                         "key" => request["key"].as_str().map(|k| screen::Input::Key(k.to_string())),
                         "scroll" => Some(screen::Input::Scroll(

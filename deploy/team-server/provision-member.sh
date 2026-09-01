@@ -327,7 +327,7 @@ UNIT
 # renders unmanaged windows with no decoration and no stacking.
 cat > "/etc/systemd/system/blaude-wm@$USER_NAME.service" <<UNIT
 [Unit]
-Description=blaude window manager ($USER_NAME)
+Description=blaude desktop session ($USER_NAME)
 After=blaude-desktop@$USER_NAME.service
 Requires=blaude-desktop@$USER_NAME.service
 
@@ -340,7 +340,18 @@ Environment=XAUTHORITY=$XAUTH
 # Xvfb takes a moment to accept connections; without the wait openbox exits
 # and systemd restart-loops it against a display that is not up yet.
 ExecStartPre=/bin/sh -c 'for i in \$(seq 1 50); do xdpyinfo -display :$DISPLAY_NUM >/dev/null 2>&1 && exit 0; sleep 0.2; done; exit 0'
-ExecStart=/usr/bin/openbox
+# A real desktop, not a bare window manager.
+#
+# openbox draws window frames and nothing else — no panel, no desktop, no file
+# manager, no way back to a window you sent behind another. Someone opening the
+# screen reasonably expects the furniture a computer has. Note a cloud image of
+# Debian or Ubuntu ships NO desktop at all, so this has to be installed; it does
+# not come with one.
+#
+# xfce4-session needs a session bus, hence dbus-launch. Falls back to openbox so
+# a server whose package install failed still has a usable window manager
+# instead of a display with nothing managing it.
+ExecStart=/bin/sh -c 'if command -v xfce4-session >/dev/null; then exec dbus-launch --exit-with-session xfce4-session; else exec openbox; fi'
 Restart=always
 RestartSec=2
 

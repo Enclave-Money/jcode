@@ -185,6 +185,16 @@ pub enum Input {
     Key(String),
     /// Wheel up (negative) or down (positive), in clicks.
     Scroll(i32),
+    /// Press a button at (x, y) and HOLD it.
+    ///
+    /// Dragging a window, selecting text and moving a slider all need the
+    /// press and the release held apart with movement in between. `Click`
+    /// cannot express any of them: xdotool's `click` presses and releases in
+    /// one go, so before this the desktop could be clicked but nothing on it
+    /// could be dragged.
+    MouseDown { x: u32, y: u32, button: u8 },
+    /// Release a held button.
+    MouseUp { button: u8 },
 }
 
 /// The screen size a client's coordinates are relative to, so a click on a
@@ -228,6 +238,16 @@ pub fn send_input(user: &str, input: &Input) -> Result<()> {
         // `type --` so text beginning with a dash is typed, not parsed as a flag.
         Input::Text(text) => vec!["type".into(), "--".into(), text.clone()],
         Input::Key(key) => vec!["key".into(), "--".into(), key.clone()],
+        Input::MouseDown { x, y, button } => vec![
+            "mousemove".into(),
+            x.to_string(),
+            y.to_string(),
+            "mousedown".into(),
+            button.clamp(&1, &3).to_string(),
+        ],
+        Input::MouseUp { button } => {
+            vec!["mouseup".into(), button.clamp(&1, &3).to_string()]
+        }
         Input::Scroll(amount) => {
             // xdotool has no scroll: buttons 4 and 5 ARE the wheel.
             let button = if *amount < 0 { "4" } else { "5" };
@@ -279,6 +299,18 @@ mod input_tests {
         assert_eq!((x, y), (DESKTOP_WIDTH, DESKTOP_HEIGHT));
         // A zero width must not divide by zero.
         assert_eq!(to_desktop(10, 10, 0), (10, 10));
+    }
+
+    /// A drag is three events, not one: without a held press the window
+    /// manager sees a click and the window never moves.
+    #[test]
+    fn a_drag_presses_moves_and_releases_separately() {
+        let down = Input::MouseDown { x: 10, y: 20, button: 1 };
+        let up = Input::MouseUp { button: 1 };
+        assert!(matches!(down, Input::MouseDown { button: 1, .. }));
+        assert!(matches!(up, Input::MouseUp { button: 1 }));
+        // A click is still one event, so nothing about tapping changes.
+        assert!(matches!(Input::Click { x: 1, y: 1, button: 1 }, Input::Click { .. }));
     }
 
     #[test]
