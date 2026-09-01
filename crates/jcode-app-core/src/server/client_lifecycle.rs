@@ -464,6 +464,16 @@ pub(super) async fn handle_client(
         }
     };
 
+    // Stateless one-shots that need no session, handled before the subscribe
+    // gate. vault_index_sync just writes a file in this room's home; requiring a
+    // subscribe first would reject the dedicated sync connection the client
+    // opens, which is exactly what silently dropped every index write.
+    if let Request::VaultIndexSync { id, entries } = &initial_request {
+        crate::server::client_actions::write_vault_index(entries);
+        write_direct_event(&writer, &ServerEvent::Done { id: *id }).await?;
+        return Ok(());
+    }
+
     let initial_working_dir = match initial_subscribe_working_dir(&initial_request) {
         Ok(working_dir) => working_dir,
         Err(message) => {

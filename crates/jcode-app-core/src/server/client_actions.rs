@@ -1119,11 +1119,10 @@ pub(super) async fn handle_stdin_response(
 /// Persist the teammate's login index in this room's home. Written as the room
 /// user (this daemon IS the room user), 0600, holding no secrets — the browser
 /// tool reads it to know which origins can be filled. An empty list deletes it.
-pub(super) fn handle_vault_index_sync(
-    id: u64,
-    entries: serde_json::Value,
-    client_event_tx: &mpsc::UnboundedSender<ServerEvent>,
-) {
+/// The pure write; callers reply Done. Split out so the client loop can also
+/// service this as a stateless first request, before the subscribe gate — it
+/// needs no session.
+pub(super) fn write_vault_index(entries: &serde_json::Value) {
     let dir = std::env::var("JCODE_HOME")
         .map(std::path::PathBuf::from)
         .unwrap_or_else(|_| {
@@ -1149,6 +1148,14 @@ pub(super) fn handle_vault_index_sync(
             }
         }
     }
+}
+
+pub(super) fn handle_vault_index_sync(
+    id: u64,
+    entries: serde_json::Value,
+    client_event_tx: &mpsc::UnboundedSender<ServerEvent>,
+) {
+    write_vault_index(&entries);
     let _ = client_event_tx.send(ServerEvent::Done { id });
 }
 
