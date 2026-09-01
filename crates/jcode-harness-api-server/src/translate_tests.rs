@@ -1837,3 +1837,74 @@ fn a_connection_with_no_identity_sees_nothing() {
     };
     assert!(!BridgeState::account_is_visible(&account, None, false));
 }
+
+/// A fill_login approval crosses the bridge as a clean FillApproval event with
+/// no secret, and an ordinary shell password prompt is dropped as before.
+#[test]
+fn stdin_request_becomes_a_fill_approval_only_for_fill_envelopes() {
+    let mut state = BridgeState::default();
+    let envelope = serde_json::json!({
+        "blaude_fill": {
+            "origin": "https://vercel.com",
+            "candidates": [{ "item_id": "op://v/1", "username": "a@b.com", "has_totp": true }],
+        }
+    })
+    .to_string();
+    let frames = state.legacy_event_to_api(&serde_json::json!({
+        "type": "stdin_request",
+        "request_id": "fill-xyz",
+        "prompt": envelope,
+        "is_password": true,
+    }));
+    let json = serde_json::to_string(&frames).unwrap();
+    assert!(json.contains("fill_approval"), "should surface a fill_approval event: {json}");
+    assert!(json.contains("https://vercel.com"));
+    assert!(json.contains("fill-xyz"));
+
+    // A normal password prompt from a shell command is not an API event.
+    let plain = state.legacy_event_to_api(&serde_json::json!({
+        "type": "stdin_request",
+        "request_id": "r1",
+        "prompt": "Password: ",
+        "is_password": true,
+    }));
+    assert!(plain.is_empty(), "a non-fill stdin request must be dropped");
+}
+
+/// The teammate's answer becomes a stdin_response carrying the credential in
+/// its input envelope — the in-memory channel to the waiting tool.
+#[test]
+fn fill_credentials_answer_becomes_a_stdin_response() {
+    let mut state = BridgeState::default();
+    let out = state.api_request_to_legacy(&serde_json::json!({
+        "req": "fill_credentials",
+        "id": 5,
+        "request_id": "fill-xyz",
+        "username": "a@b.com",
+        "password": "CANARY-secret",
+        "item_id": "op://v/1",
+        "totp": "424242",
+    }));
+    // One legacy stdin_response (to the daemon) and one Ok reply (to the app).
+    let legacy = out.iter().find_map(|o| match o {
+        Outbound::Legacy(v) => Some(v.clone()),
+        _ => None,
+    }).expect("a legacy stdin_response");
+    assert_eq!(legacy["type"], "stdin_response");
+    assert_eq!(legacy["request_id"], "fill-xyz");
+    let input: serde_json::Value = serde_json::from_str(legacy["input"].as_str().unwrap()).unwrap();
+    assert_eq!(input["password"], "CANARY-secret");
+    assert_eq!(input["totp"], "424242");
+
+    // A denial carries no credential at all.
+    let deny = state.api_request_to_legacy(&serde_json::json!({
+        "req": "fill_deny", "id": 6, "request_id": "fill-xyz",
+    }));
+    let legacy = deny.iter().find_map(|o| match o {
+        Outbound::Legacy(v) => Some(v.clone()),
+        _ => None,
+    }).unwrap();
+    let input: serde_json::Value = serde_json::from_str(legacy["input"].as_str().unwrap()).unwrap();
+    assert_eq!(input["denied"], true);
+    assert!(input.get("password").is_none());
+}

@@ -744,6 +744,42 @@ impl BridgeState {
                     "content": request["content"].as_str().unwrap_or(""),
                 }))]
             }
+            // The teammate's answer to a FillApproval. It rides the daemon's
+            // stdin-response path — the same in-memory channel a shell password
+            // prompt uses — so the credential reaches the waiting fill_login
+            // tool without ever touching disk. `input` is a JSON envelope the
+            // tool parses; for `fill_credentials` it carries the secret, which
+            // is why the request logging below redacts these verbs.
+            "fill_credentials" | "fill_deny" | "fill_needs_human" => {
+                let request_id = request["request_id"].as_str().unwrap_or("").to_string();
+                let input = match req {
+                    "fill_deny" => json!({ "denied": true }),
+                    "fill_needs_human" => json!({ "needs_human": true }),
+                    _ => {
+                        let mut env = json!({
+                            "username": request["username"].as_str().unwrap_or(""),
+                            "password": request["password"].as_str().unwrap_or(""),
+                            "item_id": request["item_id"].as_str().unwrap_or(""),
+                        });
+                        if let Some(totp) = request["totp"].as_str() {
+                            if !totp.is_empty() {
+                                env["totp"] = json!(totp);
+                            }
+                        }
+                        env
+                    }
+                };
+                let id = self.legacy_id();
+                vec![
+                    Outbound::Legacy(json!({
+                        "type": "stdin_response",
+                        "id": id,
+                        "request_id": request_id,
+                        "input": input.to_string(),
+                    })),
+                    Outbound::Reply(ServerFrame::reply(api_id, ApiEvent::Ok)),
+                ]
+            }
             "soft_interrupt" => {
                 let id = self.legacy_id();
                 self.pending_simple.push((id, api_id, SimpleKind::Ok));
@@ -1674,6 +1710,29 @@ impl BridgeState {
                     Some(api_id) => ServerFrame::reply(api_id, frame_event),
                     None => ServerFrame::event(frame_event),
                 }]
+            }
+            // A tool asking for stdin. The only kind the API surfaces is a
+            // fill_login approval, recognised by a JSON prompt carrying a
+            // `blaude_fill` envelope; it becomes a clean FillApproval event
+            // (no secret in it). Every other stdin request — an ordinary
+            // password prompt from a shell command — is not part of the API
+            // surface and is dropped, exactly as before.
+            "stdin_request" => {
+                let request_id = event["request_id"].as_str().unwrap_or("").to_string();
+                let prompt = event["prompt"].as_str().unwrap_or("");
+                match serde_json::from_str::<Value>(prompt) {
+                    Ok(envelope) if envelope.get("blaude_fill").is_some() => {
+                        let fill = &envelope["blaude_fill"];
+                        vec![ServerFrame::event(ApiEvent::FillApproval {
+                            fill: serde_json::json!({
+                                "request_id": request_id,
+                                "origin": fill.get("origin").cloned().unwrap_or(Value::Null),
+                                "candidates": fill.get("candidates").cloned().unwrap_or(Value::Array(vec![])),
+                            }),
+                        })]
+                    }
+                    _ => vec![],
+                }
             }
             // Everything else on the legacy stream is not part of the stable
             // API surface yet; drop it.

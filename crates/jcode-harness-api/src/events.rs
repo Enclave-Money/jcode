@@ -73,6 +73,14 @@ pub enum ApiEvent {
     /// worth an ICE stack, a TURN server and an open UDP port.
     ScreenVideo { video: serde_json::Value },
 
+    /// The agent's browser hit a login for a site the teammate has saved
+    /// credentials for, and wants to sign in without the agent seeing the
+    /// password. Carries NO secret: `{ request_id, origin, candidates:[{
+    /// item_id, username, has_totp }] }`. The client answers with
+    /// `fill_credentials` (the credential, which never lands on disk or in a
+    /// log), `fill_deny`, or `fill_needs_human`, all keyed by `request_id`.
+    FillApproval { fill: serde_json::Value },
+
     /// One create-team provisioning record: `{ job_id, stage, done, error?,
     /// name?, ws_url?, token?, ca_pem? }`. `stage` is a plain-words progress
     /// line; the endpoint fields are set when `done` without `error`.
