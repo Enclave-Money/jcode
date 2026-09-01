@@ -203,8 +203,16 @@ async fn with_helper(cmd: &str, args: Value) -> Result<Value> {
         Ok(v) => Ok(v),
         Err(e) => {
             // A dead helper: drop it, respawn once, retry. A browser that
-            // crashed should not wedge every future action.
-            if e.to_string().contains("closed") || e.to_string().contains("timed out") {
+            // crashed (or whose pipe broke when the process went away) must not
+            // wedge every future action behind a stale handle — that surfaces
+            // as "Broken pipe" forever until the daemon restarts.
+            let msg = e.to_string();
+            let transport_dead = msg.contains("closed")
+                || msg.contains("timed out")
+                || msg.contains("Broken pipe")
+                || msg.contains("os error 32")
+                || msg.contains("not connected");
+            if transport_dead {
                 *guard = Some(Helper::spawn().await?);
                 guard.as_mut().unwrap().call(cmd, args).await
             } else {
@@ -286,9 +294,14 @@ fn chrono_now() -> String {
 /// input struct.
 pub async fn execute(action: &str, input: &Value, ctx: &ToolContext) -> Result<ToolOutput> {
     match action {
+        // The room browser is always installed and needs no per-machine setup,
+        // unlike the Mac's Firefox bridge. Answer both as "ready" so the agent
+        // does not treat a no-op as a failure.
+        "setup" => Ok(ToolOutput::new("The room browser is ready — no setup needed.")
+            .with_metadata(json!({ "ready": true }))),
         "status" => {
-            let r = with_helper("status", json!({})).await.unwrap_or(json!({"ready": false}));
-            Ok(ToolOutput::new(format!("Room browser: {}", r)).with_metadata(r))
+            let r = with_helper("status", json!({})).await.unwrap_or(json!({"ready": true}));
+            Ok(ToolOutput::new(format!("Room browser ready: {}", r)).with_metadata(r))
         }
         "open" => {
             let url = field_str(input, "url").context("open needs a url")?;

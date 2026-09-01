@@ -78,6 +78,17 @@ type ChannelSubscriptions = Arc<RwLock<HashMap<String, HashMap<String, HashSet<S
 const RELOAD_STARTING_GUARD_MAX_AGE: Duration = Duration::from_secs(30);
 const REQUEST_HANDLER_STALL_THRESHOLDS_MS: [u64; 3] = [2_000, 10_000, 60_000];
 
+/// The process-wide map of pending stdin requests, keyed by request_id. Shared
+/// by every client connection so a tool's answer reaches it regardless of which
+/// connection carries the answer. See its use in the client loop.
+fn global_stdin_responses(
+) -> Arc<Mutex<HashMap<String, tokio::sync::oneshot::Sender<String>>>> {
+    static G: std::sync::OnceLock<
+        Arc<Mutex<HashMap<String, tokio::sync::oneshot::Sender<String>>>>,
+    > = std::sync::OnceLock::new();
+    G.get_or_init(|| Arc::new(Mutex::new(HashMap::new()))).clone()
+}
+
 fn required_subscribe_working_dir(working_dir: Option<&str>) -> std::result::Result<&str, String> {
     let working_dir = working_dir
         .map(str::trim)
@@ -473,6 +484,19 @@ pub(super) async fn handle_client(
         write_direct_event(&writer, &ServerEvent::Done { id: *id }).await?;
         return Ok(());
     }
+    // A stdin response (e.g. a fill credential) answers a request whose tool is
+    // running on ANOTHER connection's session. It needs no session of its own —
+    // it just hands the answer to the global map by request_id. Requiring a
+    // subscribe first would reject the connection that carries the answer, which
+    // is exactly what left every fill waiting until it timed out.
+    if let Request::StdinResponse { id, request_id, input } = &initial_request {
+        let responses = global_stdin_responses();
+        if let Some(tx) = responses.lock().await.remove(request_id) {
+            let _ = tx.send(input.clone());
+        }
+        write_direct_event(&writer, &ServerEvent::Done { id: *id }).await?;
+        return Ok(());
+    }
 
     let initial_working_dir = match initial_subscribe_working_dir(&initial_request) {
         Ok(working_dir) => working_dir,
@@ -673,8 +697,14 @@ pub(super) async fn handle_client(
         }
     }
 
-    let stdin_responses: Arc<Mutex<HashMap<String, tokio::sync::oneshot::Sender<String>>>> =
-        Arc::new(Mutex::new(HashMap::new()));
+    // PROCESS-GLOBAL, keyed by request_id. A tool's stdin request is answered
+    // by whichever client connection sends the response — and on a team that is
+    // often NOT the connection the tool's turn runs on (spare/re-attached
+    // connections all share the session). A per-connection map silently
+    // orphaned the answer; the fill credential never reached the waiting tool
+    // and every fill timed out. request_ids are unique per call, so one shared
+    // map is correct and collision-free.
+    let stdin_responses = global_stdin_responses();
 
     // Subscribe to bus events so we can forward ModelsUpdated to this client
     // (e.g. when Copilot finishes async init after the initial History was sent)
