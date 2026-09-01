@@ -417,6 +417,30 @@ async fn provision(job_id: String, name: String, region: Option<String>) -> Resu
     .await
     .is_ok();
 
+    // Install the packages AT BOOT, not over ssh three stages later.
+    //
+    // This is the single biggest thing standing between "create a team" and a
+    // usable server: ~2 minutes of apt that needs nothing from this Mac. Run
+    // from ssh it was pure wall clock, with the VM sitting idle through the
+    // instance create and the 130MB binary copy first. As a startup-script it
+    // begins the moment the guest boots, so most of it is already done by the
+    // time the first ssh connects. The setup stage waits on the marker.
+    //
+    // Best effort by design: if the guest agent never runs this, the setup
+    // stage sees no marker and installs the packages itself.
+    let boot_script = format!(
+        r#"#!/bin/bash
+exec >>/var/log/blaude-boot.log 2>&1
+set -x
+{packages}
+touch /var/lib/blaude-apt.done
+"#,
+        packages = package_install_snippet(),
+    );
+    let boot_path = std::env::temp_dir().join(format!("{instance}-boot.sh"));
+    let boot_arg = format!("startup-script={}", boot_path.display());
+    let booted = std::fs::write(&boot_path, &boot_script).is_ok();
+
     let mut create_args: Vec<&str> = vec![
         "compute",
         "instances",
@@ -443,10 +467,13 @@ async fn provision(job_id: String, name: String, region: Option<String>) -> Resu
     if reserved {
         create_args.extend_from_slice(&["--address", &address_name]);
     }
+    if booted {
+        create_args.extend_from_slice(&["--metadata-from-file", &boot_arg]);
+    }
 
-    run(&gcloud, &create_args, None)
-        .await
-        .map_err(|e| format!("Could not create the server: {e}"))?;
+    let created = run(&gcloud, &create_args, None).await;
+    let _ = std::fs::remove_file(&boot_path);
+    created.map_err(|e| format!("Could not create the server: {e}"))?;
 
     let ip = run(
         &gcloud,
@@ -631,22 +658,21 @@ chmod +x "$H/blaude"
 [ -f "$H/blaude-tools" ] && chmod +x "$H/blaude-tools"
 [ -f "$H/clerk.env" ] && {{ mv "$H/clerk.env" "$H/.jcode/clerk.env"; chmod 600 "$H/.jcode/clerk.env"; }}
 [ -f "$H/blaude-account.json" ] && {{ mv "$H/blaude-account.json" "$H/.jcode/blaude-account.json"; chmod 600 "$H/.jcode/blaude-account.json"; }}
-# GitHub CLI: Connect GitHub (device flow) needs gh on the runtime.
-if ! command -v gh >/dev/null; then
-  curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | sudo dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg 2>/dev/null
-  echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" | sudo tee /etc/apt/sources.list.d/github-cli.list >/dev/null
-  sudo apt-get update -q >/dev/null 2>&1 || true
-  sudo apt-get install -y -q gh >/dev/null 2>&1 || true
+# The packages were started at BOOT (see the startup-script on the instance),
+# so by now they are usually in. Wait for the marker rather than racing the
+# dpkg lock, and install them here if the guest agent never ran the script —
+# a create must not depend on it.
+for i in $(seq 1 240); do [ -f /var/lib/blaude-apt.done ] && break; sleep 2; done
+if [ ! -f /var/lib/blaude-apt.done ]; then
+  echo "boot install missing; installing inline"
+{packages}
+  sudo touch /var/lib/blaude-apt.done
 fi
+{browser_install}
 # TLS: a REAL Let's Encrypt cert on the VM's sslip.io name, so members join
 # with zero CA files and zero browser warnings. Self-signed only as fallback
 # (LE outage/rate limit) — the job then returns the CA for pinning.
 DOMAIN="{domain}"
-sudo apt-get update -q >/dev/null 2>&1 || true
-sudo apt-get install -y -q certbot >/dev/null 2>&1 || true
-# node runs the gitnexus code-graph indexer that blaude-tools drives; the
-# graph is optional, so a failed install just means no auto-briefing here.
-command -v node >/dev/null || sudo apt-get install -y -q nodejs npm >/dev/null 2>&1 || true
 # 2G swap: gitnexus analyze (node) peaks near an e2-small's entire RAM and
 # the OOM killer takes it without swap (seen live: exit 137). Best-effort.
 if ! grep -q swapfile /etc/fstab 2>/dev/null; then
@@ -742,7 +768,9 @@ UNIT
 sudo systemctl daemon-reload
 sudo systemctl enable --now blaude-daemon.service blaude-bridge.service
 echo SETUP_OK
-"#
+"#,
+        browser_install = browser_helper_install_snippet(),
+        packages = package_install_snippet(),
     );
     let out = run_remote_script(&gcloud, &cfg.project, &zone, &instance, "setup", &setup, 4)
         .await
@@ -915,24 +943,42 @@ pub async fn delete_team(ws_url: &str) -> Result<Value, String> {
     .map_err(|e| format!("could not delete {instance}: {e}"))?;
 
     // The address outlives the VM it was attached to, and keeps billing.
+    //
+    // RETRIED, because for a few seconds after the instance is gone the
+    // address is still marked in use and the delete fails. One attempt left a
+    // RESERVED, unattached address behind — silently, since nothing acts on
+    // the `address_released: false` this returns — and a reserved address that
+    // is attached to nothing is billed by the hour, forever. Seen live: a test
+    // team deleted cleanly and still cost money afterwards.
     let region = zone.rsplit_once('-').map(|(r, _)| r).unwrap_or(zone);
-    let address_released = run(
-        &gcloud,
-        &[
-            "compute",
-            "addresses",
-            "delete",
-            &format!("{instance}-ip"),
-            "--project",
-            &cfg.project,
-            "--region",
-            region,
-            "--quiet",
-        ],
-        None,
-    )
-    .await
-    .is_ok();
+    let address_name = format!("{instance}-ip");
+    let mut address_released = false;
+    for attempt in 0..6 {
+        if run(
+            &gcloud,
+            &[
+                "compute",
+                "addresses",
+                "delete",
+                &address_name,
+                "--project",
+                &cfg.project,
+                "--region",
+                region,
+                "--quiet",
+            ],
+            None,
+        )
+        .await
+        .is_ok()
+        {
+            address_released = true;
+            break;
+        }
+        if attempt < 5 {
+            tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+        }
+    }
 
     // job_id/stage/done ride along because this reply is carried by the
     // team_create_status event, whose record REQUIRES them. Without them the
@@ -986,6 +1032,55 @@ const BROWSER_HELPER_PKG: &str = include_str!("../../../deploy/browser-helper/pa
 
 /// A bash snippet that stages the browser-helper files (base64, so no quoting
 /// hazard) and runs the installer. Idempotent — safe to run on every create.
+/// Every package a team server needs, in ONE apt transaction.
+///
+/// It used to be five — gh, certbot, node, the screen stack, the desktop —
+/// each re-fetching the package index and each running its own dpkg trigger
+/// pass (fontconfig, mime, desktop-database). Measured on a real create, the
+/// repeated index fetches and trigger runs cost more than the packages.
+///
+/// Shared verbatim by the instance's startup-script and by the setup stage's
+/// fallback, so the two can never drift into installing different servers.
+fn package_install_snippet() -> String {
+    r#"export DEBIAN_FRONTEND=noninteractive
+curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | sudo dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg 2>/dev/null
+echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" | sudo tee /etc/apt/sources.list.d/github-cli.list >/dev/null
+sudo apt-get update -q >/dev/null 2>&1 || true
+# gh for Connect GitHub's device flow; certbot for the real TLS cert; node for
+# the gitnexus indexer blaude-tools drives and for the browser helper; then
+# everything a room's screen is made of — Xvfb to render, ImageMagick to
+# capture, xdotool to click, ffmpeg to stream it.
+sudo apt-get install -y -q gh certbot nodejs npm xvfb x11-utils x11-xserver-utils imagemagick xdotool ffmpeg >/dev/null 2>&1 || true
+# A desktop environment, because a cloud image has none: no panel, no file
+# manager, nothing to click. openbox rides along as the fallback the session
+# unit uses if this install fails. Recommends off — xfce4 with them pulls in
+# several hundred packages nobody in a room will open.
+sudo apt-get install -y -q --no-install-recommends xfce4 xfce4-terminal dbus-x11 openbox >/dev/null 2>&1 || true
+# A clickable browser for whoever opens the room's desktop, pointed at the
+# Chromium the harness downloads anyway. apt's chromium used to be installed
+# too: a SECOND 274MB browser on every server, for the same job. The shim
+# resolves Playwright's versioned path, so upgrading it does not strand the
+# menu entry. Verified on Debian 12: it launches on a room display as the room
+# user with its sandbox on.
+sudo tee /usr/local/bin/chromium >/dev/null <<'SHIM'
+#!/bin/sh
+B=$(ls -d /opt/blaude-browser/ms-playwright/chromium-*/chrome-linux/chrome 2>/dev/null | sort -V | tail -1)
+[ -n "$B" ] || { echo "the browser is still installing" >&2; exit 1; }
+exec "$B" --no-first-run --no-default-browser-check "$@"
+SHIM
+sudo chmod +x /usr/local/bin/chromium
+sudo tee /usr/share/applications/blaude-chromium.desktop >/dev/null <<'DESK'
+[Desktop Entry]
+Type=Application
+Name=Web Browser
+Exec=/usr/local/bin/chromium %U
+Icon=web-browser
+Categories=Network;WebBrowser;
+DESK
+"#
+    .to_string()
+}
+
 fn browser_helper_install_snippet() -> String {
     use base64::Engine as _;
     let b64 = |s: &str| base64::engine::general_purpose::STANDARD.encode(s);
@@ -1006,8 +1101,13 @@ B64P
 base64 -d > "$HOME/browser-helper/install-browser-helper.sh" <<'B64I'
 {}
 B64I
-sudo bash "$HOME/browser-helper/install-browser-helper.sh" "$HOME/browser-helper" >/tmp/browser-helper-install.log 2>&1 || {{
-  echo "BROWSER_HELPER_FAILED"; tail -5 /tmp/browser-helper-install.log; }}
+# Backgrounded, and this is the point of it: ~900MB of download that holds no
+# apt lock and that nothing needs until rooms are provisioned a stage later.
+# It now runs while certbot talks to Let's Encrypt and systemd starts the
+# services, instead of adding its whole download to the wall clock. The rooms
+# stage waits on the marker.
+sudo rm -f /tmp/browser-helper.done
+setsid nohup bash -c 'sudo bash "$0/install-browser-helper.sh" "$0" >/tmp/browser-helper-install.log 2>&1; sudo touch /tmp/browser-helper.done' "$HOME/browser-helper" </dev/null >/dev/null 2>&1 &
 "#,
         b64(BROWSER_HELPER_JS),
         b64(BROWSER_DETECT_JS),
@@ -1109,16 +1209,14 @@ async fn install_rooms(
 H=$HOME
 if [ ! -f "$H/provision-member.sh" ]; then echo "PROVISION_SCRIPT_MISSING"; exit 1; fi
 chmod +x "$H/provision-member.sh"
-sudo apt-get update -q >/dev/null 2>&1 || true
-sudo apt-get install -y -q xvfb x11-utils x11-xserver-utils imagemagick xdotool chromium ffmpeg >/dev/null 2>&1 || true
-# A desktop environment, because a cloud image has none: no panel, no file
-# manager, nothing to click. openbox rides along as the fallback the session
-# unit uses if this install fails.
-sudo apt-get install -y -q --no-install-recommends xfce4 xfce4-terminal dbus-x11 openbox >/dev/null 2>&1 || true
-# The harness-owned browser: Playwright + its Chromium at /opt/blaude-browser,
-# the thing that types a fill into a login form. Without it a room has a
-# screen and input but no browser the harness controls.
-{browser_install}
+# Every package a room needs was installed in the setup stage, and the
+# browser download was kicked off there in the background. Wait for it —
+# normally it finished while certbot was talking to Let's Encrypt and systemd
+# was bringing the services up, so this returns at once. The wait is here so
+# a slow link cannot hand a room a helper that is still half written.
+for i in $(seq 1 150); do [ -f /tmp/browser-helper.done ] && break; sleep 2; done
+grep -q BROWSER_HELPER_OK /tmp/browser-helper-install.log 2>/dev/null || {{
+  echo "BROWSER_HELPER_FAILED"; tail -5 /tmp/browser-helper-install.log 2>/dev/null; }}
 sudo BLAUDE_BIN="$H/blaude" "$H/provision-member.sh" blaude-shared --door-home "$H" >/tmp/rooms-shared.log 2>&1 || {{
   echo "SHARED_ROOM_FAILED"; tail -5 /tmp/rooms-shared.log; exit 1; }}
 OWNER=$(python3 -c "import json,sys;print(json.load(open(sys.argv[1])).get('email',''))" "$H/.jcode/blaude-account.json" 2>/dev/null || echo "")
@@ -1138,8 +1236,7 @@ fi
 # recovered a wedged team.
 sudo systemctl restart blaude-bridge >/dev/null 2>&1 || true
 echo ROOMS_OK
-"#,
-        browser_install = browser_helper_install_snippet(),
+"#
     );
     let out = run_remote_script(gcloud, project, zone, instance, "rooms", &rooms, 2)
         .await
@@ -1254,6 +1351,52 @@ mod delete_tests {
         assert_eq!(ip_of("wss://example.com:443/api"), None);
         assert_eq!(ip_of("not a url"), None);
         assert_eq!(ip_of("wss://localhost:7644/api"), None);
+    }
+
+    /// Packages are installed ONCE, at boot, from a single snippet.
+    ///
+    /// Every clause here is a measured minute. Installing over ssh instead of
+    /// at boot cost ~2 min of pure wall clock with the VM idle; splitting it
+    /// across stages re-ran the package index fetch and the dpkg trigger pass
+    /// each time; and apt's chromium was a second 274MB browser doing the job
+    /// Playwright's already does. A create that gets slower again will get
+    /// slower in exactly one of these ways.
+    #[test]
+    fn packages_are_installed_once_at_boot() {
+        let pkgs = super::package_install_snippet();
+        assert_eq!(
+            pkgs.matches("apt-get update").count(),
+            1,
+            "one index fetch, not one per install"
+        );
+        // The INSTALL LINES only — the comment above them names chromium on
+        // purpose, and a check that reads the comments passes vacuously.
+        let installs: String = pkgs
+            .lines()
+            .filter(|l| l.contains("apt-get install"))
+            .collect::<Vec<_>>()
+            .join(" ");
+        assert!(!installs.is_empty(), "nothing is being installed at all");
+        assert!(
+            !installs.contains(" chromium "),
+            "apt's chromium duplicates the Playwright one the shim points at"
+        );
+        assert!(pkgs.contains("/usr/local/bin/chromium"), "the shim must exist");
+
+        let src = include_str!("team_create_jobs.rs");
+        let rooms = src
+            .split("let rooms = format!(")
+            .nth(1)
+            .and_then(|s| s.split("\"#").next())
+            .expect("rooms script");
+        assert!(
+            !rooms.contains("apt-get"),
+            "the rooms stage must install nothing — it waits for the boot install"
+        );
+        assert!(
+            rooms.contains("/tmp/browser-helper.done"),
+            "the rooms stage must wait for the backgrounded browser install"
+        );
     }
 
     /// The region for releasing the address is the zone minus its letter.
