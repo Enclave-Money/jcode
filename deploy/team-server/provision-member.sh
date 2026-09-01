@@ -375,10 +375,26 @@ UNIT
 # their account); a member's room gets only the accounts they added.
 install -m 0755 /dev/stdin /usr/local/bin/blaude-sync-room-auth <<'SYNC'
 #!/usr/bin/env python3
-import json, os, pwd, shutil, subprocess, sys
+"""Keep every room's AI credentials in step with the door's.
+
+Copying the door's copy over each room UNCONDITIONALLY was wrong. OAuth access
+tokens expire, and each room's daemon refreshes on its own; the next sync then
+replaced the token a room had just refreshed with the door's stale one, so the
+room refreshed again, and so did every other room holding the same account.
+Anthropic rate-limited the refresh endpoint and every room reported "your
+Claude sign-in is not usable" at once.
+
+So this reconciles rather than overwrites: for each account, whichever copy has
+the furthest-out expiry wins, and that copy is written back to the door and out
+to the rooms. Files are only rewritten when they would actually change, which
+matters because a path unit watches them and an unconditional write would
+retrigger this forever.
+"""
+import json, os, pwd, sys
 
 DOOR_HOME = sys.argv[1] if len(sys.argv) > 1 else "/home/sumermalhotra"
 SHARED = "blaude-shared"
+LISTS = ("anthropic_accounts", "openai_accounts")
 
 def load(path):
     try:
@@ -387,38 +403,92 @@ def load(path):
     except Exception:
         return None
 
-auth = load(os.path.join(DOOR_HOME, ".jcode", "auth.json"))
+def expiry(account):
+    for key in ("expires", "expires_at", "expiresAt"):
+        value = account.get(key)
+        if isinstance(value, (int, float)):
+            return value
+    return 0
+
+door_path = os.path.join(DOOR_HOME, ".jcode", "auth.json")
+auth = load(door_path)
 if not auth:
     sys.exit(0)
-accounts = auth.get("anthropic_accounts") or []
 members = load(os.path.join(DOOR_HOME, ".jcode", "member-users.json")) or {}
 
-targets = {SHARED: accounts}
-for email, user in members.items():
-    targets[user] = [a for a in accounts if a.get("added_by") == email]
-
-for user, mine in targets.items():
+rooms = [SHARED] + list(members.values())
+homes = {}
+for user in dict.fromkeys(rooms):
     try:
-        entry = pwd.getpwnam(user)
+        homes[user] = pwd.getpwnam(user)
     except KeyError:
         continue
+
+# Freshest copy of each account, across the door and every room.
+best = {}
+def consider(store):
+    for key in LISTS:
+        for account in (store.get(key) or []):
+            label = account.get("label")
+            if not label:
+                continue
+            current = best.get((key, label))
+            if current is None or expiry(account) > expiry(current):
+                best[(key, label)] = account
+
+consider(auth)
+for user, entry in homes.items():
+    room = load(os.path.join(entry.pw_dir, ".jcode", "auth.json"))
+    if room:
+        consider(room)
+
+def freshest(key, accounts):
+    return [best.get((key, a.get("label")), a) for a in accounts]
+
+def write_if_changed(path, payload, uid, gid):
+    if load(path) == payload:
+        return False
+    tmp = path + ".tmp"
+    with open(tmp, "w") as handle:
+        json.dump(payload, handle, indent=2)
+    os.chmod(tmp, 0o600)
+    os.chown(tmp, uid, gid)
+    os.replace(tmp, path)
+    return True
+
+# The door first, so it holds the freshest tokens for the next run.
+door = dict(auth)
+for key in LISTS:
+    door[key] = freshest(key, auth.get(key) or [])
+if write_if_changed(door_path, door, os.stat(door_path).st_uid, os.stat(door_path).st_gid):
+    print("refreshed the door's own copy")
+
+owner_of = {user: email for email, user in members.items()}
+for user, entry in homes.items():
     store = os.path.join(entry.pw_dir, ".jcode")
     if not os.path.isdir(store):
         continue
-    out = dict(auth)
-    out["anthropic_accounts"] = mine
-    if mine:
-        out["active_anthropic_account"] = mine[0].get("label")
+    out = dict(door)
+    for key in LISTS:
+        accounts = door.get(key) or []
+        # The shared room runs the team's work, so it may use any account. A
+        # member's own room gets only what that member added.
+        if user != SHARED:
+            email = owner_of.get(user)
+            accounts = [a for a in accounts if a.get("added_by") == email]
+        out[key] = accounts
+    anthropic = out.get("anthropic_accounts") or []
+    if anthropic:
+        # The account that can actually be used, not merely the first one.
+        # Picking [0] handed a room an account whose token had expired while a
+        # perfectly good one sat next to it in the same list, and every turn in
+        # that room failed with "your Claude sign-in is not usable" — with the
+        # refresh endpoint rate-limited, so it could not recover on its own.
+        out["active_anthropic_account"] = max(anthropic, key=expiry).get("label")
     else:
         out.pop("active_anthropic_account", None)
-    path = os.path.join(store, "auth.json")
-    tmp = path + ".tmp"
-    with open(tmp, "w") as handle:
-        json.dump(out, handle, indent=2)
-    os.chmod(tmp, 0o600)
-    os.chown(tmp, entry.pw_uid, entry.pw_gid)
-    os.replace(tmp, path)
-    print(f"synced {len(mine)} account(s) to {user}")
+    if write_if_changed(os.path.join(store, "auth.json"), out, entry.pw_uid, entry.pw_gid):
+        print(f"synced {len(anthropic)} account(s) to {user}")
 SYNC
 
 cat > /etc/systemd/system/blaude-sync-room-auth.service <<UNIT
@@ -445,7 +515,25 @@ WantedBy=multi-user.target
 UNIT
 
 systemctl daemon-reload
+# A timer as well as the path unit. The path unit only watches the DOOR's
+# store, so a token refreshed inside a ROOM would otherwise sit there unseen;
+# with newest-wins reconciliation a periodic pass is enough to spread it, and
+# cheap because an unchanged file is not rewritten.
+cat > /etc/systemd/system/blaude-sync-room-auth.timer <<UNIT
+[Unit]
+Description=spread refreshed AI credentials between rooms
+
+[Timer]
+OnBootSec=60
+OnUnitActiveSec=60
+AccuracySec=10
+
+[Install]
+WantedBy=timers.target
+UNIT
+
 systemctl enable --now blaude-sync-room-auth.path >/dev/null 2>&1
+systemctl enable --now blaude-sync-room-auth.timer >/dev/null 2>&1
 systemctl start blaude-sync-room-auth.service >/dev/null 2>&1
 
 # Build a member's room the moment they accept an invitation.
