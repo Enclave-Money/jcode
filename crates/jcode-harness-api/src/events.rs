@@ -57,6 +57,22 @@ pub enum ApiEvent {
     /// far less than the second transport a binary channel would need.
     ScreenFrame { screen: serde_json::Value },
 
+    /// A chunk of H.264 from the room's screen: `{ chunk, seq, codec, width,
+    /// height }`, `chunk` base64 Annex-B.
+    ///
+    /// Stills on a timer could never show a video playing or a page scrolling:
+    /// each frame is a fresh JPEG of the whole screen, so the frame rate is
+    /// bounded by bandwidth. H.264 sends only what changed, which is how 20fps
+    /// costs about a third of what 2fps of stills did.
+    ///
+    /// It rides this same NDJSON connection rather than a WebRTC peer
+    /// connection because the transport is already authenticated and already
+    /// reaches through the firewall on 443. WebRTC's advantages here would be
+    /// NAT traversal and congestion control; the server has a public address
+    /// and clients dial out, so the first does not apply, and the second is not
+    /// worth an ICE stack, a TURN server and an open UDP port.
+    ScreenVideo { video: serde_json::Value },
+
     /// One create-team provisioning record: `{ job_id, stage, done, error?,
     /// name?, ws_url?, token?, ca_pem? }`. `stage` is a plain-words progress
     /// line; the endpoint fields are set when `done` without `error`.

@@ -95,6 +95,8 @@ export type ApiRequest =
    * render across the link.
    */
   | { req: "screen_frame"; max_width?: number }
+  | { req: "screen_stream_start" }
+  | { req: "screen_stream_stop" }
   /**
    * A click, key or scroll into the room's desktop. Coordinates are in the
    * frame the user was looking at; send `frame_width` so a click on a
@@ -183,6 +185,7 @@ export type ApiEvent =
    * box, not a failure — hide the control rather than offer one that fails.
    */
   | { ev: "screen_frame"; screen: unknown }
+  | { ev: "screen_video"; video: unknown }
   | { ev: "team_create_status"; status: unknown }
   | { ev: "github_status"; status: unknown }
   | { ev: "blaude_account"; account?: unknown }
@@ -376,6 +379,8 @@ export const KNOWN_EVENT_KINDS = [
   "member_invited",
   "screen_frame",
   "screen_input",
+  "screen_stream_start",
+  "screen_stream_stop",
   "team_create_status",
   "github_status",
   "blaude_account",
@@ -455,6 +460,7 @@ export const KNOWN_REQUEST_KINDS = [
   "revoke_member",
   "list_accounts",
   "screen_frame",
+  "screen_video",
   "set_active_account",
   "archive_session",
   "restore_session",

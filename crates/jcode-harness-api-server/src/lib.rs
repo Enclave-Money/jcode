@@ -34,6 +34,7 @@ pub mod screen;
 pub mod team_access;
 pub mod team_create_jobs;
 pub mod translate;
+pub mod video;
 pub mod ws;
 
 use anyhow::{Context, Result};
@@ -517,8 +518,36 @@ where
         }));
     permission_poll.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
     let mut announced_permissions: std::collections::HashSet<String> = Default::default();
+    // The live video encoder for this connection, if one was asked for.
+    // Held here rather than globally so it dies with the client that wanted
+    // it: an encoder nobody is watching still burns a core.
+    let mut video_stream: Option<video::Stream> = None;
+    let mut video_out: Option<tokio::process::ChildStdout> = None;
+    let mut video_seq: u64 = 0;
     loop {
         tokio::select! {
+            // Encoded video, pushed as it is produced. `pending()` when no
+            // stream is running parks this arm forever, which is how an
+            // optional branch lives in a select without a second loop.
+            Some(chunk) = async {
+                match video_out.as_mut() {
+                    Some(out) => video::read_chunk(out).await,
+                    None => std::future::pending().await,
+                }
+            } => {
+                use base64::Engine as _;
+                video_seq += 1;
+                let frame = ServerFrame::event(ApiEvent::ScreenVideo {
+                    video: serde_json::json!({
+                        "chunk": base64::engine::general_purpose::STANDARD.encode(&chunk),
+                        "seq": video_seq,
+                        "codec": "h264",
+                        "width": video_stream.as_ref().map(|s| s.width).unwrap_or(video::STREAM_WIDTH),
+                        "height": video_stream.as_ref().map(|s| s.height).unwrap_or(video::STREAM_HEIGHT),
+                    }),
+                });
+                write_json_line(&mut write_half, &frame).await?;
+            }
             // The watch firing and the safety-net tick mean the same thing,
             // "re-read the queue", so they resolve into ONE arm. Splitting them
             // would need the drain body duplicated.
@@ -1018,6 +1047,53 @@ where
                         ServerFrame::reply(api_id, ApiEvent::ScreenFrame {
                             screen: serde_json::json!({ "attached": true, "sync_requested": ok }),
                         })
+                    };
+                    write_json_line(&mut write_half, &frame).await?;
+                    continue;
+                }
+                if matches!(request["req"].as_str(), Some("screen_stream_start") | Some("screen_stream_stop")) {
+                    let api_id = request["id"].as_u64().unwrap_or(0);
+                    let stopping = request["req"].as_str() == Some("screen_stream_stop");
+                    let screen_user = match room {
+                        crate::rooms::Room::Shared => crate::rooms::SHARED_USER.to_string(),
+                        crate::rooms::Room::Mine => {
+                            crate::rooms::unix_user_for(identity.as_deref(), &crate::rooms::door_home())
+                                .unwrap_or_else(|| crate::rooms::SHARED_USER.to_string())
+                        }
+                    };
+                    let frame = if stopping {
+                        video_out = None;
+                        video_stream = None;
+                        ServerFrame::reply(api_id, ApiEvent::ScreenVideo {
+                            video: serde_json::json!({ "streaming": false }),
+                        })
+                    } else {
+                        // Restart rather than refuse: a client that reconnects
+                        // must not be told the stream it can no longer see is
+                        // already running.
+                        video_out = None;
+                        video_stream = None;
+                        match video::start(&screen_user) {
+                            Ok((stream, out)) => {
+                                let (width, height) = (stream.width, stream.height);
+                                video_stream = Some(stream);
+                                video_out = Some(out);
+                                video_seq = 0;
+                                ServerFrame::reply(api_id, ApiEvent::ScreenVideo {
+                                    video: serde_json::json!({
+                                        "streaming": true,
+                                        "codec": "h264",
+                                        "width": width,
+                                        "height": height,
+                                        "fps": video::STREAM_FPS,
+                                    }),
+                                })
+                            }
+                            Err(error) => ServerFrame::reply(api_id, ApiEvent::Error {
+                                code: ErrorCode::Internal,
+                                message: format!("{error:#}"),
+                            }),
+                        }
                     };
                     write_json_line(&mut write_half, &frame).await?;
                     continue;
