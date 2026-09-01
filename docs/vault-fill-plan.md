@@ -1,8 +1,37 @@
 # Vault Fill — coding plan
 
-Status: **plan for review, nothing implemented.** Grounded in blaude-agent and
-blaude-native as of 1 Sep 2026 (harness df06db9, app 0.2.83). Every claim about
-existing code below was checked against the source, not remembered.
+Status: **BUILT and proven end-to-end (1 Sep 2026), except the device-flow relay.**
+Grounded in blaude-agent and blaude-native. Every claim below was checked against
+the source, not remembered.
+
+## What shipped
+
+Layers 1–6 + the Mac app + tests are done and verified on the live team server:
+the harness-owned room browser (Playwright over stdio), `fill_login` with the
+approval flow over the in-memory stdin channel, index sync, the atomic
+fill-and-submit, log redaction, and the full Mac app (settings, op integration,
+approval card, allow list, audit). Proven with a fixture login in a real room:
+silent allow-listed fill, asked+approved fill, deny, and shared-room refusal all
+worked, the credential reached the fixture (positive control), and it leaked
+nowhere — journald, room `.jcode`, audit, app.log, QA state, or the agent
+transcript. Tests: helper 16, room_browser 4, translate 66 incl. a
+non-vacuous credential canary; full workspace suite green.
+
+**One architecture change from the plan below:** the credential rides the
+EXISTING stdin request/response channel (in-memory, tool ↔ daemon ↔ bridge ↔
+app), not the approvals queue file §2/§0 sketched — strictly better, because it
+never touches disk. The bridge translates the fill-flavored stdin_request into a
+clean `FillApproval` event and the app's `fill_credentials` back into a
+stdin_response.
+
+**Not built — §3 device-flow relay** (gh/vercel/gcloud). gh already ships
+(`github_auth_jobs.rs`). vercel/gcloud need per-tool parsing of their real
+interactive output (gcloud on a GCE VM prompts before the URL; vercel isn't
+installed), which won't be shipped from guessed formats. The one remaining item.
+
+---
+
+## Original plan (below)
 
 This is one deliverable; the build sequence at the end is dependency order for
 correctness, not a staged release.
