@@ -107,6 +107,20 @@ struct Helper {
     next_id: u64,
 }
 
+/// Where the helper's stderr goes: one appended log per room, in the room's
+/// own JCODE_HOME so a teammate can never read another room's browser trace.
+fn log_file() -> Option<std::fs::File> {
+    let dir = std::env::var("JCODE_HOME")
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|_| dirs::home_dir().unwrap_or_default().join(".jcode"));
+    let _ = std::fs::create_dir_all(&dir);
+    std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(dir.join("room-browser.log"))
+        .ok()
+}
+
 impl Helper {
     async fn spawn() -> Result<Self> {
         let user = current_user().context("no Unix user for the room browser")?;
@@ -130,7 +144,12 @@ impl Helper {
             .env("BLAUDE_BROWSER_PROFILE", &profile)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
-            .stderr(Stdio::null())
+            // The helper's own diagnostics — which page it acted on, why a
+            // fill gave up — used to go to /dev/null, which made a sign-in
+            // that silently did nothing impossible to explain from the
+            // server. It never logs a credential (`cmd fill_and_submit
+            // (redacted)`), so keeping it costs nothing.
+            .stderr(log_file().map(Stdio::from).unwrap_or_else(Stdio::null))
             .kill_on_drop(true)
             .spawn()
             .context("spawning the room browser helper (is /opt/blaude-browser installed?)")?;
@@ -368,13 +387,23 @@ async fn fill_login(input: &Value, ctx: &ToolContext) -> Result<ToolOutput> {
         .with_metadata(json!({ "outcome": "unsupported_room" })));
     }
 
-    // Resolve the origin: the caller's, or the current page's.
+    // Resolve the origin — and make sure the browser is actually THERE.
+    //
+    // Taking the origin from the argument alone asked the teammate to approve
+    // a sign-in to a page that was not open. Two things went wrong with that.
+    // The fill then raced the page load and silently did nothing while
+    // reporting "Signed in." And, worse, the credential was typed into
+    // whatever the browser did happen to be showing: approve site A, and if
+    // the page was site B, site B got the password. Opening it first makes the
+    // question and the page the same thing.
     let origin = match field_str(input, "url") {
-        Some(u) => origin_of(u).unwrap_or_else(|| u.to_string()),
-        None => {
-            let hint = with_helper("detect_login", json!({})).await.unwrap_or(json!({}));
-            hint.get("origin").and_then(|v| v.as_str()).unwrap_or("").to_string()
+        Some(u) => {
+            with_helper("open", json!({ "url": u })).await?;
+            live_origin().await.unwrap_or_else(|| {
+                origin_of(u).unwrap_or_else(|| u.to_string())
+            })
         }
+        None => live_origin().await.unwrap_or_default(),
     };
     if origin.is_empty() {
         return Ok(fill_result("no_item", "No origin to sign in to. Open the login page first."));
@@ -439,6 +468,24 @@ async fn fill_login(input: &Value, ctx: &ToolContext) -> Result<ToolOutput> {
         return Ok(fill_result("no_item", "No credential was provided."));
     };
 
+    // The page can move while a person decides. Check it is still the origin
+    // they were shown BEFORE typing anything: an approval is for one site, and
+    // a navigation in between must void it, not redirect the credential.
+    match live_origin().await {
+        Some(now) if now == origin => {}
+        other => {
+            audit(&origin, "origin_changed", item_id);
+            return Ok(fill_result(
+                "origin_changed",
+                &format!(
+                    "The page moved to {} after {origin} was approved, so nothing was typed. \
+                     Open {origin} again and ask.",
+                    other.as_deref().unwrap_or("a blank page")
+                ),
+            ));
+        }
+    }
+
     // Hand the credential to the helper for the single atomic fill. This is the
     // only place it exists in this process, and it never leaves this scope.
     let mut fill_args = json!({ "username": username, "password": password });
@@ -466,6 +513,14 @@ async fn fill_login(input: &Value, ctx: &ToolContext) -> Result<ToolOutput> {
     })))
 }
 
+/// The origin of the page the room browser is ACTUALLY on, asked of the
+/// browser rather than inferred from what the model passed in.
+async fn live_origin() -> Option<String> {
+    let hint = with_helper("detect_login", json!({})).await.ok()?;
+    let url = hint.get("url").and_then(|v| v.as_str())?;
+    origin_of(url)
+}
+
 fn fill_result(outcome: &str, message: &str) -> ToolOutput {
     ToolOutput::new(message).with_metadata(json!({ "outcome": outcome }))
 }
@@ -473,6 +528,36 @@ fn fill_result(outcome: &str, message: &str) -> ToolOutput {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A credential is only ever released for the page the browser is ON.
+    ///
+    /// `fill_login` used to take the origin from the model's argument without
+    /// opening it, so the teammate approved "sign in to A" while the browser
+    /// sat on B — and B got the password. It also meant the fill raced the
+    /// page load and silently did nothing while reporting success. Both are
+    /// the same missing step: open it, then check it again after the human
+    /// answers, because the page can move while they decide.
+    #[test]
+    fn the_approved_origin_must_be_the_live_one() {
+        let src = include_str!("room_browser.rs");
+        let body = src
+            .split("async fn fill_login")
+            .nth(1)
+            .expect("fill_login exists");
+        let ask = body.find("stdin_tx").expect("the approval is requested");
+        let fill = body.find("fill_and_submit").expect("the fill happens");
+        let open = body.find("\"open\"").expect("the page is opened");
+        assert!(open < ask, "the page must be OPEN before a person is asked about it");
+        let recheck = body[ask..fill].find("live_origin");
+        assert!(
+            recheck.is_some(),
+            "the live origin must be re-checked between the approval and the typing"
+        );
+        assert!(
+            body[ask..fill].contains("origin_changed"),
+            "a page that moved after approval must refuse, not redirect the credential"
+        );
+    }
 
     #[test]
     fn origin_is_scheme_host_port() {
