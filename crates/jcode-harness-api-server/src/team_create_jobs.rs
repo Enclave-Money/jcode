@@ -211,10 +211,21 @@ async fn run(bin: &PathBuf, args: &[&str], stdin: Option<&str>) -> Result<String
     let mut child = cmd
         .spawn()
         .map_err(|e| format!("could not run gcloud: {e}"))?;
+    // Write stdin on its OWN task, so output is drained concurrently. Writing
+    // the whole script and only THEN reading stdout deadlocks once the script
+    // is large enough (the browser-helper base64 pushed it past ~27KB): the
+    // parent blocks in write_all while the far-away remote `bash -s` stalls
+    // reading the script, and because the parent isn't reading gcloud's
+    // stdout/stderr, nothing ever drains and both sides wedge. A brand-new
+    // team hung here for 15+ minutes. The writer task lets wait_with_output
+    // read output while the script is still going out.
     if let Some(text) = stdin {
         if let Some(mut pipe) = child.stdin.take() {
-            let _ = pipe.write_all(text.as_bytes()).await;
-            let _ = pipe.shutdown().await;
+            let bytes = text.as_bytes().to_vec();
+            tokio::spawn(async move {
+                let _ = pipe.write_all(&bytes).await;
+                let _ = pipe.shutdown().await;
+            });
         }
     }
     let out = child
