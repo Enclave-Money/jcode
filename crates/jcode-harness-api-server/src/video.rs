@@ -60,6 +60,50 @@ impl Drop for Stream {
     }
 }
 
+/// The whole ffmpeg invocation, capture to encoder.
+///
+/// A function rather than args written inline at the spawn, so the encoding
+/// choices that clients DEPEND on are testable — see `mac_clients_can_decode`.
+fn encoder_args(display: &str) -> Vec<String> {
+    [
+        "-hide_banner",
+        "-loglevel", "error",
+        "-f", "x11grab",
+        "-framerate", &STREAM_FPS.to_string(),
+        "-video_size", &format!("{}x{}", crate::screen::DESKTOP_WIDTH, crate::screen::DESKTOP_HEIGHT),
+        "-i", display,
+        "-vf", &format!("scale={STREAM_WIDTH}:{STREAM_HEIGHT}"),
+        "-c:v", "libx264",
+        // zerolatency stops the encoder buffering frames to look ahead,
+        // which is what would otherwise add half a second between a click
+        // and seeing it land.
+        "-preset", "ultrafast",
+        "-tune", "zerolatency",
+        "-b:v", STREAM_BITRATE,
+        "-pix_fmt", "yuv420p",
+        // A keyframe every second, so a client that joins mid-stream has a
+        // picture within a second instead of waiting for the next scene
+        // change.
+        "-g", &STREAM_FPS.to_string(),
+        // REAL keyframes, and the parameter sets that describe them.
+        //
+        // `-tune zerolatency` turns on periodic intra refresh, which emits
+        // no IDR frames at all — the picture is refreshed by a moving band
+        // of intra blocks instead. ffmpeg copes, but VideoToolbox needs an
+        // IDR to start a decode session, so the Mac client would sit on a
+        // black rectangle forever while the stream was provably fine.
+        // intra-refresh=0 restores IDRs; repeat-headers puts SPS/PPS in
+        // front of each one so a late joiner can start from any keyframe.
+        "-x264-params",
+        &format!("intra-refresh=0:keyint={STREAM_FPS}:min-keyint={STREAM_FPS}:scenecut=0:repeat-headers=1"),
+        "-f", "h264",
+        "-",
+    ]
+    .iter()
+    .map(|s| s.to_string())
+    .collect()
+}
+
 /// Start encoding `user`'s display.
 ///
 /// Returns the process and the stdout it writes Annex-B H.264 to.
@@ -77,40 +121,7 @@ pub fn start(user: &str) -> Result<(Stream, tokio::process::ChildStdout)> {
     let mut child = Command::new("ffmpeg")
         .env("DISPLAY", &display)
         .env("XAUTHORITY", &xauth)
-        .args([
-            "-hide_banner",
-            "-loglevel", "error",
-            "-f", "x11grab",
-            "-framerate", &STREAM_FPS.to_string(),
-            "-video_size", &format!("{}x{}", crate::screen::DESKTOP_WIDTH, crate::screen::DESKTOP_HEIGHT),
-            "-i", &display,
-            "-vf", &format!("scale={STREAM_WIDTH}:{STREAM_HEIGHT}"),
-            "-c:v", "libx264",
-            // zerolatency stops the encoder buffering frames to look ahead,
-            // which is what would otherwise add half a second between a click
-            // and seeing it land.
-            "-preset", "ultrafast",
-            "-tune", "zerolatency",
-            "-b:v", STREAM_BITRATE,
-            "-pix_fmt", "yuv420p",
-            // A keyframe every second, so a client that joins mid-stream has a
-            // picture within a second instead of waiting for the next scene
-            // change.
-            "-g", &STREAM_FPS.to_string(),
-            // REAL keyframes, and the parameter sets that describe them.
-            //
-            // `-tune zerolatency` turns on periodic intra refresh, which emits
-            // no IDR frames at all — the picture is refreshed by a moving band
-            // of intra blocks instead. ffmpeg copes, but VideoToolbox needs an
-            // IDR to start a decode session, so the Mac client would sit on a
-            // black rectangle forever while the stream was provably fine.
-            // intra-refresh=0 restores IDRs; repeat-headers puts SPS/PPS in
-            // front of each one so a late joiner can start from any keyframe.
-            "-x264-params",
-            &format!("intra-refresh=0:keyint={STREAM_FPS}:min-keyint={STREAM_FPS}:scenecut=0:repeat-headers=1"),
-            "-f", "h264",
-            "-",
-        ])
+        .args(encoder_args(&display))
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::null())
@@ -157,15 +168,35 @@ mod tests {
         );
     }
 
-    /// The stream has to describe itself to a client that joins late, which is
-    /// every client: parameter sets before each keyframe, and a keyframe every
-    /// second. Without both, a viewer sees nothing until the encoder happens to
-    /// emit them.
+    /// The encoder settings a Mac client cannot decode without.
+    ///
+    /// `-tune zerolatency` silently switches x264 to periodic intra refresh,
+    /// which emits NO IDR keyframes. ffmpeg decodes such a stream happily, so
+    /// every server-side check passes — but VideoToolbox needs an IDR to open
+    /// a decode session, and the app sits on a black rectangle forever. This
+    /// pins the parameters that force real IDRs (and the SPS/PPS in front of
+    /// each, so a client can start from any keyframe). If this test breaks,
+    /// the stream still "works" everywhere except the one place it is watched.
     #[test]
-    fn the_stream_is_joinable_midway() {
-        assert_eq!(STREAM_FPS, 20);
-        // -g equals the frame rate, i.e. one keyframe per second.
-        assert_eq!(STREAM_FPS.to_string(), "20");
+    fn mac_clients_can_decode() {
+        let args = encoder_args(":99").join(" ");
+        let x264 = args
+            .split("-x264-params ")
+            .nth(1)
+            .expect("x264 params present")
+            .split(' ')
+            .next()
+            .unwrap();
+        assert!(x264.contains("intra-refresh=0"), "IDRs, not intra refresh: {x264}");
+        assert!(x264.contains("repeat-headers=1"), "SPS/PPS before each keyframe: {x264}");
+        assert!(
+            x264.contains(&format!("keyint={STREAM_FPS}")),
+            "a keyframe every second, so a viewer has a picture within one: {x264}"
+        );
+        assert!(x264.contains("scenecut=0"), "keyframes on a clock, not on scene changes: {x264}");
+        // The tune that caused all of the above must still be there — it is
+        // what keeps click-to-glass under a frame or two.
+        assert!(args.contains("-tune zerolatency"), "{args}");
         assert!(STREAM_WIDTH < crate::screen::DESKTOP_WIDTH, "scaled down to stay real-time");
     }
 }

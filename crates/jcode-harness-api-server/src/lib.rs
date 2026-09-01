@@ -529,24 +529,41 @@ where
             // Encoded video, pushed as it is produced. `pending()` when no
             // stream is running parks this arm forever, which is how an
             // optional branch lives in a select without a second loop.
-            Some(chunk) = async {
+            chunk = async {
                 match video_out.as_mut() {
                     Some(out) => video::read_chunk(out).await,
                     None => std::future::pending().await,
                 }
             } => {
-                use base64::Engine as _;
-                video_seq += 1;
-                let frame = ServerFrame::event(ApiEvent::ScreenVideo {
-                    video: serde_json::json!({
-                        "chunk": base64::engine::general_purpose::STANDARD.encode(&chunk),
-                        "seq": video_seq,
-                        "codec": "h264",
-                        "width": video_stream.as_ref().map(|s| s.width).unwrap_or(video::STREAM_WIDTH),
-                        "height": video_stream.as_ref().map(|s| s.height).unwrap_or(video::STREAM_HEIGHT),
-                    }),
-                });
-                write_json_line(&mut write_half, &frame).await?;
+                match chunk {
+                    Some(chunk) => {
+                        use base64::Engine as _;
+                        video_seq += 1;
+                        let frame = ServerFrame::event(ApiEvent::ScreenVideo {
+                            video: serde_json::json!({
+                                "chunk": base64::engine::general_purpose::STANDARD.encode(&chunk),
+                                "seq": video_seq,
+                                "codec": "h264",
+                                "width": video_stream.as_ref().map(|s| s.width).unwrap_or(video::STREAM_WIDTH),
+                                "height": video_stream.as_ref().map(|s| s.height).unwrap_or(video::STREAM_HEIGHT),
+                            }),
+                        });
+                        write_json_line(&mut write_half, &frame).await?;
+                    }
+                    // The encoder stopped on its own — the display went away,
+                    // the process was killed, the room was torn down. Tell the
+                    // client: one that is never told keeps showing its last
+                    // frame as if it were live, which is a frozen screen that
+                    // looks like a working one.
+                    None => {
+                        video_out = None;
+                        video_stream = None;
+                        let frame = ServerFrame::event(ApiEvent::ScreenVideo {
+                            video: serde_json::json!({ "streaming": false }),
+                        });
+                        write_json_line(&mut write_half, &frame).await?;
+                    }
+                }
             }
             // The watch firing and the safety-net tick mean the same thing,
             // "re-read the queue", so they resolve into ONE arm. Splitting them
