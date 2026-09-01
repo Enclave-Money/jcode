@@ -182,7 +182,7 @@ impl Tool for BrowserTool {
                     "status", "setup", "list_tabs", "new_tab", "select_tab", "get_active_tab",
                     "list_frames", "open", "snapshot", "get_content", "interactables", "click", "type",
                     "fill_form", "select", "wait", "screenshot", "eval", "scroll", "upload",
-                    "press", "provider_command"
+                    "press", "provider_command", "fill_login"
                 ],
                 "description": "Action. Check 'status' first; run 'setup' only when the bridge is not ready."
             }),
@@ -280,7 +280,19 @@ impl Tool for BrowserTool {
     }
 
     async fn execute(&self, input: Value, ctx: ToolContext) -> Result<ToolOutput> {
-        let params: BrowserInput = serde_json::from_value(input)?;
+        let params: BrowserInput = serde_json::from_value(input.clone())?;
+
+        // On a team-server room the harness owns a Playwright Chromium on the
+        // room's own display — that is where authed browsing and fill_login
+        // happen, and it is a different browser from the agent's ad-hoc
+        // Playwright so a fill actually lands where the task continues. A Mac
+        // (no room display) keeps the Firefox bridge below.
+        if super::room_browser::is_room_runtime()
+            && params.browser.as_deref().unwrap_or("auto") != "firefox"
+        {
+            return super::room_browser::execute(&params.action, &input, &ctx).await;
+        }
+
         let provider = resolve_provider(params.browser.as_deref())?;
 
         match params.action.as_str() {

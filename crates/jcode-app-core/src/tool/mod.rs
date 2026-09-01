@@ -5,6 +5,7 @@ mod bash;
 mod batch;
 mod bg;
 mod browser;
+mod room_browser;
 mod communicate;
 #[cfg(target_os = "macos")]
 mod computer;
