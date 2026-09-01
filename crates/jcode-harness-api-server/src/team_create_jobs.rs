@@ -1094,6 +1094,14 @@ if [ -n "$OWNER" ]; then
   sudo BLAUDE_BIN="$H/blaude" "$H/provision-member.sh" "$NAME" --email "$OWNER" --door-home "$H" >/tmp/rooms-owner.log 2>&1 || {{
     echo "OWNER_ROOM_FAILED"; tail -5 /tmp/rooms-owner.log; }}
 fi
+# The bridge started at the top of provisioning, BEFORE any room daemon
+# existed. On a fresh team it can wedge in a "daemon unreachable" state and
+# serve only bridge-only verbs — every turn then fails with "the agent daemon
+# is not running", and because the one-shot screen probe fails too, the screen
+# control never appears. Restart it now that every room daemon is up and
+# listening, so it comes up clean. This is exactly the manual restart that
+# recovered a wedged team.
+sudo systemctl restart blaude-bridge >/dev/null 2>&1 || true
 echo ROOMS_OK
 "#,
         browser_install = browser_helper_install_snippet(),
