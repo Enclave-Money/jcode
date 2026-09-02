@@ -196,8 +196,20 @@ fn prepare_ssh_key() {
         .output()
     {
         Ok(out) if out.status.success() => {
-            let _ = std::fs::write(dir.join("google_compute_engine.pub"), out.stdout);
-            tracing::info!("ssh key ready at {}", private.display());
+            let pubkey = String::from_utf8_lossy(&out.stdout).trim().to_string();
+            let _ = std::fs::write(dir.join("google_compute_engine.pub"), &pubkey);
+            // The engine reads these to authorize this exact key, as this
+            // exact user, in the new VM's metadata at create time.
+            let login = env_or("BLAUDE_SSH_LOGIN", "blaude");
+            unsafe {
+                std::env::set_var("BLAUDE_SSH_PUBKEY", &pubkey);
+                // gcloud in metadata mode takes the remote username from the
+                // process login name; as root it cannot pick a usable one.
+                // Pin it so scp/ssh connect as `login`, matching the metadata.
+                std::env::set_var("USER", &login);
+                std::env::set_var("LOGNAME", &login);
+            }
+            tracing::info!("ssh key ready at {} (login {login})", private.display());
         }
         Ok(out) => tracing::warn!(
             "could not derive the public key: {}",

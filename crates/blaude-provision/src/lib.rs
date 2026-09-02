@@ -453,6 +453,24 @@ touch /var/lib/blaude-apt.done
     let boot_arg = format!("startup-script={}", boot_path.display());
     let booted = std::fs::write(&boot_path, &boot_script).is_ok();
 
+    // Authorize the service's SSH key on the box from boot.
+    //
+    // The service reaches the VM with `gcloud compute scp/ssh`. The project
+    // uses metadata SSH keys (not OS Login), and from a root container gcloud
+    // cannot derive a usable login name, so its automatic key push lands under
+    // a name the VM rejects — every copy then fails "Permission denied" and
+    // the create wedges at "Copying blaude onto it". Injecting the login and
+    // key here means the guest agent provisions that exact user before the
+    // first scp, and the container connects as it (its env sets the name).
+    let ssh_meta = std::env::var("BLAUDE_SSH_PUBKEY").ok().and_then(|pubkey| {
+        let pubkey = pubkey.trim().to_string();
+        if pubkey.is_empty() {
+            return None;
+        }
+        let login = std::env::var("BLAUDE_SSH_LOGIN").unwrap_or_else(|_| "blaude".into());
+        Some(format!("ssh-keys={login}:{pubkey}"))
+    });
+
     let mut create_args: Vec<&str> = vec![
         "compute",
         "instances",
@@ -481,6 +499,9 @@ touch /var/lib/blaude-apt.done
     }
     if booted {
         create_args.extend_from_slice(&["--metadata-from-file", &boot_arg]);
+    }
+    if let Some(meta) = &ssh_meta {
+        create_args.extend_from_slice(&["--metadata", meta]);
     }
 
     let created = run(&gcloud, &create_args, None).await;

@@ -61,6 +61,12 @@ RUN apt-get update \
 # on a config write nobody would think to look for.
 ENV HOME=/tmp
 ENV CLOUDSDK_CONFIG=/tmp/gcloud
+# The remote SSH login for gcloud compute scp/ssh. The project uses metadata
+# SSH keys, where gcloud derives the remote username from the process login —
+# and this process is root, which gcloud will not use. Pinning it (the startup
+# code also sets USER/LOGNAME to match) makes the login deterministic, and the
+# engine authorizes this same name in each new VM's metadata.
+ENV BLAUDE_SSH_LOGIN=blaude
 
 COPY --from=build /src/target/release/blaude-provision-api /usr/local/bin/blaude-provision-api
 # The server binaries, where the engine looks for them (BLAUDE_SERVER_BINARY_DIR).
