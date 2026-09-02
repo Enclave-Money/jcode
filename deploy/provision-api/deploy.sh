@@ -140,8 +140,22 @@ gcloud run deploy "$SERVICE" \
   --allow-unauthenticated \
   --timeout 900 \
   --cpu 1 --memory 1Gi \
-  --max-instances 3 \
+  --no-cpu-throttling \
+  --max-instances 1 \
   --quiet
+
+# Those last two are load-bearing, not tuning:
+#
+# no-cpu-throttling — a create runs as a BACKGROUND task after the POST has
+# answered 202, and Cloud Run's default allocates CPU only while a request is
+# in flight. Throttled, the build would inch forward only during the client's
+# 2-second polls and stall the rest of the time.
+#
+# max-instances 1 — jobs live in the process's memory, so a poll that lands on
+# a second instance finds nothing and reads as "job vanished". One instance
+# makes every poll land where the job is. If team creation ever outgrows one
+# instance, the job store moves to something shared; the cap does not just get
+# raised.
 
 URL="$(gcloud run services describe "$SERVICE" --project "$PROJECT" --region "$REGION" \
         --format 'value(status.url)')"

@@ -17,6 +17,11 @@ WORKDIR /src
 COPY Cargo.toml Cargo.lock ./
 COPY crates ./crates
 COPY deploy ./deploy
+# The root package's own source: the `blaude` server binary is a bin target of
+# the workspace ROOT, not of a crate under crates/. Without this the build
+# fails with "can't find bin `blaude`" only at the target-resolution step —
+# after every dependency has already compiled.
+COPY src ./src
 
 # The service AND the server binary it installs on every new VM. Building
 # `blaude` here — the container is the same linux/x86_64 as the team servers —
