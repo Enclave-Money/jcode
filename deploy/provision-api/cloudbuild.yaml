@@ -1,0 +1,33 @@
+# Build the provisioning service image.
+#
+# Explicit, rather than `gcloud run deploy --source .`, because that path only
+# honours a Dockerfile sitting at the ROOT of the source directory. With the
+# Dockerfile one level down it silently fell through to buildpacks, which
+# detected this repo as a Python project (there are .py files under scripts/)
+# and failed asking for a main.py — a confusing way to be told "your
+# Dockerfile was never read".
+#
+# The build context is the repo root because the Dockerfile copies the whole
+# workspace: these crates are members of it, so cargo needs every member's
+# manifest to resolve the graph even though it only compiles a couple.
+
+steps:
+  - name: gcr.io/cloud-builders/docker
+    args:
+      - build
+      - -f
+      - crates/blaude-provision-api/Dockerfile
+      - -t
+      - ${_IMAGE}
+      - .
+
+images:
+  - ${_IMAGE}
+
+options:
+  # A release Rust build of a large workspace. The default machine turns this
+  # into a 30-minute wait for no reason.
+  machineType: E2_HIGHCPU_32
+  logging: CLOUD_LOGGING_ONLY
+
+timeout: 5400s

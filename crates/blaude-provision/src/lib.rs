@@ -100,7 +100,7 @@ fn zone_for_region(region: Option<&str>, default_zone: &str) -> String {
     }
 }
 
-pub fn start(name: &str, region: Option<&str>) -> Value {
+pub fn start(name: &str, region: Option<&str>, owner_email: Option<&str>) -> Value {
     let job_id = new_job_id();
     let record = json!({
         "job_id": job_id,
@@ -113,9 +113,10 @@ pub fn start(name: &str, region: Option<&str>) -> Value {
     }
     let name = name.to_string();
     let region = region.map(str::to_string);
+    let owner_email = owner_email.map(str::to_string);
     tokio::spawn(async move {
         let id = job_id.clone();
-        let work = provision(job_id.clone(), name, region);
+        let work = provision(job_id.clone(), name, region, owner_email);
         match tokio::time::timeout(Duration::from_secs(OVERALL_TIMEOUT_SECS), work).await {
             Ok(Ok(())) => {}
             Ok(Err(message)) => finish_err(&id, message),
@@ -282,7 +283,12 @@ fn slugify(name: &str) -> String {
 // ---------------------------------------------------------------------------
 // the provisioning sequence
 
-async fn provision(job_id: String, name: String, region: Option<String>) -> Result<(), String> {
+async fn provision(
+    job_id: String,
+    name: String,
+    region: Option<String>,
+    owner_email: Option<String>,
+) -> Result<(), String> {
     let Some(gcloud) = gcloud_bin() else {
         return Err(
             "Google Cloud isn't set up on this Mac. Install the gcloud CLI and run \
@@ -507,7 +513,14 @@ touch /var/lib/blaude-apt.done
     // the template server so later teams skip the double copy.
     set_stage(&job_id, "Copying blaude onto it…");
     let home = std::env::var("HOME").map_err(|_| "no HOME".to_string())?;
-    let cache_dir = PathBuf::from(&home).join(".jcode/team-server-cache");
+    // In the provisioning service's container this points at binaries BUILT
+    // INTO THE IMAGE, from the same commit as the service itself. That
+    // retires a whole failure class: the Mac-side cache was only re-pulled
+    // daily, so a same-day cache built before a fix silently shipped the OLD
+    // server to every brand-new team while the fix looked deployed.
+    let cache_dir = std::env::var("BLAUDE_SERVER_BINARY_DIR")
+        .map(PathBuf::from)
+        .unwrap_or_else(|_| PathBuf::from(&home).join(".jcode/team-server-cache"));
     let cache = cache_dir.join("blaude-linux-x86_64");
     // A stale cache ships an old server build to brand-new teams forever;
     // re-pull daily.
@@ -621,7 +634,19 @@ touch /var/lib/blaude-apt.done
     // The owner's blaude identity rides along too, so the team server names
     // the owner by their EMAIL (attribution, member rows) instead of a unix
     // username. Best-effort like the email key.
-    let account = PathBuf::from(&home).join(".jcode/blaude-account.json");
+    let mut account = PathBuf::from(&home).join(".jcode/blaude-account.json");
+    // The service has no account file — it is nobody. It DOES know who asked,
+    // from their verified sign-in, so the owner's identity is written from
+    // that. Without it the server cannot name the owner and never provisions
+    // their own room, which surfaces as "Mine" quietly meaning "Shared".
+    if !account.is_file() {
+        if let Some(email) = owner_email.as_deref().filter(|e| e.contains('@')) {
+            let synthesized = std::env::temp_dir().join(format!("{instance}-owner.json"));
+            if std::fs::write(&synthesized, json!({ "email": email }).to_string()).is_ok() {
+                account = synthesized;
+            }
+        }
+    }
     if account.is_file() {
         let _ = run_retry(
             &gcloud,

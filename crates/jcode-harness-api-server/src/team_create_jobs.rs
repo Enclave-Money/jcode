@@ -34,8 +34,9 @@ fn api_base() -> String {
         .unwrap_or_else(|| DEFAULT_API.to_string())
 }
 
-/// The deployed service. Replaced by the real Cloud Run URL at deploy time.
-const DEFAULT_API: &str = "https://blaude-provision-api.run.app";
+/// The deployed service (Cloud Run, asia-south1). The numeric form is the
+/// deterministic one — it never changes across redeploys of the service.
+const DEFAULT_API: &str = "https://blaude-provision-api-860657606686.asia-south1.run.app";
 
 fn jobs() -> &'static Mutex<HashMap<String, Value>> {
     static JOBS: OnceLock<Mutex<HashMap<String, Value>>> = OnceLock::new();

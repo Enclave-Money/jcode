@@ -68,6 +68,24 @@ else
   echo "   $SSH_SECRET already exists"
 fi
 
+# clerk.env, so every new team server can send invites.
+#
+# The engine copies ~/.jcode/clerk.env onto each server it builds. On a Mac it
+# exists because the owner set blaude up; in the container it exists only if
+# this mounts it. Teams built without it work — and their invites silently
+# never send.
+say "clerk.env secret"
+CLERK_SECRET="blaude-clerk-env"
+if ! gcloud secrets describe "$CLERK_SECRET" --project "$PROJECT" >/dev/null 2>&1; then
+  [ -f "$HOME/.jcode/clerk.env" ] || {
+    echo "~/.jcode/clerk.env is missing; cannot seed the invite credential."; exit 1; }
+  gcloud secrets create "$CLERK_SECRET" --project "$PROJECT" \
+    --data-file="$HOME/.jcode/clerk.env" --quiet
+  echo "   created $CLERK_SECRET"
+else
+  echo "   $CLERK_SECRET already exists"
+fi
+
 say "Clerk"
 : "${CLERK_JWKS_URL:=}"
 if [ -z "$CLERK_JWKS_URL" ]; then
@@ -87,14 +105,38 @@ fi
   exit 1; }
 echo "   $CLERK_JWKS_URL"
 
-say "build + deploy"
+# Build the image OURSELVES.
+#
+# `gcloud run deploy --source .` only reads a Dockerfile at the root of the
+# source directory. With ours one level down it fell through to buildpacks,
+# decided this repo was Python, and failed asking for a main.py — which reads
+# nothing like "your Dockerfile was ignored".
+say "artifact registry"
+REPO="blaude"
+IMAGE="${REGION}-docker.pkg.dev/${PROJECT}/${REPO}/${SERVICE}:$(date +%Y%m%d-%H%M%S)"
+gcloud artifacts repositories describe "$REPO" \
+  --project "$PROJECT" --location "$REGION" >/dev/null 2>&1 || \
+  gcloud artifacts repositories create "$REPO" \
+    --project "$PROJECT" --location "$REGION" \
+    --repository-format docker \
+    --description "blaude service images" --quiet
+
+say "build"
+gcloud builds submit \
+  --project "$PROJECT" \
+  --region "$REGION" \
+  --config deploy/provision-api/cloudbuild.yaml \
+  --substitutions "_IMAGE=${IMAGE}" \
+  --quiet
+
+say "deploy"
 gcloud run deploy "$SERVICE" \
   --project "$PROJECT" \
   --region "$REGION" \
-  --source . \
+  --image "$IMAGE" \
   --service-account "$SA_EMAIL" \
   --set-env-vars "CLERK_JWKS_URL=${CLERK_JWKS_URL}" \
-  --set-secrets "/secrets/ssh/key=${SSH_SECRET}:latest" \
+  --set-secrets "/secrets/ssh/key=${SSH_SECRET}:latest,/secrets/clerk/env=${CLERK_SECRET}:latest" \
   --allow-unauthenticated \
   --timeout 900 \
   --cpu 1 --memory 1Gi \
@@ -111,7 +153,7 @@ echo "Point the app's runtime at it:"
 echo "   BLAUDE_PROVISION_API=$URL"
 echo
 echo "Check it:"
-echo "   curl -s $URL/healthz"
+echo "   curl -s $URL/v1/health"
 
 # --allow-unauthenticated is deliberate and is NOT open access: the service
 # verifies a Clerk session token on every route itself. Cloud Run's own IAM

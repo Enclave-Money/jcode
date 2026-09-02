@@ -72,8 +72,20 @@ async fn create(
     if name.is_empty() {
         return refuse(StatusCode::BAD_REQUEST, "a team needs a name".into());
     }
-    tracing::info!(caller = caller.label(), team = name, "creating a team server");
-    let status = blaude_provision::start(name, body.region.as_deref());
+    // The owner's email names them on the new server (attribution, their own
+    // room). Clerk's default session token carries no email claim, so when
+    // the token has none it is looked up from the verified subject — never
+    // taken from the request body, which anyone can type anything into.
+    let email = match caller.email.clone() {
+        Some(e) => Some(e),
+        None => auth::lookup_email(&caller.subject).await,
+    };
+    tracing::info!(
+        caller = email.as_deref().unwrap_or(&caller.subject),
+        team = name,
+        "creating a team server"
+    );
+    let status = blaude_provision::start(name, body.region.as_deref(), email.as_deref());
     (StatusCode::ACCEPTED, Json(status))
 }
 
@@ -127,6 +139,31 @@ async fn delete(
 ///
 /// Best effort: if the mount is absent (a local run, say) gcloud falls back to
 /// generating one, which is fine for a single process that is not restarting.
+/// Place the mounted clerk.env where the engine looks for it.
+///
+/// The engine copies `~/.jcode/clerk.env` onto every new team server — that
+/// file is how a server sends team invites. On a Mac it exists because the
+/// owner set blaude up; in this container it exists only if the deploy
+/// mounted it from Secret Manager. Without it teams still build, but their
+/// invites silently never send, which is a miserable thing to discover a
+/// week later.
+fn prepare_clerk_env() {
+    let mounted = std::path::Path::new("/secrets/clerk/env");
+    if !mounted.exists() {
+        tracing::warn!("no mounted clerk.env — new teams will not be able to send invites");
+        return;
+    }
+    let dir = std::path::PathBuf::from(env_or("HOME", "/tmp")).join(".jcode");
+    if let Err(e) = std::fs::create_dir_all(&dir) {
+        tracing::warn!("could not make {}: {e}", dir.display());
+        return;
+    }
+    match std::fs::copy(mounted, dir.join("clerk.env")) {
+        Ok(_) => tracing::info!("clerk.env in place; new teams can send invites"),
+        Err(e) => tracing::warn!("could not place clerk.env: {e}"),
+    }
+}
+
 fn prepare_ssh_key() {
     use std::os::unix::fs::PermissionsExt;
     let mounted = std::path::Path::new("/secrets/ssh/key");
@@ -208,12 +245,16 @@ async fn main() {
     }
 
     prepare_ssh_key();
+    prepare_clerk_env();
 
     let app = App {
         verifier: Verifier::new(jwks, allowed),
     };
     let router = Router::new()
-        .route("/healthz", get(health))
+        // NOT /healthz: Google's frontend reserves that path on run.app
+        // domains and answers 404 itself, so the check "fails" while the
+        // service is fine — which is worse than no check at all.
+        .route("/v1/health", get(health))
         .route("/v1/teams", post(create))
         .route("/v1/teams/:job_id", get(status))
         .route("/v1/teams/delete", post(delete))

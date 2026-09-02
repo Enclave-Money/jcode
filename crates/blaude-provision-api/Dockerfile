@@ -18,7 +18,15 @@ COPY Cargo.toml Cargo.lock ./
 COPY crates ./crates
 COPY deploy ./deploy
 
-RUN cargo build --release -p blaude-provision-api
+# The service AND the server binary it installs on every new VM. Building
+# `blaude` here — the container is the same linux/x86_64 as the team servers —
+# means each deploy carries a server built from the same commit as the
+# service. The Mac-side cache this replaces was re-pulled only daily, so a
+# same-day cache from before a fix silently shipped the OLD server to every
+# brand-new team while the fix looked deployed.
+RUN cargo build --release -p blaude-provision-api --bin blaude-provision-api \
+ && cargo build --release --bin blaude \
+ && cargo build --release -p blaude-tools
 
 FROM debian:bookworm-slim
 # ca-certificates: HTTPS to Clerk and to the Google APIs.
@@ -45,6 +53,10 @@ ENV HOME=/tmp
 ENV CLOUDSDK_CONFIG=/tmp/gcloud
 
 COPY --from=build /src/target/release/blaude-provision-api /usr/local/bin/blaude-provision-api
+# The server binaries, where the engine looks for them (BLAUDE_SERVER_BINARY_DIR).
+COPY --from=build /src/target/release/blaude /opt/blaude-server/blaude-linux-x86_64
+COPY --from=build /src/target/release/blaude-tools /opt/blaude-server/blaude-tools-linux-x86_64
+ENV BLAUDE_SERVER_BINARY_DIR=/opt/blaude-server
 
 # Cloud Run sets PORT; 8080 is its default and the local one.
 ENV PORT=8080

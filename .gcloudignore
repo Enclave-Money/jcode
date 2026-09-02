@@ -1,0 +1,12 @@
+# What NOT to upload to Cloud Build.
+#
+# `gcloud run deploy --source .` tars the working directory. Without this it
+# would ship target/ — tens of gigabytes of build output — on every deploy,
+# which is slow enough to look like a hang.
+.git/
+target/
+dist/
+node_modules/
+**/node_modules/
+*.dmg
+*.gz

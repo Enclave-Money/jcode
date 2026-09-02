@@ -19,6 +19,53 @@ use jsonwebtoken::{Algorithm, DecodingKey, Validation, decode, decode_header};
 use serde::Deserialize;
 use tokio::sync::RwLock;
 
+/// The verified subject's primary email, from Clerk's Backend API.
+///
+/// The session token's claims usually stop at the subject id, and an email in
+/// the REQUEST would be whatever the client felt like typing — so when the
+/// token itself carries none, the answer comes from Clerk, keyed by the
+/// subject that DID verify.
+///
+/// The secret key is read from the same clerk.env the deploy mounts for
+/// sending invites. The explicit User-Agent is not decoration: api.clerk.com
+/// sits behind Cloudflare, which 403s some default client UAs, and that 403
+/// decodes as an empty answer — a lookup that silently "finds nothing".
+pub async fn lookup_email(subject: &str) -> Option<String> {
+    let raw = std::fs::read_to_string(
+        std::path::PathBuf::from(std::env::var("HOME").unwrap_or_else(|_| "/tmp".into()))
+            .join(".jcode/clerk.env"),
+    )
+    .ok()?;
+    let key = raw.lines().find_map(|l| {
+        let (k, v) = l.split_once('=')?;
+        (k.trim() == "CLERK_SECRET_KEY")
+            .then(|| v.trim().trim_matches('"').trim_matches('\'').to_string())
+    })?;
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(10))
+        .user_agent("reqwest/0.12")
+        .build()
+        .ok()?;
+    let user: serde_json::Value = client
+        .get(format!("https://api.clerk.com/v1/users/{subject}"))
+        .bearer_auth(&key)
+        .send()
+        .await
+        .ok()?
+        .json()
+        .await
+        .ok()?;
+    let primary = user.get("primary_email_address_id").and_then(|v| v.as_str());
+    let addresses = user.get("email_addresses").and_then(|v| v.as_array())?;
+    addresses
+        .iter()
+        .find(|a| primary.is_some() && a.get("id").and_then(|v| v.as_str()) == primary)
+        .or_else(|| addresses.first())
+        .and_then(|a| a.get("email_address"))
+        .and_then(|v| v.as_str())
+        .map(|e| e.to_ascii_lowercase())
+}
+
 /// The person a request belongs to. Every provisioning action is attributed
 /// to one, so a runaway bill has a name on it.
 #[derive(Debug, Clone)]
