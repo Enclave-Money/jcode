@@ -106,11 +106,12 @@ pub fn start(name: &str, region: Option<&str>) -> Value {
 }
 
 async fn run(local_id: &str, name: String, region: Option<String>) -> Result<(), String> {
-    let token = crate::blaude_account::session_token()
-        .await
-        .ok_or_else(|| {
-            "Sign in to blaude first — creating a team server is tied to your account.".to_string()
-        })?;
+    // A Clerk session token lives only about a minute, but a create takes
+    // several. So the token is not held for the whole job — it is re-minted
+    // whenever the service says the current one has expired. Minting rotates
+    // Clerk's client token under a lock, so it happens on demand (a 401), not
+    // on every poll.
+    let mut token = mint_token().await?;
     let http = client()?;
     let base = api_base();
 
@@ -141,11 +142,11 @@ async fn run(local_id: &str, name: String, region: Option<String>) -> Result<(),
     mirrored["job_id"] = json!(local_id);
     put(local_id, mirrored);
 
-    // Poll until the service says done. The 2s cadence matches what the app
-    // already does on top of this, so a stage change shows up about as fast as
-    // it did when the work ran here.
+    // Poll until the service says done. 5s, not 2s: the build takes minutes,
+    // and a slower cadence is gentler on the service and on Clerk when the
+    // token has to be re-minted.
     loop {
-        tokio::time::sleep(Duration::from_secs(2)).await;
+        tokio::time::sleep(Duration::from_secs(5)).await;
         let resp = match http
             .get(format!("{base}/v1/teams/{remote_id}"))
             .bearer_auth(&token)
@@ -154,13 +155,25 @@ async fn run(local_id: &str, name: String, region: Option<String>) -> Result<(),
         {
             Ok(r) => r,
             Err(e) => {
-                // A dropped poll is not a dropped build: the server is still
-                // being made. Say so and keep looking.
+                // A dropped poll is not a dropped build: the service keeps
+                // building whether or not this poll lands. Keep looking.
                 eprintln!("team create: poll failed, retrying — {e}");
                 continue;
             }
         };
         let code = resp.status();
+        // The token expired mid-build. Mint a fresh one and poll again — the
+        // build is still going; only this client's proof of identity lapsed.
+        if code == reqwest::StatusCode::UNAUTHORIZED {
+            match mint_token().await {
+                Ok(fresh) => {
+                    token = fresh;
+                    eprintln!("team create: re-minted an expired session token");
+                }
+                Err(e) => eprintln!("team create: could not re-mint token, retrying — {e}"),
+            }
+            continue;
+        }
         let Ok(body) = resp.json::<Value>().await else {
             continue;
         };
@@ -177,6 +190,15 @@ async fn run(local_id: &str, name: String, region: Option<String>) -> Result<(),
     }
 }
 
+/// A fresh Clerk session token, or a message a person can act on.
+async fn mint_token() -> Result<String, String> {
+    crate::blaude_account::session_token()
+        .await
+        .ok_or_else(|| {
+            "Sign in to blaude first — creating a team server is tied to your account.".to_string()
+        })
+}
+
 /// Turn the service's refusal into something a person can act on.
 fn service_error(code: reqwest::StatusCode, body: &Value) -> String {
     let detail = body
@@ -191,9 +213,7 @@ fn service_error(code: reqwest::StatusCode, body: &Value) -> String {
 
 /// Delete a team server, by the ws_url the app holds for it.
 pub async fn delete_team(ws_url: &str) -> Result<Value, String> {
-    let token = crate::blaude_account::session_token()
-        .await
-        .ok_or_else(|| "Sign in to blaude first — deleting a team server is tied to your account.".to_string())?;
+    let token = mint_token().await?;
     let http = client()?;
     let resp = http
         .post(format!("{}/v1/teams/delete", api_base()))

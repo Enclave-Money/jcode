@@ -208,9 +208,34 @@ pub async fn run_bridge(api_socket: PathBuf, legacy_socket: PathBuf) -> Result<(
     // accounts so an invitee who never opens the email still gets the team
     // stamped the moment their account exists. No-ops without the Clerk
     // secret (member machines).
+    // Explicit-accounts policy. The app hands it to THIS process in the
+    // environment, but the daemon it fronts may have been started by a
+    // previous app launch and will never see that environment — so the
+    // policy is persisted where the daemon reads it, and a daemon that was
+    // already up when the policy first appeared is reloaded: it chose its
+    // provider (and an ambient key) before the policy existed.
+    if !jcode_base::provider_catalog::ambient_env_credentials_allowed()
+        && jcode_base::provider_catalog::persist_explicit_accounts_policy()
+    {
+        eprintln!("harness API bridge: explicit-accounts policy persisted; reloading the daemon");
+        if let Ok(exe) = std::env::current_exe() {
+            let _ = std::process::Command::new(exe)
+                .args(["--no-update", "server", "reload", "--force"])
+                .stdin(std::process::Stdio::null())
+                .stdout(std::process::Stdio::null())
+                .stderr(std::process::Stdio::null())
+                .spawn();
+        }
+    }
     tokio::spawn(async {
+        let mut last = team_access::member_emails();
         loop {
             team_access::reconcile_invites().await;
+            let now = team_access::member_emails();
+            if now != last {
+                last = now;
+                broadcast_team_members();
+            }
             tokio::time::sleep(std::time::Duration::from_secs(60)).await;
         }
     });
@@ -356,6 +381,46 @@ fn respawn_daemon_throttled() {
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null())
         .spawn();
+}
+
+/// Bridge-wide push channel: every live client connection forwards what is
+/// sent here to its peer. Team membership is a property of the SERVER, so
+/// when it changes every connected app must hear about it at once — a
+/// teammate joining used to be discovered only when the owner next opened
+/// the Teams sheet or invited someone else, because the roster was a
+/// request/reply verb with no push behind it.
+fn team_events() -> &'static tokio::sync::broadcast::Sender<ServerFrame> {
+    static TX: std::sync::OnceLock<tokio::sync::broadcast::Sender<ServerFrame>> =
+        std::sync::OnceLock::new();
+    TX.get_or_init(|| tokio::sync::broadcast::channel(64).0)
+}
+
+/// Tell every connected app who is on the team now. Same payload as the
+/// `list_team_members` reply, pushed as an event.
+pub(crate) fn broadcast_team_members() {
+    let frame = ServerFrame::event(ApiEvent::TeamMembers {
+        owner: blaude_account::identity().unwrap_or_default(),
+        name: team_access::team_name(),
+        emails: team_access::member_emails(),
+        pending: team_access::pending_invites(),
+    });
+    let _ = team_events().send(frame);
+}
+
+/// Announce a member the first time this process sees them connect. That is
+/// the moment a joined teammate becomes real to everyone else; before this,
+/// nothing told the owner's Mac at all.
+pub(crate) fn note_member_seen(identity: &str) {
+    static SEEN: std::sync::OnceLock<std::sync::Mutex<std::collections::HashSet<String>>> =
+        std::sync::OnceLock::new();
+    let seen = SEEN.get_or_init(|| std::sync::Mutex::new(std::collections::HashSet::new()));
+    let fresh = seen
+        .lock()
+        .map(|mut set| set.insert(identity.to_string()))
+        .unwrap_or(false);
+    if fresh {
+        broadcast_team_members();
+    }
 }
 
 async fn handle_api_client(stream: Stream, legacy_socket: PathBuf) -> Result<()> {
@@ -518,6 +583,8 @@ where
         }));
     permission_poll.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
     let mut announced_permissions: std::collections::HashSet<String> = Default::default();
+    // Membership pushes from anywhere in the bridge (see `team_events`).
+    let mut team_rx = team_events().subscribe();
     // The live video encoder for this connection, if one was asked for.
     // Held here rather than globally so it dies with the client that wanted
     // it: an encoder nobody is watching still burns a core.
@@ -526,6 +593,13 @@ where
     let mut video_seq: u64 = 0;
     loop {
         tokio::select! {
+            // A team-wide push (membership changed). Lagging just drops the
+            // older copies; the newest roster is the only one that matters.
+            pushed = team_rx.recv() => {
+                if let Ok(frame) = pushed {
+                    write_json_line(&mut write_half, &frame).await?;
+                }
+            }
             // Encoded video, pushed as it is produced. `pending()` when no
             // stream is running parks this arm forever, which is how an
             // optional branch lives in a select without a second loop.
@@ -868,19 +942,41 @@ where
                     let home_canon = std::path::Path::new(&home)
                         .canonicalize()
                         .unwrap_or_else(|_| std::path::PathBuf::from(&home));
-                    let requested = request["path"].as_str().unwrap_or(&home);
+                    // No path means "where projects live": ~/workspace, made
+                    // on first use. It used to mean the home directory, and
+                    // listing THAT stats Desktop, Documents, Pictures and
+                    // Music — each of which raises a macOS privacy prompt, so
+                    // a new user's first sight of blaude was it asking for
+                    // their photos.
+                    let default_dir = std::path::Path::new(&home).join("workspace");
+                    let _ = std::fs::create_dir_all(&default_dir);
+                    let default_dir = default_dir.display().to_string();
+                    let requested = request["path"].as_str().unwrap_or(&default_dir);
                     let canon = std::path::Path::new(requested)
                         .canonicalize()
                         .unwrap_or_else(|_| home_canon.clone());
                     // Stay under HOME: the picker browses the runtime's work
                     // area, not the whole machine.
-                    let base = if canon.starts_with(&home_canon) { canon } else { home_canon };
+                    let base = if canon.starts_with(&home_canon) { canon } else { home_canon.clone() };
                     let mut entries: Vec<serde_json::Value> = Vec::new();
                     if let Ok(read) = std::fs::read_dir(&base) {
                         for entry in read.flatten() {
                             let file_name = entry.file_name();
                             let entry_name = file_name.to_string_lossy();
                             if entry_name.starts_with('.') {
+                                continue;
+                            }
+                            // Inside the home directory itself, skip the
+                            // folders macOS guards: probing `.git` inside
+                            // them is exactly what trips the privacy prompt,
+                            // and none of them is a coding folder.
+                            if base == home_canon
+                                && matches!(
+                                    entry_name.as_ref(),
+                                    "Desktop" | "Documents" | "Downloads" | "Pictures"
+                                        | "Music" | "Movies" | "Library" | "Public"
+                                )
+                            {
                                 continue;
                             }
                             let p = entry.path();
@@ -1244,6 +1340,9 @@ where
                         emails: team_access::member_emails(),
                         pending: team_access::pending_invites(),
                     });
+                    // An invite changes the roster (a pending entry, or an
+                    // already-registered member attached at once): push it.
+                    broadcast_team_members();
                     write_json_line(&mut write_half, &frame).await?;
                     continue;
                 }
@@ -1251,7 +1350,10 @@ where
                     let api_id = request["id"].as_u64().unwrap_or(0);
                     let email = request["email"].as_str().unwrap_or_default();
                     let frame = match team_access::revoke(email) {
-                        Ok(_) => ServerFrame::reply(api_id, ApiEvent::Ok),
+                        Ok(_) => {
+                            broadcast_team_members();
+                            ServerFrame::reply(api_id, ApiEvent::Ok)
+                        }
                         Err(error) => ServerFrame::reply(api_id, ApiEvent::Error {
                             code: ErrorCode::Internal,
                             message: error.to_string(),

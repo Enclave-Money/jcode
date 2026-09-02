@@ -234,6 +234,8 @@ enum SimpleKind {
         provider: String,
         configured: bool,
     },
+    /// Awaiting the daemon's `session_list`.
+    SessionList { include_archived: bool },
 }
 
 impl BridgeState {
@@ -856,83 +858,20 @@ impl BridgeState {
                 vec![Outbound::Legacy(json!({"type": "ping", "id": id}))]
             }
             "list_sessions" => {
-                // A fresh API connection has not received a daemon `state`
-                // snapshot. Start with every persisted record, then merge the
-                // live snapshot so unattached dashboards and global event
-                // subscribers discover complete session state.
-                let mut ids: BTreeSet<String> = Self::stored_session_ids().into_iter().collect();
-                ids.extend(self.known_sessions.iter().cloned());
-                if let Some(attached) = self.session_id.clone() {
-                    ids.insert(attached);
-                }
-                // Titles are deliberately not cached. A rename is persisted
-                // before `SessionRenamed` is broadcast, and every list call
-                // should reflect that newest canonical value even on another
-                // API connection.
-                let metadata: BTreeMap<String, PersistedSessionMetadata> = ids
-                    .iter()
-                    .filter_map(|id| {
-                        Self::resolve_session_metadata(id).map(|metadata| (id.clone(), metadata))
-                    })
-                    .collect();
-                for id in &ids {
-                    if !self.session_dirs.contains_key(id)
-                        && let Some(dir) = metadata
-                            .get(id)
-                            .and_then(|metadata| metadata.working_dir.clone())
-                    {
-                        self.session_dirs.insert(id.clone(), dir);
-                    }
-                }
-                let _write_guard = Self::state_write_guard();
-                let mut archive = Self::load_archive_state();
-                if let Some(days) = archive.archive_after_days {
-                    let cutoff = Self::now_ms().saturating_sub(u64::from(days) * 86_400_000);
-                    let mut changed = false;
-                    for id in &ids {
-                        if self.session_id.as_ref() == Some(id) || archive.sessions.contains_key(id)
-                        {
-                            continue;
-                        }
-                        if Self::session_modified_ms(id).is_some_and(|modified| modified < cutoff) {
-                            archive.sessions.insert(id.clone(), Self::now_ms());
-                            changed = true;
-                        }
-                    }
-                    if changed && let Err(message) = Self::save_archive_state(&archive) {
-                        return Self::error_reply(api_id, ErrorCode::Internal, &message);
-                    }
-                }
+                // Asked of the DAEMON, which is the only party that can answer
+                // on a team server: each room's ~/.jcode is 0700 and this
+                // bridge runs as the door user, so its own filesystem scan
+                // returned ZERO sessions for every room — no teammate's chat
+                // was ever discovered, and their messages read as undelivered.
+                // The daemon's answer is merged with what this side can see
+                // (its own files, live-snapshot ids) in the reply arm.
                 let include_archived = request["include_archived"].as_bool().unwrap_or(false);
-                let sessions = ids
-                    .into_iter()
-                    .filter(|session_id| {
-                        include_archived || !archive.sessions.contains_key(session_id)
-                    })
-                    .map(|session_id| SessionInfo {
-                        working_dir: self.session_dirs.get(&session_id).cloned(),
-                        title: metadata
-                            .get(&session_id)
-                            .and_then(PersistedSessionMetadata::display_title),
-                        status: if self.session_id.as_ref() == Some(&session_id) {
-                            "attached".into()
-                        } else {
-                            "idle".into()
-                        },
-                        transcript_bytes: Self::transcript_bytes(&session_id),
-                        user_messages: Self::user_message_count(&session_id),
-                        last_active_ms: Self::session_modified_ms(&session_id),
-                        archived: archive.sessions.contains_key(&session_id),
-                        archived_at_ms: archive.sessions.get(&session_id).copied(),
-                        session_id,
-                    })
-                    .collect();
-                vec![Outbound::Reply(ServerFrame::reply(
-                    api_id,
-                    ApiEvent::Sessions { sessions },
-                ))]
+                let id = self.legacy_id();
+                self.pending_simple
+                    .push((id, api_id, SimpleKind::SessionList { include_archived }));
+                return vec![Outbound::Legacy(json!({"type": "list_sessions", "id": id}))];
             }
-            // Answered from the cached catalog. The daemon pushes it on attach
+                        // Answered from the cached catalog. The daemon pushes it on attach
             // and on every change, so asking again would add a round trip to
             // an interaction (opening a picker) that must feel instant.
             "list_models" => {
@@ -1377,6 +1316,23 @@ impl BridgeState {
                 output: event["output"].as_u64().unwrap_or(0),
                 cache_read_input: event["cache_read_input"].as_u64(),
             })],
+            // An interrupt is the end of the turn as far as the client is
+            // concerned — and it is the ONLY thing the daemon sends when a
+            // cancel finds no turn to cancel. That case used to reach nobody:
+            // this arm did not exist, and `done` only follows a message id the
+            // daemon still holds, which a re-attached connection never has.
+            // So an app whose turn had died underneath it (a disconnect mid-
+            // turn tears the turn down) stayed on "working" forever: every
+            // Esc was answered "no local task" and nothing told the app.
+            // Clearing the pending id here also means the real-cancel case
+            // (interrupted, then done) does not fire a second TurnDone.
+            "interrupted" => {
+                self.pending_message_id = None;
+                self.foreign_stream_active = false;
+                vec![ServerFrame::event(ApiEvent::TurnDone {
+                    session_id: session(self),
+                })]
+            }
             "done" => {
                 let id = event["id"].as_u64().unwrap_or(0);
                 // Subscribe and other requests also emit `done`; only a
@@ -1446,6 +1402,116 @@ impl BridgeState {
                 .take_simple(event["id"].as_u64().unwrap_or(0), SimpleKind::Ping)
                 .map(|api_id| vec![ServerFrame::reply(api_id, ApiEvent::Pong)])
                 .unwrap_or_default(),
+            "session_list" => {
+                let id = event["id"].as_u64().unwrap_or(0);
+                let Some((api_id, include_archived)) = self.take_session_list(id) else {
+                    return vec![];
+                };
+                // The daemon is authoritative for its own home — the only
+                // party that can read it on a team server. This side adds what
+                // only IT knows: live-snapshot ids, its archive state, and, on
+                // a single-user runtime, its own files.
+                let mut summaries: BTreeMap<String, &Value> = BTreeMap::new();
+                if let Some(list) = event["sessions"].as_array() {
+                    for s in list {
+                        if let Some(sid) = s["session_id"].as_str() {
+                            summaries.insert(sid.to_string(), s);
+                        }
+                    }
+                }
+                let mut ids: BTreeSet<String> = summaries.keys().cloned().collect();
+                ids.extend(Self::stored_session_ids());
+                ids.extend(self.known_sessions.iter().cloned());
+                if let Some(attached) = self.session_id.clone() {
+                    ids.insert(attached);
+                }
+                let metadata: BTreeMap<String, PersistedSessionMetadata> = ids
+                    .iter()
+                    .filter_map(|id| {
+                        Self::resolve_session_metadata(id).map(|m| (id.clone(), m))
+                    })
+                    .collect();
+                for id in &ids {
+                    if self.session_dirs.contains_key(id) {
+                        continue;
+                    }
+                    let dir = summaries
+                        .get(id)
+                        .and_then(|s| s["working_dir"].as_str())
+                        .map(str::to_string)
+                        .or_else(|| metadata.get(id).and_then(|m| m.working_dir.clone()));
+                    if let Some(dir) = dir {
+                        self.session_dirs.insert(id.clone(), dir);
+                    }
+                }
+                let _write_guard = Self::state_write_guard();
+                let mut archive = Self::load_archive_state();
+                if let Some(days) = archive.archive_after_days {
+                    let cutoff =
+                        Self::now_ms().saturating_sub(u64::from(days) * 86_400_000);
+                    let mut changed = false;
+                    for id in &ids {
+                        if self.session_id.as_ref() == Some(id)
+                            || archive.sessions.contains_key(id)
+                        {
+                            continue;
+                        }
+                        let modified = summaries
+                            .get(id)
+                            .and_then(|s| s["last_active_ms"].as_u64())
+                            .or_else(|| Self::session_modified_ms(id));
+                        if modified.is_some_and(|m| m < cutoff) {
+                            archive.sessions.insert(id.clone(), Self::now_ms());
+                            changed = true;
+                        }
+                    }
+                    if changed && let Err(message) = Self::save_archive_state(&archive) {
+                        return vec![ServerFrame::reply(
+                            api_id,
+                            ApiEvent::Error { code: ErrorCode::Internal, message },
+                        )];
+                    }
+                }
+                let sessions = ids
+                    .into_iter()
+                    .filter(|sid| include_archived || !archive.sessions.contains_key(sid))
+                    .map(|session_id| {
+                        let s = summaries.get(&session_id);
+                        SessionInfo {
+                            working_dir: self.session_dirs.get(&session_id).cloned(),
+                            title: s
+                                .and_then(|s| s["title"].as_str())
+                                .map(str::to_string)
+                                .or_else(|| {
+                                    metadata
+                                        .get(&session_id)
+                                        .and_then(PersistedSessionMetadata::display_title)
+                                }),
+                            status: if self.session_id.as_ref() == Some(&session_id) {
+                                "attached".into()
+                            } else if s.is_some_and(|s| s["live"].as_bool().unwrap_or(false)) {
+                                "generating".into()
+                            } else {
+                                "idle".into()
+                            },
+                            transcript_bytes: s
+                                .and_then(|s| s["transcript_bytes"].as_u64())
+                                .or_else(|| Self::transcript_bytes(&session_id)),
+                            user_messages: s
+                                .and_then(|s| s["user_messages"].as_u64())
+                                .map(|n| n as u32)
+                                .or_else(|| Self::user_message_count(&session_id)),
+                            last_active_ms: s
+                                .and_then(|s| s["last_active_ms"].as_u64())
+                                .or_else(|| Self::session_modified_ms(&session_id)),
+                            archived: archive.sessions.contains_key(&session_id),
+                            archived_at_ms: archive.sessions.get(&session_id).copied(),
+                            session_id,
+                        }
+                    })
+                    .collect();
+                return vec![ServerFrame::reply(api_id, ApiEvent::Sessions { sessions })];
+            }
             "history" => {
                 let id = event["id"].as_u64().unwrap_or(0);
                 // The daemon volunteers the full session set on `history`,
@@ -2710,6 +2776,20 @@ impl BridgeState {
             self.session_dirs
                 .insert(session_id.to_string(), dir.to_string());
         }
+    }
+
+    /// Take a pending `list_sessions`, returning (api_id, include_archived).
+    /// A dedicated taker because the kind carries the request's option, so an
+    /// equality match on the kind would need the value it is trying to learn.
+    fn take_session_list(&mut self, legacy_id: u64) -> Option<(u64, bool)> {
+        let index = self.pending_simple.iter().position(|(id, _, k)| {
+            *id == legacy_id && matches!(k, SimpleKind::SessionList { .. })
+        })?;
+        let (_, api_id, kind) = self.pending_simple.remove(index);
+        let SimpleKind::SessionList { include_archived } = kind else {
+            return None;
+        };
+        Some((api_id, include_archived))
     }
 
     fn take_simple(&mut self, legacy_id: u64, kind: SimpleKind) -> Option<u64> {

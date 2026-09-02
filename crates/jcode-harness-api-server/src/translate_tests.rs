@@ -76,6 +76,37 @@ fn write_session_record_with_titles(
     path
 }
 
+/// Run `list_sessions` through the NEW contract: the bridge forwards it to
+/// the daemon (the only party that can read a room's files on a team), and
+/// the reply is built when the daemon's `session_list` comes back. Tests pass
+/// the daemon's summaries — an empty list is exactly what a team's door-side
+/// merge starts from.
+fn list_sessions_via_daemon(
+    state: &mut BridgeState,
+    api_id: u64,
+    include_archived: bool,
+    daemon_sessions: serde_json::Value,
+) -> ApiEvent {
+    let mut req = json!({"req": "list_sessions", "id": api_id});
+    if include_archived {
+        req["include_archived"] = json!(true);
+    }
+    let outbound = state.api_request_to_legacy(&req);
+    assert_eq!(outbound.len(), 1, "expected one forwarded frame");
+    let Outbound::Legacy(forwarded) = outbound.into_iter().next().expect("one outbound") else {
+        panic!("list_sessions must be forwarded to the daemon");
+    };
+    assert_eq!(forwarded["type"], "list_sessions");
+    let legacy_id = forwarded["id"].as_u64().expect("legacy id");
+    let mut frames = state.legacy_event_to_api(&json!({
+        "type": "session_list",
+        "id": legacy_id,
+        "sessions": daemon_sessions,
+    }));
+    assert_eq!(frames.len(), 1, "expected one API reply");
+    frames.remove(0).event
+}
+
 fn only_reply_event(outbound: Vec<Outbound>) -> ApiEvent {
     assert_eq!(outbound.len(), 1, "expected exactly one reply");
     match outbound.into_iter().next().expect("one outbound") {
@@ -694,7 +725,7 @@ fn attached_requests_still_reach_the_daemon() {
 #[test]
 fn browsing_requests_work_without_attaching() {
     let mut state = BridgeState::default();
-    for req in ["list_sessions", "peek_session", "ping"] {
+    for req in ["peek_session", "ping"] {
         let out = state.api_request_to_legacy(&json!({
             "req": req, "id": 1, "session_id": "whatever",
         }));
@@ -707,6 +738,14 @@ fn browsing_requests_work_without_attaching() {
             frame.event
         );
     }
+    // list_sessions is deliberately NOT local: on a team server the rooms'
+    // files are unreadable to the door user, so the daemon answers — but it
+    // must still work unattached, as a plain forward.
+    let out = state.api_request_to_legacy(&json!({"req": "list_sessions", "id": 1}));
+    let Outbound::Legacy(forwarded) = &out[0] else {
+        panic!("list_sessions must be forwarded to the daemon: {out:?}");
+    };
+    assert_eq!(forwarded["type"], "list_sessions");
 }
 
 /// A client may pipeline: `create_session` then `send_message` without
@@ -1119,9 +1158,8 @@ fn unattached_list_sessions_discovers_all_persisted_records() {
     );
     std::fs::write(home.path.join("sessions/not-a-session.txt"), "ignored").unwrap();
 
-    let event = only_reply_event(
-        BridgeState::default().api_request_to_legacy(&json!({"req": "list_sessions", "id": 1})),
-    );
+    let mut state = BridgeState::default();
+    let event = list_sessions_via_daemon(&mut state, 1, false, json!([]));
     let ApiEvent::Sessions { sessions } = event else {
         panic!("expected sessions reply, got {event:?}");
     };
@@ -1214,7 +1252,7 @@ fn archive_restore_and_retention_are_reversible_and_owner_only() {
         ApiEvent::Ok
     ));
     let ApiEvent::Sessions { sessions } =
-        only_reply_event(state.api_request_to_legacy(&json!({"req": "list_sessions", "id": 2})))
+        list_sessions_via_daemon(&mut state, 2, false, json!([]))
     else {
         panic!("expected sessions");
     };
@@ -1238,11 +1276,9 @@ fn archive_restore_and_retention_are_reversible_and_owner_only() {
         ApiEvent::Ok
     ));
 
-    let ApiEvent::Sessions { sessions } = only_reply_event(state.api_request_to_legacy(&json!({
-        "req": "list_sessions",
-        "id": 5,
-        "include_archived": true
-    }))) else {
+    let ApiEvent::Sessions { sessions } =
+        list_sessions_via_daemon(&mut state, 5, true, json!([]))
+    else {
         panic!("expected sessions");
     };
     let old = sessions

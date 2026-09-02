@@ -622,6 +622,13 @@ where
         .unwrap_or_else(|poisoned| poisoned.into_inner())
         .take()
         .unwrap_or((None, false, crate::rooms::Room::Shared));
+    // A member's first connection is the moment they have joined, as far as
+    // everyone else is concerned. Push the roster to every connected app.
+    if !is_owner {
+        if let Some(who) = identity.as_deref() {
+            crate::note_member_seen(who);
+        }
+    }
     // Join this connection to the room's daemon. Each room is a daemon running
     // as its own Unix user, so the filesystem and the desktop come with it;
     // an unprovisioned member or a stopped daemon falls back to this door's

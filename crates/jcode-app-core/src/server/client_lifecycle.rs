@@ -484,6 +484,34 @@ pub(super) async fn handle_client(
         write_direct_event(&writer, &ServerEvent::Done { id: *id }).await?;
         return Ok(());
     }
+    // The session list needs no session of its own, and it is POLLED: the
+    // bridge forwards one every few seconds over a connection that never
+    // subscribes. Answer it, then keep answering — closing after one reply
+    // (the other stateless one-shots' behaviour) would force a re-dial per
+    // poll.
+    if let Request::ListSessions { id } = &initial_request {
+        let sessions = crate::server::client_actions::list_session_summaries();
+        write_direct_event(&writer, &ServerEvent::SessionList { id: *id, sessions }).await?;
+        let mut lines = reader.lines();
+        while let Ok(Some(line)) = lines.next_line().await {
+            let Ok(req) = serde_json::from_str::<Request>(line.trim()) else {
+                continue;
+            };
+            match req {
+                Request::ListSessions { id } => {
+                    let sessions = crate::server::client_actions::list_session_summaries();
+                    write_direct_event(&writer, &ServerEvent::SessionList { id, sessions })
+                        .await?;
+                }
+                Request::Ping { id } => {
+                    write_direct_event(&writer, &ServerEvent::Pong { id }).await?;
+                }
+                // Anything stateful belongs on a subscribed connection.
+                _ => break,
+            }
+        }
+        return Ok(());
+    }
     // A stdin response (e.g. a fill credential) answers a request whose tool is
     // running on ANOTHER connection's session. It needs no session of its own —
     // it just hands the answer to the global map by request_id. Requiring a
@@ -1182,6 +1210,14 @@ pub(super) async fn handle_client(
                     },
                 )
                 .await;
+                // Everyone ELSE too — members not attached to this chat. The
+                // fan-out above only reaches connections attached to it right
+                // now, and an app attaches only to the chat it is showing. So
+                // a teammate's message in any other chat was never signalled
+                // at all: the owner sat in the same team, in another chat, and
+                // "never received" it. This is what lands on every connected
+                // client, which then refreshes and badges the chat.
+                super::state::broadcast_sessions_changed(&swarm_members, &client_session_id).await;
                 if no_reply {
                     append_context_message(
                         id,
@@ -1336,6 +1372,14 @@ pub(super) async fn handle_client(
                     },
                 )
                 .await;
+                // Everyone ELSE too — members not attached to this chat. The
+                // fan-out above only reaches connections attached to it right
+                // now, and an app attaches only to the chat it is showing. So
+                // a teammate's message in any other chat was never signalled
+                // at all: the owner sat in the same team, in another chat, and
+                // "never received" it. This is what lands on every connected
+                // client, which then refreshes and badges the chat.
+                super::state::broadcast_sessions_changed(&swarm_members, &client_session_id).await;
                 queue_soft_interrupt(
                     id,
                     content,
@@ -2177,6 +2221,11 @@ pub(super) async fn handle_client(
 
             Request::VaultIndexSync { id, entries } => {
                 handle_vault_index_sync(id, entries, &client_event_tx);
+            }
+
+            Request::ListSessions { id } => {
+                let sessions = crate::server::client_actions::list_session_summaries();
+                let _ = client_event_tx.send(ServerEvent::SessionList { id, sessions });
             }
 
             Request::AgentTask { id, task, .. } => {

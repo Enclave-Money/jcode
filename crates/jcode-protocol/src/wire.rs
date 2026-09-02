@@ -393,6 +393,16 @@ pub enum Request {
         entries: serde_json::Value,
     },
 
+    /// List every persisted session in THIS daemon's home.
+    ///
+    /// The daemon is the only party that can answer this on a team server:
+    /// each room's ~/.jcode is 0700, so the bridge (the door user) cannot read
+    /// any room's session files — its own filesystem scan returned zero for
+    /// everyone, which is why a teammate's chats and messages were never
+    /// discovered by anyone else's app.
+    #[serde(rename = "list_sessions")]
+    ListSessions { id: u64 },
+
     // === Agent-to-agent communication ===
     /// Register as an external agent
     #[serde(rename = "agent_register")]
@@ -1069,6 +1079,15 @@ pub enum ServerEvent {
     /// attached client, not just one session's viewers: a teammate's brand
     /// new chat has nobody attached yet, so a session-scoped fanout can
     /// never carry it and the list was left to a poll.
+    /// The answer to `list_sessions`: one summary per persisted session in
+    /// this daemon's home. Raw JSON objects so the wire shape can grow
+    /// without a lockstep enum change on both sides of the bridge.
+    #[serde(rename = "session_list")]
+    SessionList {
+        id: u64,
+        sessions: Vec<serde_json::Value>,
+    },
+
     #[serde(rename = "sessions_changed")]
     SessionsChanged {
         #[serde(default, skip_serializing_if = "Option::is_none")]

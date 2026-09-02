@@ -447,9 +447,17 @@ pub(super) async fn broadcast_sessions_changed(
     let event = ServerEvent::SessionsChanged {
         session_id: Some(session_id.to_string()),
     };
+    let mut delivered = 0usize;
     for tx in targets {
-        let _ = tx.send(event.clone());
+        if tx.send(event.clone()).is_ok() {
+            delivered += 1;
+        }
     }
+    // Logged so the server can answer "did anyone hear about this?" — the
+    // question behind every "my teammate's message never arrived".
+    crate::logging::info(&format!(
+        "SERVER_SESSIONS_CHANGED_BROADCAST session={session_id} delivered_to={delivered}"
+    ));
 }
 
 pub(super) async fn fanout_session_event(
@@ -859,5 +867,81 @@ pub(super) async fn queue_soft_interrupt_for_session(
             ));
             false
         })
+    }
+}
+
+#[cfg(test)]
+mod broadcast_tests {
+    //! The two delivery shapes a teammate's message relies on, and why both
+    //! exist. A client attaches only to the chat it is showing, so the
+    //! per-session fan-out reaches nobody else — the owner sat in the same
+    //! team, in another chat, and "never received" a message. The
+    //! sessions-changed broadcast is what reaches every connected client.
+    use super::*;
+    use crate::protocol::ServerEvent;
+    use std::sync::Arc;
+    use std::time::Instant;
+    use tokio::sync::{RwLock, mpsc};
+
+    fn member(session: &str, conn: &str, tx: mpsc::UnboundedSender<ServerEvent>) -> SwarmMember {
+        let now = Instant::now();
+        SwarmMember {
+            session_id: session.to_string(),
+            event_tx: tx.clone(),
+            event_txs: HashMap::from([(conn.to_string(), tx)]),
+            working_dir: None,
+            swarm_id: None,
+            swarm_enabled: true,
+            status: "ready".to_string(),
+            detail: None,
+            task_label: None,
+            friendly_name: None,
+            report_back_to_session_id: None,
+            latest_completion_report: None,
+            role: "agent".to_string(),
+            joined_at: now,
+            last_status_change: now,
+            is_headless: false,
+            output_tail: None,
+            todo_progress: None,
+            todo_items: Vec::new(),
+            runtime: crate::protocol::SwarmMemberRuntime::default(),
+        }
+    }
+
+    #[tokio::test]
+    async fn a_message_in_one_chat_reaches_a_client_attached_to_another() {
+        let (tx_a, mut rx_a) = mpsc::unbounded_channel();
+        let (tx_b, mut rx_b) = mpsc::unbounded_channel();
+        let members = Arc::new(RwLock::new(HashMap::from([
+            ("chat-a".to_string(), member("chat-a", "conn-a", tx_a)),
+            ("chat-b".to_string(), member("chat-b", "conn-b", tx_b)),
+        ])));
+
+        // The per-session fan-out, as before: the sender's chat only, and
+        // never the sender. conn-b, attached to another chat, hears nothing.
+        let delivered = fanout_session_event_except(
+            &members,
+            "chat-a",
+            "conn-a",
+            ServerEvent::UserMessage {
+                session_id: "chat-a".into(),
+                content: "hi".into(),
+                by_user: Some("rabani@banox.in".into()),
+            },
+        )
+        .await;
+        assert_eq!(delivered, 0, "the sender is the only one attached; nobody else is reached");
+        assert!(rx_b.try_recv().is_err(), "a client in another chat gets nothing from the fan-out");
+
+        // The broadcast is what tells everyone else the chat moved.
+        broadcast_sessions_changed(&members, "chat-a").await;
+        let to_b = rx_b.try_recv().expect("the other chat's client is told");
+        assert!(
+            matches!(&to_b, ServerEvent::SessionsChanged { session_id: Some(id) } if id == "chat-a"),
+            "it names the chat that changed: {to_b:?}"
+        );
+        let to_a = rx_a.try_recv().expect("the sender's own connection is told too");
+        assert!(matches!(to_a, ServerEvent::SessionsChanged { .. }));
     }
 }

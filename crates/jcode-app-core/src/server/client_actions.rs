@@ -1234,3 +1234,141 @@ pub(super) async fn handle_agent_task(
         }
     }
 }
+
+
+/// One summary per persisted session in THIS daemon's home.
+///
+/// Served daemon-side because on a team server only the room's own daemon can
+/// read its sessions: each room's ~/.jcode is 0700 and the bridge runs as the
+/// door user, whose own filesystem scan therefore returned ZERO sessions for
+/// every room — no teammate's chat was ever discovered, and their messages
+/// looked like they were never delivered.
+pub fn list_session_summaries() -> Vec<serde_json::Value> {
+    let Ok(dir) = crate::storage::jcode_dir().map(|d| d.join("sessions")) else {
+        return Vec::new();
+    };
+    let Ok(entries) = std::fs::read_dir(&dir) else {
+        return Vec::new();
+    };
+    let mut out = Vec::new();
+    for entry in entries.flatten() {
+        let path = entry.path();
+        let Some(name) = path.file_name().and_then(|n| n.to_str()) else {
+            continue;
+        };
+        if !name.ends_with(".json") || name.ends_with(".bak") {
+            continue;
+        }
+        let Some(id) = path.file_stem().and_then(|s| s.to_str()).map(str::to_string) else {
+            continue;
+        };
+        let Ok(raw) = std::fs::read_to_string(&path) else {
+            continue;
+        };
+        let Ok(v) = serde_json::from_str::<serde_json::Value>(&raw) else {
+            continue;
+        };
+        // Real user messages only: the synthetic session-context reminder that
+        // opens every session is role=user but is not something a person said,
+        // and tool_result frames also ride the user role.
+        let user_messages = v["messages"]
+            .as_array()
+            .map(|ms| {
+                ms.iter()
+                    .filter(|m| {
+                        if m["role"].as_str() != Some("user") {
+                            return false;
+                        }
+                        match &m["content"] {
+                            serde_json::Value::String(text) => {
+                                !text.starts_with("<system-reminder>")
+                            }
+                            serde_json::Value::Array(parts) => parts.iter().any(|p| {
+                                p["type"].as_str() == Some("text")
+                                    && p["text"]
+                                        .as_str()
+                                        .is_some_and(|t| !t.starts_with("<system-reminder>"))
+                            }),
+                            _ => false,
+                        }
+                    })
+                    .count() as u64
+            })
+            .unwrap_or(0);
+        let last_active_ms = entry
+            .metadata()
+            .ok()
+            .and_then(|m| m.modified().ok())
+            .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+            .map(|d| d.as_millis() as u64);
+        let transcript_bytes = entry.metadata().ok().map(|m| m.len());
+        out.push(serde_json::json!({
+            "session_id": id,
+            // A person's rename is `custom_title`; the generated one is
+            // `title`. The person's word wins, matching the bridge's own
+            // display_title resolution.
+            "title": v["custom_title"]
+                .as_str()
+                .map(str::trim)
+                .filter(|t| !t.is_empty())
+                .or_else(|| v["title"].as_str().map(str::trim).filter(|t| !t.is_empty())),
+            "working_dir": v["working_dir"].as_str(),
+            "user_messages": user_messages,
+            "last_active_ms": last_active_ms,
+            "transcript_bytes": transcript_bytes,
+            // A turn in flight right now, from the process-wide registry —
+            // the file alone cannot say.
+            "live": crate::turn_cancel_registry::has_active_turn(&id),
+        }));
+        if out.len() >= 500 {
+            break;
+        }
+    }
+    out
+}
+
+#[cfg(test)]
+mod session_summary_tests {
+    //! The daemon's own session listing — the only listing that can exist on
+    //! a team server, where each room's files are readable by nobody else.
+
+    #[test]
+    fn summaries_count_real_user_messages_and_prefer_the_persons_title() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        // jcode_dir() honours JCODE_HOME.
+        unsafe { std::env::set_var("JCODE_HOME", temp.path()) };
+        let dir = temp.path().join("sessions");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(
+            dir.join("session_test_1.json"),
+            serde_json::json!({
+                "id": "session_test_1",
+                "title": "  Generated  ",
+                "custom_title": "  My name  ",
+                "working_dir": "/srv/blaude/project",
+                "messages": [
+                    {"role": "user", "content": [{"type": "text", "text": "<system-reminder>\ncontext"}]},
+                    {"role": "user", "content": [{"type": "text", "text": "hello from a teammate"}]},
+                    {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "x", "content": "ok"}]},
+                    {"role": "assistant", "content": [{"type": "text", "text": "hi"}]}
+                ],
+            })
+            .to_string(),
+        )
+        .unwrap();
+        std::fs::write(dir.join("session_test_1.journal.jsonl"), "").unwrap();
+        std::fs::write(dir.join("ignore.txt"), "").unwrap();
+
+        let out = super::list_session_summaries();
+        unsafe { std::env::remove_var("JCODE_HOME") };
+        assert_eq!(out.len(), 1, "one real record: {out:?}");
+        let s = &out[0];
+        assert_eq!(s["session_id"], "session_test_1");
+        // The synthetic context reminder and the tool_result are NOT things a
+        // person said; the greeting is. One real user message.
+        assert_eq!(s["user_messages"], 1);
+        assert_eq!(s["title"], "My name");
+        assert_eq!(s["working_dir"], "/srv/blaude/project");
+        assert_eq!(s["live"], false);
+    }
+}

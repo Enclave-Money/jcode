@@ -612,6 +612,7 @@ impl Request {
             Request::SwitchOpenAiAccount { id, .. } => *id,
             Request::StdinResponse { id, .. } => *id,
             Request::VaultIndexSync { id, .. } => *id,
+            Request::ListSessions { id } => *id,
             Request::AgentRegister { id, .. } => *id,
             Request::AgentTask { id, .. } => *id,
             Request::AgentCapabilities { id } => *id,
