@@ -95,7 +95,8 @@ pub fn load_anthropic_api_key() -> Result<String> {
     if let Ok(env_name) = std::env::var("JCODE_ANTHROPIC_API_KEY_NAME") {
         let env_name = env_name.trim();
         if !env_name.is_empty() {
-            if let Ok(value) = std::env::var(env_name)
+            if crate::provider_catalog::ambient_env_credentials_allowed()
+                && let Ok(value) = std::env::var(env_name)
                 && !value.trim().is_empty()
             {
                 return Ok(value);
@@ -115,7 +116,8 @@ pub fn load_anthropic_api_key() -> Result<String> {
             );
         }
     }
-    if let Ok(value) = std::env::var("ANTHROPIC_AUTH_TOKEN")
+    if crate::provider_catalog::ambient_env_credentials_allowed()
+        && let Ok(value) = std::env::var("ANTHROPIC_AUTH_TOKEN")
         && !value.trim().is_empty()
     {
         return Ok(value);

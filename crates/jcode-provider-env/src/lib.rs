@@ -82,6 +82,63 @@ fn clean_loaded_value(raw: &str, env_key: &str) -> Option<String> {
     Some(cleaned.to_string())
 }
 
+/// Whether the runtime may read an AI credential from the PROCESS ENVIRONMENT.
+///
+/// False when `JCODE_EXPLICIT_ACCOUNTS_ONLY` is set. The blaude app sets it on
+/// its local runtime so a turn uses only accounts a person added through the
+/// app — never an `ANTHROPIC_API_KEY` / `OPENROUTER_API_KEY` that happens to
+/// sit in the login environment. Without it, `--provider auto` silently picks
+/// up an ambient key and bills it, with the account list still showing zero.
+///
+/// Credentials added through the app live in FILES (OAuth tokens in auth.json,
+/// pasted keys in the config dir), which this never gates — only the direct
+/// `std::env::var` reads are skipped, so the file lookups below still run.
+pub fn ambient_env_credentials_allowed() -> bool {
+    let env_says_no = std::env::var("JCODE_EXPLICIT_ACCOUNTS_ONLY")
+        .ok()
+        .map(|v| {
+            let v = v.trim();
+            !(v.is_empty() || v == "0" || v.eq_ignore_ascii_case("false"))
+        })
+        .unwrap_or(false);
+    if env_says_no {
+        return false;
+    }
+    // The persisted form. A daemon outlives the app that launched it — the
+    // next app launch reconnects to the running one — so a policy carried
+    // only in the launch environment never reached a daemon that was already
+    // up, and an ambient key kept being used after the app had switched to
+    // explicit accounts. The bridge writes this file (see
+    // `persist_explicit_accounts_policy`); the daemon checks it on every
+    // credential lookup.
+    !explicit_accounts_policy_path().is_some_and(|p| p.exists())
+}
+
+/// Where the explicit-accounts policy is persisted: a marker file in the
+/// runtime's config dir, next to the pasted-key files it governs.
+pub fn explicit_accounts_policy_path() -> Option<std::path::PathBuf> {
+    jcode_storage::app_config_dir()
+        .ok()
+        .map(|d| d.join("explicit-accounts-only"))
+}
+
+/// Persist the policy so a daemon that is already running — or one started
+/// later by something other than the app — honours it. Returns true when the
+/// file was NEWLY created, which is the caller's cue to reload a running
+/// daemon (its provider choice was made before the policy existed).
+pub fn persist_explicit_accounts_policy() -> bool {
+    let Some(path) = explicit_accounts_policy_path() else {
+        return false;
+    };
+    if path.exists() {
+        return false;
+    }
+    if let Some(dir) = path.parent() {
+        let _ = std::fs::create_dir_all(dir);
+    }
+    std::fs::write(&path, b"1\n").is_ok()
+}
+
 pub fn load_api_key_from_env_or_config(env_key: &str, file_name: &str) -> Option<String> {
     if !is_safe_env_key_name(env_key) {
         jcode_logging::warn(&format!(
@@ -98,7 +155,8 @@ pub fn load_api_key_from_env_or_config(env_key: &str, file_name: &str) -> Option
         return None;
     }
 
-    if let Ok(key) = std::env::var(env_key)
+    if ambient_env_credentials_allowed()
+        && let Ok(key) = std::env::var(env_key)
         && let Some(key) = clean_loaded_value(&key, env_key)
     {
         return Some(key);
@@ -118,7 +176,8 @@ pub fn load_api_key_from_env_or_config(env_key: &str, file_name: &str) -> Option
     }
 
     if env_key == "ZHIPU_API_KEY" {
-        if let Ok(key) = std::env::var("ZAI_API_KEY")
+        if ambient_env_credentials_allowed()
+            && let Ok(key) = std::env::var("ZAI_API_KEY")
             && let Some(key) = clean_loaded_value(&key, "ZAI_API_KEY")
         {
             return Some(key);
@@ -157,7 +216,8 @@ pub fn load_env_value_from_env_or_config(env_key: &str, file_name: &str) -> Opti
         return None;
     }
 
-    if let Ok(value) = std::env::var(env_key)
+    if ambient_env_credentials_allowed()
+        && let Ok(value) = std::env::var(env_key)
         && let Some(value) = clean_loaded_value(&value, env_key)
     {
         return Some(value);
@@ -269,6 +329,66 @@ mod tests {
                 }
             }
         }
+    }
+
+    /// The whole point of the flag: with JCODE_EXPLICIT_ACCOUNTS_ONLY set, an
+    /// AI key sitting in the process environment is NOT used — but a key in the
+    /// config file (how the app stores an account a person added) still is.
+    /// Both directions are asserted so the guard cannot pass vacuously.
+    #[test]
+    fn explicit_accounts_only_ignores_ambient_env_but_keeps_config_file() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        let _guard = EnvGuard::new(&[
+            "JCODE_HOME",
+            "OPENROUTER_API_KEY",
+            "JCODE_EXPLICIT_ACCOUNTS_ONLY",
+        ]);
+        jcode_core::env::set_var("JCODE_HOME", temp.path());
+
+        // An ambient key in the environment, and NO config file yet.
+        jcode_core::env::set_var("OPENROUTER_API_KEY", "sk-ambient-should-be-ignored");
+
+        // Default (flag unset): the ambient key IS used — positive control that
+        // the test can observe the ambient read at all.
+        assert_eq!(
+            load_api_key_from_env_or_config("OPENROUTER_API_KEY", "openrouter.env").as_deref(),
+            Some("sk-ambient-should-be-ignored"),
+            "without the flag, an ambient env key is used"
+        );
+
+        // Flag on: the ambient key is now invisible.
+        jcode_core::env::set_var("JCODE_EXPLICIT_ACCOUNTS_ONLY", "1");
+        assert_eq!(
+            load_api_key_from_env_or_config("OPENROUTER_API_KEY", "openrouter.env"),
+            None,
+            "with the flag, an ambient env key must be ignored"
+        );
+
+        // The PERSISTED policy, with no env flag at all: this is what a
+        // daemon started before the app switched policies actually reads.
+        jcode_core::env::remove_var("JCODE_EXPLICIT_ACCOUNTS_ONLY");
+        jcode_core::env::set_var("OPENROUTER_API_KEY", "sk-ambient-should-be-ignored");
+        assert!(persist_explicit_accounts_policy(), "first persist creates the file");
+        assert!(!persist_explicit_accounts_policy(), "second persist is a no-op");
+        assert_eq!(
+            load_api_key_from_env_or_config("OPENROUTER_API_KEY", "openrouter.env"),
+            None,
+            "the persisted policy alone must hide an ambient env key"
+        );
+        jcode_core::env::set_var("JCODE_EXPLICIT_ACCOUNTS_ONLY", "1");
+
+        // A key added through the app lives in the config FILE — still found,
+        // even with the flag on, so real accounts are untouched.
+        save_env_value_to_env_file("OPENROUTER_API_KEY", "openrouter.env", Some("sk-from-the-app"))
+            .expect("write config file");
+        // save_env_value_to_env_file also sets the process env; clear it so the
+        // only remaining source is the file.
+        jcode_core::env::remove_var("OPENROUTER_API_KEY");
+        assert_eq!(
+            load_api_key_from_env_or_config("OPENROUTER_API_KEY", "openrouter.env").as_deref(),
+            Some("sk-from-the-app"),
+            "a key added through the app (config file) is still used under the flag"
+        );
     }
 
     #[test]
