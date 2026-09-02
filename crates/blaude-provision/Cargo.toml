@@ -1,0 +1,11 @@
+[package]
+name = "blaude-provision"
+version = "0.1.0"
+edition = "2024"
+publish = false
+description = "Builds a team's cloud server. Runs where the cloud credential lives, which is the provisioning service — never a user's Mac."
+
+[dependencies]
+base64 = "0.22"
+serde_json = "1"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time", "process", "io-util", "fs", "net"] }

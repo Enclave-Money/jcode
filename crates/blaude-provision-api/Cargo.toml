@@ -1,0 +1,24 @@
+[package]
+name = "blaude-provision-api"
+version = "0.1.0"
+edition = "2024"
+publish = false
+description = "The service that builds team servers. Holds the cloud credential so no user's machine has to."
+
+[[bin]]
+name = "blaude-provision-api"
+path = "src/main.rs"
+
+[dependencies]
+blaude-provision = { path = "../blaude-provision" }
+axum = "0.7"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "signal", "net"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+# RS256 + Clerk's JWKS. Verifying a signature is a local operation, which is
+# the whole reason the Mac sends a SESSION token and not Clerk's rotating
+# client token: presenting that one twice makes Clerk revoke the session.
+jsonwebtoken = "9"
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "rustls-tls-native-roots"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }

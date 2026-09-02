@@ -1,78 +1,59 @@
-//! Bridge-global create-team provisioning jobs.
+//! Asking the provisioning service to build a team server.
 //!
-//! `create_team` builds a real team server: a fresh cloud VM running the
-//! blaude daemon + bridge behind wss, with an owner token and a pinned CA.
-//! Provisioning takes minutes, so it runs as a process-global async job
-//! (the `council_jobs` shape): the verb replies immediately with a status
-//! record and any connection polls `team_create_status` until `done`.
+//! This file used to BE the provisioning: it shelled out to `gcloud` on the
+//! owner's Mac. That only ever worked for one person. Everyone else would have
+//! needed the gcloud CLI installed and a login with Compute Admin on a project
+//! that is not theirs, so for them "Create a team" could not work at all — and
+//! for that one person it broke about daily, because a human `gcloud auth
+//! login` expires and nothing renews it.
 //!
-//! The job shells out to `gcloud` with the OWNER's local credentials — the
-//! bridge runs on the owner's machine, which is exactly where their cloud
-//! auth lives. The app never sees a cloud credential; it gets back only the
-//! finished endpoint (ws_url + owner token + CA PEM).
+//! The work now happens in `blaude-provision`, running in a service that holds
+//! the cloud credential (see `blaude-provision-api`). No user's machine has
+//! one, which is the point.
 //!
-//! Cloud settings come from `~/.jcode/team-cloud.json`:
-//!   { "project": …, "zone": …, "machine_type": …, "template_instance": … }
-//! with defaults matching the existing hand-built team server, and
-//! `template_instance` naming a VM whose `~/blaude-agent/target/release/
-//! blaude` is copied onto new servers (cached locally after the first pull).
+//! The app's contract is untouched: `create_team` still returns a job record
+//! immediately and `team_create_status` still polls it. This mirrors the
+//! service's record into a local one so the app never learns that the work
+//! moved.
 
 use std::collections::HashMap;
-use std::path::PathBuf;
 use std::sync::{Mutex, OnceLock};
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::Duration;
 
 use serde_json::{Value, json};
 
-const OVERALL_TIMEOUT_SECS: u64 = 1800;
-const PORT: u16 = 7644;
+/// Where the provisioning service lives.
+///
+/// Overridable so a developer can point at a local `blaude-provision-api`
+/// without a rebuild, and so the endpoint can move without shipping a new app.
+fn api_base() -> String {
+    std::env::var("BLAUDE_PROVISION_API")
+        .ok()
+        .map(|v| v.trim().trim_end_matches('/').to_string())
+        .filter(|v| !v.is_empty())
+        .unwrap_or_else(|| DEFAULT_API.to_string())
+}
+
+/// The deployed service. Replaced by the real Cloud Run URL at deploy time.
+const DEFAULT_API: &str = "https://blaude-provision-api.run.app";
 
 fn jobs() -> &'static Mutex<HashMap<String, Value>> {
     static JOBS: OnceLock<Mutex<HashMap<String, Value>>> = OnceLock::new();
     JOBS.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
-fn now_secs() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_secs())
-        .unwrap_or(0)
-}
-
-fn new_job_id() -> String {
-    let nanos = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.subsec_nanos())
-        .unwrap_or(0);
-    format!("tc-{:x}{:04x}", now_secs(), nanos & 0xffff)
-}
-
-fn set_stage(job_id: &str, stage: &str) {
+fn put(job_id: &str, record: Value) {
     if let Ok(mut map) = jobs().lock() {
-        if let Some(rec) = map.get_mut(job_id) {
-            rec["stage"] = json!(stage);
-        }
+        map.insert(job_id.to_string(), record);
     }
 }
 
-fn finish_err(job_id: &str, message: String) {
+fn fail(job_id: &str, message: String) {
     if let Ok(mut map) = jobs().lock() {
-        if let Some(rec) = map.get_mut(job_id) {
-            rec["done"] = json!(true);
-            rec["error"] = json!(message);
-        }
-    }
-}
-
-fn finish_ok(job_id: &str, ws_url: &str, token: &str, ca_pem: &str) {
-    if let Ok(mut map) = jobs().lock() {
-        if let Some(rec) = map.get_mut(job_id) {
-            rec["done"] = json!(true);
-            rec["stage"] = json!("Ready.");
-            rec["ws_url"] = json!(ws_url);
-            rec["token"] = json!(token);
-            rec["ca_pem"] = json!(ca_pem);
-        }
+        let rec = map.entry(job_id.to_string()).or_insert_with(|| json!({}));
+        rec["job_id"] = json!(job_id);
+        rec["done"] = json!(true);
+        rec["error"] = json!(message);
     }
 }
 
@@ -81,1371 +62,196 @@ pub fn status(job_id: &str) -> Option<Value> {
     jobs().lock().ok()?.get(job_id).cloned()
 }
 
-/// Start provisioning; returns the initial record immediately.
-/// Region shortcuts the app offers; anything else falls back to the
-/// configured default zone.
-fn zone_for_region(region: Option<&str>, default_zone: &str) -> String {
-    match region.map(|r| r.to_ascii_lowercase()) {
-        Some(r) if r.contains("india") => "asia-south1-a".into(),
-        Some(r) if r.contains("singapore") => "asia-southeast1-a".into(),
-        Some(r) if r.contains("europe") => "europe-west3-a".into(),
-        Some(r) if r.contains("us") => "us-central1-a".into(),
-        _ => default_zone.into(),
-    }
+fn client() -> Result<reqwest::Client, String> {
+    reqwest::Client::builder()
+        // Creating a team takes minutes, but every INDIVIDUAL call here is a
+        // small one — start, or one poll. A short timeout keeps a wedged
+        // network from looking like a wedged build.
+        .timeout(Duration::from_secs(30))
+        .build()
+        .map_err(|e| format!("could not make an HTTPS client: {e}"))
 }
 
+/// A local job id, used only until the service answers with its own.
+fn local_job_id() -> String {
+    use std::time::{SystemTime, UNIX_EPOCH};
+    let nanos = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_nanos())
+        .unwrap_or_default();
+    format!("local-{nanos}")
+}
+
+/// Start provisioning; returns the initial record immediately.
 pub fn start(name: &str, region: Option<&str>) -> Value {
-    let job_id = new_job_id();
+    let job_id = local_job_id();
     let record = json!({
         "job_id": job_id,
         "name": name,
-        "stage": "Checking Google Cloud…",
+        "stage": "Asking for a server…",
         "done": false,
     });
-    if let Ok(mut map) = jobs().lock() {
-        map.insert(job_id.clone(), record.clone());
-    }
+    put(&job_id, record.clone());
+
     let name = name.to_string();
     let region = region.map(str::to_string);
+    let local_id = job_id.clone();
     tokio::spawn(async move {
-        let id = job_id.clone();
-        let work = provision(job_id.clone(), name, region);
-        match tokio::time::timeout(Duration::from_secs(OVERALL_TIMEOUT_SECS), work).await {
-            Ok(Ok(())) => {}
-            Ok(Err(message)) => finish_err(&id, message),
-            Err(_) => finish_err(
-                &id,
-                "Ran out of time building the server. It may still finish — check your \
-                 cloud console, or try again."
-                    .into(),
-            ),
+        if let Err(message) = run(&local_id, name, region).await {
+            fail(&local_id, message);
         }
     });
     record
 }
 
-// ---------------------------------------------------------------------------
-// cloud config
-
-struct CloudCfg {
-    project: String,
-    zone: String,
-    machine_type: String,
-    template_instance: String,
-}
-
-fn cloud_cfg() -> CloudCfg {
-    let mut cfg = CloudCfg {
-        project: "enclave-money".into(),
-        zone: "asia-south1-a".into(),
-        // Sized for the desktop, because everyone opens the browser.
-        //
-        // An e2-small (2 shared vCPU, 1.9 GB, 10 GB disk) runs the agent and
-        // nothing else: Chrome alone wants 400-800 MB resident and the install
-        // does not fit in the disk. docs/display-stack.md measured the floor
-        // for this stack at 4 vCPU / 8 GiB / 40 GB, so that is the size a team
-        // gets. Sizing down and resizing on demand was rejected deliberately:
-        // a resize needs a stop/start, so it would drop the team exactly when
-        // someone reaches for the screen.
-        machine_type: "e2-standard-4".into(),
-        // No template server by default. "blaude-india-1" used to be the
-        // default and no longer exists, so every create_team spent a failed
-        // gcloud scp discovering that before falling back to the cache. Set
-        // template_instance in ~/.jcode/team-cloud.json to re-enable pulling.
-        template_instance: String::new(),
-    };
-    if let Some(home) = std::env::var_os("HOME") {
-        let path = PathBuf::from(home).join(".jcode/team-cloud.json");
-        if let Ok(text) = std::fs::read_to_string(path) {
-            if let Ok(v) = serde_json::from_str::<Value>(&text) {
-                if let Some(s) = v["project"].as_str() {
-                    cfg.project = s.into();
-                }
-                if let Some(s) = v["zone"].as_str() {
-                    cfg.zone = s.into();
-                }
-                if let Some(s) = v["machine_type"].as_str() {
-                    cfg.machine_type = s.into();
-                }
-                if let Some(s) = v["template_instance"].as_str() {
-                    cfg.template_instance = s.into();
-                }
-            }
-        }
-    }
-    cfg
-}
-
-fn gcloud_bin() -> Option<PathBuf> {
-    let mut candidates: Vec<PathBuf> = vec![
-        "/opt/homebrew/bin/gcloud".into(),
-        "/usr/local/bin/gcloud".into(),
-        "/usr/bin/gcloud".into(),
-    ];
-    if let Some(home) = std::env::var_os("HOME") {
-        candidates.push(PathBuf::from(&home).join("google-cloud-sdk/bin/gcloud"));
-    }
-    if let Some(paths) = std::env::var_os("PATH") {
-        for dir in std::env::split_paths(&paths) {
-            candidates.push(dir.join("gcloud"));
-        }
-    }
-    candidates.into_iter().find(|p| p.is_file())
-}
-
-// ---------------------------------------------------------------------------
-// process helpers
-
-async fn run(bin: &PathBuf, args: &[&str], stdin: Option<&str>) -> Result<String, String> {
-    use tokio::io::AsyncWriteExt;
-    let mut cmd = tokio::process::Command::new(bin);
-    cmd.args(args)
-        .stdin(if stdin.is_some() {
-            std::process::Stdio::piped()
-        } else {
-            std::process::Stdio::null()
-        })
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped())
-        .kill_on_drop(true);
-    let mut child = cmd
-        .spawn()
-        .map_err(|e| format!("could not run gcloud: {e}"))?;
-    // Write stdin on its OWN task, so output is drained concurrently. Writing
-    // the whole script and only THEN reading stdout deadlocks once the script
-    // is large enough (the browser-helper base64 pushed it past ~27KB): the
-    // parent blocks in write_all while the far-away remote `bash -s` stalls
-    // reading the script, and because the parent isn't reading gcloud's
-    // stdout/stderr, nothing ever drains and both sides wedge. A brand-new
-    // team hung here for 15+ minutes. The writer task lets wait_with_output
-    // read output while the script is still going out.
-    if let Some(text) = stdin {
-        if let Some(mut pipe) = child.stdin.take() {
-            let bytes = text.as_bytes().to_vec();
-            tokio::spawn(async move {
-                let _ = pipe.write_all(&bytes).await;
-                let _ = pipe.shutdown().await;
-            });
-        }
-    }
-    let out = child
-        .wait_with_output()
+async fn run(local_id: &str, name: String, region: Option<String>) -> Result<(), String> {
+    let token = crate::blaude_account::session_token()
         .await
-        .map_err(|e| format!("gcloud did not finish: {e}"))?;
-    let stdout = String::from_utf8_lossy(&out.stdout).trim().to_string();
-    let stderr = String::from_utf8_lossy(&out.stderr).trim().to_string();
-    if out.status.success() {
-        Ok(stdout)
-    } else {
-        Err(if stderr.is_empty() { stdout } else { stderr })
-    }
-}
+        .ok_or_else(|| {
+            "Sign in to blaude first — creating a team server is tied to your account.".to_string()
+        })?;
+    let http = client()?;
+    let base = api_base();
 
-/// Retry a gcloud call while the fresh VM's SSH comes up (key propagation
-/// takes ~30-60s on a brand-new instance).
-async fn run_retry(
-    bin: &PathBuf,
-    args: &[&str],
-    stdin: Option<&str>,
-    tries: u32,
-) -> Result<String, String> {
-    let mut last = String::new();
-    for attempt in 0..tries {
-        match run(bin, args, stdin).await {
-            Ok(out) => return Ok(out),
-            Err(e) => last = e,
-        }
-        if attempt + 1 < tries {
-            tokio::time::sleep(Duration::from_secs(15)).await;
-        }
-    }
-    Err(last)
-}
-
-fn slugify(name: &str) -> String {
-    let slug: String = name
-        .to_lowercase()
-        .chars()
-        .map(|c| if c.is_ascii_alphanumeric() { c } else { '-' })
-        .collect();
-    let slug = slug.trim_matches('-').to_string();
-    let slug = if slug.is_empty() { "team".into() } else { slug };
-    slug.chars().take(20).collect()
-}
-
-// ---------------------------------------------------------------------------
-// the provisioning sequence
-
-async fn provision(job_id: String, name: String, region: Option<String>) -> Result<(), String> {
-    let Some(gcloud) = gcloud_bin() else {
-        return Err(
-            "Google Cloud isn't set up on this Mac. Install the gcloud CLI and run \
-             `gcloud auth login`, then try again."
-                .into(),
-        );
-    };
-    let cfg = cloud_cfg();
-    // The template (binary source) stays in ITS zone; the new server goes to
-    // the zone the user chose.
-    let template_zone = cfg.zone.clone();
-    let zone = zone_for_region(region.as_deref(), &cfg.zone);
-
-    // Authed at all? A cheap read that fails fast when logged out.
-    run(&gcloud, &["auth", "print-access-token", "--quiet"], None)
+    let resp = http
+        .post(format!("{base}/v1/teams"))
+        .bearer_auth(&token)
+        .json(&json!({ "name": name, "region": region }))
+        .send()
         .await
-        .map_err(|e| format!("Google Cloud isn't signed in — run `gcloud auth login`. ({e})"))?;
-
-    let nanos = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.subsec_nanos())
-        .unwrap_or(0);
-    let instance = format!("blaude-{}-{:04x}", slugify(&name), nanos & 0xffff);
-
-    // The shared firewall rule for every created team: 7644 open to the
-    // world, protected by wss + per-member bearer tokens (same posture as
-    // the app's join flow). Creating it twice is fine — "already exists"
-    // is success.
-    set_stage(&job_id, "Creating the server…");
-    if let Err(e) = run(
-        &gcloud,
-        &[
-            "compute",
-            "firewall-rules",
-            "create",
-            "blaude-team-web",
-            "--project",
-            &cfg.project,
-            "--allow",
-            "tcp:80,tcp:443",
-            "--target-tags",
-            "blaude-team",
-            "--source-ranges",
-            "0.0.0.0/0",
-            "--description",
-            "blaude team servers (wss + bearer tokens)",
-            "--quiet",
-        ],
-        None,
-    )
-    .await
-    {
-        if !e.contains("already exists") {
-            return Err(format!("Could not open the team ports: {e}"));
-        }
-        // The rule pre-existing is only success if it actually covers OUR
-        // tag — a same-named rule targeting other tags leaves the new VM
-        // firewalled shut while every step after reports success (it did,
-        // live: the first created team built fully but was unreachable).
-        let tags = run(
-            &gcloud,
-            &[
-                "compute",
-                "firewall-rules",
-                "describe",
-                "blaude-team-web",
-                "--project",
-                &cfg.project,
-                "--format",
-                "value(targetTags.list())",
-            ],
-            None,
-        )
+        .map_err(|e| format!("Could not reach the blaude service that builds servers: {e}"))?;
+    let code = resp.status();
+    let body: Value = resp
+        .json()
         .await
-        .unwrap_or_default();
-        if !tags
-            .split([',', ';', ' '])
-            .any(|t| t.trim() == "blaude-team")
-        {
-            let merged = if tags.trim().is_empty() {
-                "blaude-team".to_string()
-            } else {
-                format!("{},blaude-team", tags.trim().replace(';', ","))
-            };
-            run(
-                &gcloud,
-                &[
-                    "compute",
-                    "firewall-rules",
-                    "update",
-                    "blaude-team-web",
-                    "--project",
-                    &cfg.project,
-                    "--target-tags",
-                    &merged,
-                ],
-                None,
-            )
-            .await
-            .map_err(|e| format!("The team firewall rule exists but does not cover team servers, and updating it failed: {e}"))?;
-        }
+        .map_err(|e| format!("The server-building service sent something unreadable: {e}"))?;
+    if !code.is_success() {
+        return Err(service_error(code, &body));
     }
 
-    // A STATIC address, reserved before the VM exists.
-    //
-    // An ephemeral IP is released on every stop/start, and a team server's
-    // whole identity is built from its address: members hold
-    // `wss://<ip-with-dashes>.sslip.io/api`, and the Let's Encrypt cert is
-    // issued for that same name. So one restart silently invalidated both the
-    // saved URL and the certificate for every member — seen live when resizing
-    // a running team moved it from 34.93.93.41 to 35.200.139.215.
-    //
-    // Reserving costs nothing while attached to a running VM, and a failure
-    // here is not fatal: the instance is created either way and falls back to
-    // an ephemeral address rather than refusing to make the team.
-    let address_name = format!("{instance}-ip");
-    // An address is a REGIONAL resource and the zone is `<region>-<letter>`,
-    // so the region is the zone with its last segment removed.
-    let address_region = zone
-        .rsplit_once('-')
-        .map(|(region, _)| region.to_string())
-        .unwrap_or_else(|| zone.clone());
-    let reserved = run(
-        &gcloud,
-        &[
-            "compute",
-            "addresses",
-            "create",
-            &address_name,
-            "--project",
-            &cfg.project,
-            "--region",
-            &address_region,
-            "--quiet",
-        ],
-        None,
-    )
-    .await
-    .is_ok();
+    // From here the service owns the job; this only mirrors it so the app can
+    // keep polling the one place it always has.
+    let remote_id = body
+        .get("job_id")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| "The service started a build but did not name it.".to_string())?
+        .to_string();
+    let mut mirrored = body.clone();
+    mirrored["job_id"] = json!(local_id);
+    put(local_id, mirrored);
 
-    // Install the packages AT BOOT, not over ssh three stages later.
-    //
-    // This is the single biggest thing standing between "create a team" and a
-    // usable server: ~2 minutes of apt that needs nothing from this Mac. Run
-    // from ssh it was pure wall clock, with the VM sitting idle through the
-    // instance create and the 130MB binary copy first. As a startup-script it
-    // begins the moment the guest boots, so most of it is already done by the
-    // time the first ssh connects. The setup stage waits on the marker.
-    //
-    // Best effort by design: if the guest agent never runs this, the setup
-    // stage sees no marker and installs the packages itself.
-    let boot_script = format!(
-        r#"#!/bin/bash
-exec >>/var/log/blaude-boot.log 2>&1
-set -x
-{packages}
-touch /var/lib/blaude-apt.done
-"#,
-        packages = package_install_snippet(),
-    );
-    let boot_path = std::env::temp_dir().join(format!("{instance}-boot.sh"));
-    let boot_arg = format!("startup-script={}", boot_path.display());
-    let booted = std::fs::write(&boot_path, &boot_script).is_ok();
-
-    let mut create_args: Vec<&str> = vec![
-        "compute",
-        "instances",
-        "create",
-        &instance,
-        "--project",
-        &cfg.project,
-        "--zone",
-        &zone,
-        // The display stack needs room: the base image plus Chrome does not
-        // fit the 10 GB default (a live e2-small sat at 2.9 GB free).
-        "--boot-disk-size",
-        "40GB",
-        "--machine-type",
-        &cfg.machine_type,
-        "--image-family",
-        "debian-12",
-        "--image-project",
-        "debian-cloud",
-        "--tags",
-        "blaude-team",
-        "--quiet",
-    ];
-    if reserved {
-        create_args.extend_from_slice(&["--address", &address_name]);
-    }
-    if booted {
-        create_args.extend_from_slice(&["--metadata-from-file", &boot_arg]);
-    }
-
-    let created = run(&gcloud, &create_args, None).await;
-    let _ = std::fs::remove_file(&boot_path);
-    created.map_err(|e| format!("Could not create the server: {e}"))?;
-
-    let ip = run(
-        &gcloud,
-        &[
-            "compute",
-            "instances",
-            "describe",
-            &instance,
-            "--project",
-            &cfg.project,
-            "--zone",
-            &zone,
-            "--format",
-            "value(networkInterfaces[0].accessConfigs[0].natIP)",
-        ],
-        None,
-    )
-    .await
-    .map_err(|e| format!("Could not read the server's address: {e}"))?;
-    if ip.is_empty() {
-        return Err("The server came up without a public address.".into());
-    }
-
-    // The Linux build of blaude, cached locally after the first pull from
-    // the template server so later teams skip the double copy.
-    set_stage(&job_id, "Copying blaude onto it…");
-    let home = std::env::var("HOME").map_err(|_| "no HOME".to_string())?;
-    let cache_dir = PathBuf::from(&home).join(".jcode/team-server-cache");
-    let cache = cache_dir.join("blaude-linux-x86_64");
-    // A stale cache ships an old server build to brand-new teams forever;
-    // re-pull daily.
-    let cache_stale = cache
-        .metadata()
-        .and_then(|m| m.modified())
-        .map(|t| t.elapsed().map(|e| e.as_secs() > 86_400).unwrap_or(true))
-        .unwrap_or(true);
-    // An empty template_instance means "there is no template server; the cache
-    // IS the source". The old default named a VM that has since been deleted,
-    // so every create_team paid a failed gcloud fetch before falling back —
-    // slow, and it logged an error that looked like the real failure.
-    if cache_stale && !cfg.template_instance.trim().is_empty() {
-        std::fs::create_dir_all(&cache_dir)
-            .map_err(|e| format!("could not create the local cache: {e}"))?;
-        let pulled = run(
-            &gcloud,
-            &[
-                "compute",
-                "scp",
-                &format!(
-                    "{}:~/blaude-agent/target/release/blaude",
-                    cfg.template_instance
-                ),
-                cache.to_str().unwrap_or_default(),
-                "--project",
-                &cfg.project,
-                "--zone",
-                &template_zone,
-                "--quiet",
-            ],
-            None,
-        )
-        .await;
-        // The template VM may no longer exist (teams get deleted); a cached
-        // binary is a fine fallback — only a missing cache is fatal.
-        if let Err(e) = pulled {
-            if !cache.is_file() {
-                return Err(format!("Could not fetch the blaude server build: {e}"));
-            }
-        }
-    }
-    run_retry(
-        &gcloud,
-        &[
-            "compute",
-            "scp",
-            cache.to_str().unwrap_or_default(),
-            &format!("{instance}:~/blaude"),
-            "--project",
-            &cfg.project,
-            "--zone",
-            &zone,
-            "--quiet",
-        ],
-        None,
-        8,
-    )
-    .await
-    .map_err(|e| format!("Could not copy blaude onto the server: {e}"))?;
-
-    // blaude-tools rides along when the developer cache has it — it is what
-    // `blaude brief` (the daemon's code-graph auto-reindex) delegates to.
-    // Best-effort: without it the graph simply never builds on this server.
-    let tools_cache = cache_dir.join("blaude-tools-linux-x86_64");
-    if tools_cache.is_file() {
-        let _ = run_retry(
-            &gcloud,
-            &[
-                "compute",
-                "scp",
-                tools_cache.to_str().unwrap_or_default(),
-                &format!("{instance}:~/blaude-tools"),
-                "--project",
-                &cfg.project,
-                "--zone",
-                &zone,
-                "--quiet",
-            ],
-            None,
-            3,
-        )
-        .await;
-    }
-
-    // The email key rides along when the owner has one, so invites from the
-    // new team send real emails from day one (the setup script moves it into
-    // ~/.jcode and locks it down). Best-effort: no key just means invites
-    // fall back to share-the-endpoint.
-    let clerk = PathBuf::from(&home).join(".jcode/clerk.env");
-    if clerk.is_file() {
-        let _ = run_retry(
-            &gcloud,
-            &[
-                "compute",
-                "scp",
-                clerk.to_str().unwrap_or_default(),
-                &format!("{instance}:~/clerk.env"),
-                "--project",
-                &cfg.project,
-                "--zone",
-                &zone,
-                "--quiet",
-            ],
-            None,
-            3,
-        )
-        .await;
-    }
-
-    // The owner's blaude identity rides along too, so the team server names
-    // the owner by their EMAIL (attribution, member rows) instead of a unix
-    // username. Best-effort like the email key.
-    let account = PathBuf::from(&home).join(".jcode/blaude-account.json");
-    if account.is_file() {
-        let _ = run_retry(
-            &gcloud,
-            &[
-                "compute",
-                "scp",
-                account.to_str().unwrap_or_default(),
-                &format!("{instance}:~/blaude-account.json"),
-                "--project",
-                &cfg.project,
-                "--zone",
-                &zone,
-                "--quiet",
-            ],
-            None,
-            3,
-        )
-        .await;
-    }
-
-    // TLS, tokens, and the two SYSTEM units — the same known-good layout as
-    // the hand-built team server (bridge with native wss + no-spawn; daemon
-    // with the forever-retry drop-in so it self-heals once an AI account
-    // lands). Sent over stdin (`bash -s`) to dodge quoting entirely.
-    set_stage(&job_id, "Securing it…");
-    let domain = format!("{}.sslip.io", ip.replace('.', "-"));
-    // Single-quoted for the shell, with embedded quotes escaped the POSIX way
-    // ('\''), so a team called O'Brien's does not break the setup script.
-    let name_quoted = format!("'{}'", name.replace('\'', r"'\''"));
-    let setup = format!(
-        r#"set -e
-U=$(whoami)
-H=$HOME
-mkdir -p "$H/.jcode/tls" "$H/.jcode/runtime" "$H/team"
-# The team's name, so the SERVER can tell every client what it is called.
-# Without this the name lived only on whichever client ran the join flow, and
-# everyone else fell back to displaying the hostname.
-printf '%s' {name_quoted} > "$H/.jcode/team-name"
-chmod +x "$H/blaude"
-[ -f "$H/blaude-tools" ] && chmod +x "$H/blaude-tools"
-[ -f "$H/clerk.env" ] && {{ mv "$H/clerk.env" "$H/.jcode/clerk.env"; chmod 600 "$H/.jcode/clerk.env"; }}
-[ -f "$H/blaude-account.json" ] && {{ mv "$H/blaude-account.json" "$H/.jcode/blaude-account.json"; chmod 600 "$H/.jcode/blaude-account.json"; }}
-# The packages were started at BOOT (see the startup-script on the instance),
-# so by now they are usually in. Wait for the marker rather than racing the
-# dpkg lock, and install them here if the guest agent never ran the script —
-# a create must not depend on it.
-for i in $(seq 1 240); do [ -f /var/lib/blaude-apt.done ] && break; sleep 2; done
-if [ ! -f /var/lib/blaude-apt.done ]; then
-  echo "boot install missing; installing inline"
-{packages}
-  sudo touch /var/lib/blaude-apt.done
-fi
-{browser_install}
-# TLS: a REAL Let's Encrypt cert on the VM's sslip.io name, so members join
-# with zero CA files and zero browser warnings. Self-signed only as fallback
-# (LE outage/rate limit) — the job then returns the CA for pinning.
-DOMAIN="{domain}"
-# 2G swap: gitnexus analyze (node) peaks near an e2-small's entire RAM and
-# the OOM killer takes it without swap (seen live: exit 137). Best-effort.
-if ! grep -q swapfile /etc/fstab 2>/dev/null; then
-  sudo fallocate -l 2G /swapfile 2>/dev/null && sudo chmod 600 /swapfile && sudo /sbin/mkswap /swapfile >/dev/null 2>&1 && sudo /sbin/swapon /swapfile 2>/dev/null && echo "/swapfile none swap sw 0 0" | sudo tee -a /etc/fstab >/dev/null || true
-fi
-TLS_MODE=selfsigned
-if sudo certbot certonly --standalone -d "$DOMAIN" --non-interactive --agree-tos --register-unsafely-without-email >/dev/null 2>&1; then
-  sudo install -o "$U" -g "$U" -m 600 "/etc/letsencrypt/live/$DOMAIN/fullchain.pem" "$H/.jcode/tls/cert.pem"
-  sudo install -o "$U" -g "$U" -m 600 "/etc/letsencrypt/live/$DOMAIN/privkey.pem" "$H/.jcode/tls/key.pem"
-  sudo mkdir -p /etc/letsencrypt/renewal-hooks/deploy
-  sudo tee /etc/letsencrypt/renewal-hooks/deploy/blaude.sh >/dev/null <<HOOK
-#!/bin/bash
-install -o $U -g $U -m 600 "/etc/letsencrypt/live/$DOMAIN/fullchain.pem" "$H/.jcode/tls/cert.pem"
-install -o $U -g $U -m 600 "/etc/letsencrypt/live/$DOMAIN/privkey.pem" "$H/.jcode/tls/key.pem"
-systemctl restart blaude-bridge
-HOOK
-  sudo chmod +x /etc/letsencrypt/renewal-hooks/deploy/blaude.sh
-  TLS_MODE=letsencrypt
-else
-  openssl req -x509 -newkey rsa:2048 -keyout "$H/.jcode/tls/key.pem" -out "$H/.jcode/tls/cert.pem" \
-    -days 3650 -nodes -subj "/CN=blaude-team" \
-    -addext "subjectAltName=IP:{ip},DNS:$DOMAIN" \
-    -addext "extendedKeyUsage=serverAuth" \
-    -addext "keyUsage=digitalSignature,keyEncipherment" 2>/dev/null
-fi
-echo "$TLS_MODE" > "$H/.jcode/tls-mode"
-# Commits made by team agents need an identity; the owner can refine later.
-git config --global user.name "blaude ({name})" 2>/dev/null || true
-git config --global user.email "blaude-team@users.noreply.github.com" 2>/dev/null || true
-[ -f "$H/.jcode/api-ws-token" ] || {{ openssl rand -hex 24 > "$H/.jcode/api-ws-token"; chmod 600 "$H/.jcode/api-ws-token"; }}
-[ -f "$H/.jcode/team-tokens.json" ] || echo '{{}}' > "$H/.jcode/team-tokens.json"
-sudo tee /etc/systemd/system/blaude-daemon.service >/dev/null <<UNIT
-[Unit]
-Description=blaude agent daemon (team server)
-After=network-online.target
-Wants=network-online.target
-
-[Service]
-User=$U
-WorkingDirectory=$H/team
-Environment=HOME=$H
-Environment=JCODE_RUNTIME_DIR=$H/.jcode/runtime
-Environment=JCODE_IDLE_TIMEOUT_SECS=0
-# Boot even with no AI account configured. A team server is provisioned
-# BEFORE anyone connects a provider, and refusing to start left the daemon
-# crash-looping so nothing worked at all: no sessions, no chats, no
-# presence — none of which need a model. Turns fail with a clear message
-# until an account is added; everything else works.
-Environment=JCODE_DEFERRED_AUTH_BOOTSTRAP=1
-# One daemon serves several teammates, so an API key sitting in this process's
-# environment must never stand in for a teammate whose own sign-in is missing:
-# that spends one person's quota on another's work with nothing saying so.
-# Turns fail with a clear "sign in again" instead.
-Environment=JCODE_SERVER_MODE=1
-ExecStart=$H/blaude --provider auto serve
-Restart=always
-RestartSec=2
-
-[Install]
-WantedBy=multi-user.target
-UNIT
-sudo mkdir -p /etc/systemd/system/blaude-daemon.service.d
-sudo tee /etc/systemd/system/blaude-daemon.service.d/hardening.conf >/dev/null <<UNIT
-[Unit]
-StartLimitIntervalSec=0
-[Service]
-RestartSec=3
-UNIT
-sudo tee /etc/systemd/system/blaude-bridge.service >/dev/null <<UNIT
-[Unit]
-Description=blaude harness API bridge (team server)
-After=network-online.target blaude-daemon.service
-Wants=network-online.target blaude-daemon.service
-
-[Service]
-User=$U
-Environment=HOME=$H
-Environment=JCODE_RUNTIME_DIR=$H/.jcode/runtime
-Environment=JCODE_BRIDGE_NO_SPAWN=1
-Environment=JCODE_SERVER_MODE=1
-Environment=JCODE_API_WS_BIND=0.0.0.0
-Environment=JCODE_API_WS_PORT=443
-Environment=JCODE_API_WS_TLS_CERT=$H/.jcode/tls/cert.pem
-Environment=JCODE_API_WS_TLS_KEY=$H/.jcode/tls/key.pem
-AmbientCapabilities=CAP_NET_BIND_SERVICE
-ExecStart=$H/blaude api-bridge
-Restart=always
-RestartSec=2
-
-[Install]
-WantedBy=multi-user.target
-UNIT
-sudo systemctl daemon-reload
-sudo systemctl enable --now blaude-daemon.service blaude-bridge.service
-echo SETUP_OK
-"#,
-        browser_install = browser_helper_install_snippet(),
-        packages = package_install_snippet(),
-    );
-    let out = run_remote_script(&gcloud, &cfg.project, &zone, &instance, "setup", &setup, 4)
-        .await
-        .map_err(|e| format!("Could not set the server up: {e}"))?;
-    if !out.contains("SETUP_OK") {
-        return Err(format!("Server setup did not finish: {out}"));
-    }
-
-    // Rooms: the shared desktop, the owner's own, and the unit that builds a
-    // room for anyone who joins later.
-    //
-    // Without this a new team had ONE daemon and no desktops at all — every
-    // member sharing one checkout and one set of credentials, "Mine" silently
-    // meaning "Shared", and the screen panel with nothing to show. The whole
-    // rooms feature existed only on the server I had provisioned by hand.
-    //
-    // Best-effort: a team that comes up without rooms is still a working team
-    // in the shared sense, so a failure here reports but does not destroy a
-    // server the owner has already waited for.
-    set_stage(&job_id, "Setting up rooms and screens…");
-    if let Err(error) = install_rooms(&gcloud, &cfg.project, &zone, &instance).await {
-        eprintln!("blaude: rooms setup failed for {instance}: {error}");
-    }
-
-    // The wss door answering is the readiness signal (the daemon keeps
-    // crash-retrying until an AI account lands — that's expected and the
-    // bridge serves sign-in through it).
-    set_stage(&job_id, "Starting it…");
-    let mut up = false;
-    for _ in 0..30 {
-        if tokio::net::TcpStream::connect((ip.as_str(), 443u16))
-            .await
-            .is_ok()
-        {
-            up = true;
-            break;
-        }
+    // Poll until the service says done. The 2s cadence matches what the app
+    // already does on top of this, so a stage change shows up about as fast as
+    // it did when the work ran here.
+    loop {
         tokio::time::sleep(Duration::from_secs(2)).await;
-    }
-    if !up {
-        return Err(format!(
-            "The server built but port 443 never answered at {ip}. Check the VM's logs."
-        ));
-    }
-
-    let creds = run(
-        &gcloud,
-        &[
-            "compute",
-            "ssh",
-            &instance,
-            "--project",
-            &cfg.project,
-            "--zone",
-            &zone,
-            "--command",
-            "cat ~/.jcode/api-ws-token && echo __MODE__ && cat ~/.jcode/tls-mode && echo __CA__ && cat ~/.jcode/tls/cert.pem",
-            "--quiet",
-        ],
-        None,
-    )
-    .await
-    .map_err(|e| format!("Could not read the server's access token: {e}"))?;
-    let mut parts = creds.splitn(2, "__MODE__");
-    let token = parts.next().unwrap_or_default().trim().to_string();
-    let rest = parts.next().unwrap_or_default();
-    let mut rest = rest.splitn(2, "__CA__");
-    let tls_mode = rest.next().unwrap_or_default().trim().to_string();
-    // A real certificate needs no pinning; return the CA only for the
-    // self-signed fallback so members' transports pin it.
-    let ca_pem = if tls_mode == "letsencrypt" {
-        String::new()
-    } else {
-        rest.next().unwrap_or_default().trim().to_string()
-    };
-    // letsencrypt needs no pinning CA, so an empty ca_pem is the SUCCESS
-    // shape there — only the self-signed fallback must hand one back.
-    let ca_missing = tls_mode != "letsencrypt" && !ca_pem.contains("BEGIN CERTIFICATE");
-    if token.is_empty() || ca_missing {
-        return Err("The server is up but its credentials could not be read.".into());
-    }
-
-    finish_ok(&job_id, &format!("wss://{domain}:443/api"), &token, &ca_pem);
-    Ok(())
-}
-
-#[cfg(test)]
-mod address_tests {
-    /// An address is a regional resource; the zone is `<region>-<letter>`.
-    /// Getting this wrong makes every reservation fail, and the team then
-    /// silently falls back to an ephemeral IP — the exact failure this is
-    /// meant to prevent, and one that only shows up on a later restart.
-    #[test]
-    fn the_address_region_is_the_zone_without_its_letter() {
-        let region_of = |zone: &str| {
-            zone.rsplit_once('-')
-                .map(|(region, _)| region.to_string())
-                .unwrap_or_else(|| zone.to_string())
-        };
-        assert_eq!(region_of("asia-south1-a"), "asia-south1");
-        assert_eq!(region_of("us-central1-b"), "us-central1");
-        assert_eq!(region_of("europe-west4-c"), "europe-west4");
-        // Degenerate input must not panic or produce an empty region.
-        assert_eq!(region_of("weird"), "weird");
-    }
-}
-
-/// Delete a team server: the VM, its disk, and its reserved address.
-///
-/// The instance name is not something a client knows — members hold a
-/// `wss://<ip-with-dashes>.sslip.io/api` URL and nothing else — so the server
-/// is found by matching that address against the project's instances. That
-/// also means this works for teams created before the name was ever recorded.
-///
-/// Deliberately NOT best-effort about the address: an unreleased static IP
-/// keeps billing after the VM is gone, which is exactly the kind of leftover
-/// nobody notices.
-pub async fn delete_team(ws_url: &str) -> Result<Value, String> {
-    let gcloud = gcloud_bin().ok_or_else(|| "gcloud is not installed".to_string())?;
-    let cfg = cloud_cfg();
-
-    // wss://34-93-93-41.sslip.io:443/api -> 34.93.93.41
-    let ip = ws_url
-        .split("://")
-        .nth(1)
-        .and_then(|rest| rest.split(&['/', ':'][..]).next())
-        .and_then(|host| host.strip_suffix(".sslip.io"))
-        .map(|dashed| dashed.replace('-', "."))
-        .ok_or_else(|| format!("cannot tell which server {ws_url} is"))?;
-
-    let listed = run(
-        &gcloud,
-        &[
-            "compute",
-            "instances",
-            "list",
-            "--project",
-            &cfg.project,
-            "--filter",
-            &format!("networkInterfaces[0].accessConfigs[0].natIP={ip}"),
-            "--format",
-            "value(name,zone)",
-        ],
-        None,
-    )
-    .await
-    .map_err(|e| friendly_cloud_error("look up the server", &e))?;
-
-    let mut fields = listed.split_whitespace();
-    let (Some(instance), Some(zone)) = (fields.next(), fields.next()) else {
-        // Already gone is the outcome the caller wanted, not a failure. As an
-        // error it left a destroyed team sitting in the switcher permanently,
-        // with Delete refusing it every time because there was nothing left
-        // to delete.
-        return Ok(json!({
-            "job_id": "", "stage": "Deleted", "done": true,
-            "deleted": Value::Null, "already_gone": true, "ip": ip
-        }));
-    };
-
-    run(
-        &gcloud,
-        &[
-            "compute", "instances", "delete", instance, "--project", &cfg.project, "--zone", zone,
-            "--quiet",
-        ],
-        None,
-    )
-    .await
-    .map_err(|e| format!("could not delete {instance}: {e}"))?;
-
-    // The address outlives the VM it was attached to, and keeps billing.
-    //
-    // RETRIED, because for a few seconds after the instance is gone the
-    // address is still marked in use and the delete fails. One attempt left a
-    // RESERVED, unattached address behind — silently, since nothing acts on
-    // the `address_released: false` this returns — and a reserved address that
-    // is attached to nothing is billed by the hour, forever. Seen live: a test
-    // team deleted cleanly and still cost money afterwards.
-    let region = zone.rsplit_once('-').map(|(r, _)| r).unwrap_or(zone);
-    let address_name = format!("{instance}-ip");
-    let mut address_released = false;
-    for attempt in 0..6 {
-        if run(
-            &gcloud,
-            &[
-                "compute",
-                "addresses",
-                "delete",
-                &address_name,
-                "--project",
-                &cfg.project,
-                "--region",
-                region,
-                "--quiet",
-            ],
-            None,
-        )
-        .await
-        .is_ok()
+        let resp = match http
+            .get(format!("{base}/v1/teams/{remote_id}"))
+            .bearer_auth(&token)
+            .send()
+            .await
         {
-            address_released = true;
-            break;
+            Ok(r) => r,
+            Err(e) => {
+                // A dropped poll is not a dropped build: the server is still
+                // being made. Say so and keep looking.
+                eprintln!("team create: poll failed, retrying — {e}");
+                continue;
+            }
+        };
+        let code = resp.status();
+        let Ok(body) = resp.json::<Value>().await else {
+            continue;
+        };
+        if !code.is_success() {
+            return Err(service_error(code, &body));
         }
-        if attempt < 5 {
-            tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+        let done = body.get("done").and_then(|v| v.as_bool()).unwrap_or(false);
+        let mut mirrored = body.clone();
+        mirrored["job_id"] = json!(local_id);
+        put(local_id, mirrored);
+        if done {
+            return Ok(());
         }
     }
-
-    // job_id/stage/done ride along because this reply is carried by the
-    // team_create_status event, whose record REQUIRES them. Without them the
-    // client's decode threw, the reply was dropped, and the app sat on
-    // "Deleting…" until it timed out while the server really was destroyed.
-    Ok(json!({
-        "job_id": "",
-        "stage": "Deleted",
-        "done": true,
-        "deleted": instance,
-        "zone": zone,
-        "ip": ip,
-        "address_released": address_released,
-    }))
 }
 
-/// Turn a raw gcloud failure into something worth showing a person.
-///
-/// Expired credentials are the common one, and gcloud reports them as a wall
-/// of text ending in a shell command. Printed verbatim it filled the app's
-/// banner with a stack of instructions nobody could act on from there.
-fn friendly_cloud_error(action: &str, error: &str) -> String {
-    if error.contains("Reauthentication failed")
-        || error.contains("gcloud auth login")
-        || error.contains("credentials are no longer valid")
-    {
-        return "Your Google Cloud sign-in has expired. Run `gcloud auth login` in a \
-                terminal, then try again."
-            .to_string();
+/// Turn the service's refusal into something a person can act on.
+fn service_error(code: reqwest::StatusCode, body: &Value) -> String {
+    let detail = body
+        .get("error")
+        .and_then(|v| v.as_str())
+        .unwrap_or("no reason given");
+    if code == reqwest::StatusCode::UNAUTHORIZED {
+        return format!("Your blaude sign-in was not accepted: {detail}");
     }
-    let first = error.lines().find(|l| !l.trim().is_empty()).unwrap_or(error);
-    format!("Could not {action}: {}", first.trim())
+    format!("The service could not build the server ({code}): {detail}")
 }
 
-/// The room provisioning script, shipped inside the binary.
-///
-/// Embedded rather than fetched so a new team never depends on a checkout
-/// being present, and so the script can never drift from the server code that
-/// reads what it writes (`member-users.json`, the socket and cookie paths).
-const PROVISION_SCRIPT: &str = include_str!("../../../deploy/team-server/provision-member.sh");
-
-/// The browser helper, baked into the binary so a created team carries it with
-/// no repo checkout on the server. Written to /opt/blaude-browser by the
-/// install script, which npm-installs Playwright and its Chromium alongside.
-const BROWSER_INSTALL_SCRIPT: &str =
-    include_str!("../../../deploy/team-server/install-browser-helper.sh");
-const BROWSER_HELPER_JS: &str = include_str!("../../../deploy/browser-helper/helper.js");
-const BROWSER_DETECT_JS: &str = include_str!("../../../deploy/browser-helper/detect.js");
-const BROWSER_FILL_JS: &str = include_str!("../../../deploy/browser-helper/fill.js");
-const BROWSER_HELPER_PKG: &str = include_str!("../../../deploy/browser-helper/package.json");
-
-/// A bash snippet that stages the browser-helper files (base64, so no quoting
-/// hazard) and runs the installer. Idempotent — safe to run on every create.
-/// Every package a team server needs, in ONE apt transaction.
-///
-/// It used to be five — gh, certbot, node, the screen stack, the desktop —
-/// each re-fetching the package index and each running its own dpkg trigger
-/// pass (fontconfig, mime, desktop-database). Measured on a real create, the
-/// repeated index fetches and trigger runs cost more than the packages.
-///
-/// Shared verbatim by the instance's startup-script and by the setup stage's
-/// fallback, so the two can never drift into installing different servers.
-fn package_install_snippet() -> String {
-    r#"export DEBIAN_FRONTEND=noninteractive
-curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | sudo dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg 2>/dev/null
-echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" | sudo tee /etc/apt/sources.list.d/github-cli.list >/dev/null
-sudo apt-get update -q >/dev/null 2>&1 || true
-# gh for Connect GitHub's device flow; certbot for the real TLS cert; node for
-# the gitnexus indexer blaude-tools drives and for the browser helper; then
-# everything a room's screen is made of — Xvfb to render, ImageMagick to
-# capture, xdotool to click, ffmpeg to stream it.
-sudo apt-get install -y -q gh certbot nodejs npm xvfb x11-utils x11-xserver-utils imagemagick xdotool ffmpeg >/dev/null 2>&1 || true
-# A desktop environment, because a cloud image has none: no panel, no file
-# manager, nothing to click. openbox rides along as the fallback the session
-# unit uses if this install fails. Recommends off — xfce4 with them pulls in
-# several hundred packages nobody in a room will open.
-sudo apt-get install -y -q --no-install-recommends xfce4 xfce4-terminal dbus-x11 openbox >/dev/null 2>&1 || true
-# A clickable browser for whoever opens the room's desktop, pointed at the
-# Chromium the harness downloads anyway. apt's chromium used to be installed
-# too: a SECOND 274MB browser on every server, for the same job. The shim
-# resolves Playwright's versioned path, so upgrading it does not strand the
-# menu entry. Verified on Debian 12: it launches on a room display as the room
-# user with its sandbox on.
-sudo tee /usr/local/bin/chromium >/dev/null <<'SHIM'
-#!/bin/sh
-B=$(ls -d /opt/blaude-browser/ms-playwright/chromium-*/chrome-linux/chrome 2>/dev/null | sort -V | tail -1)
-[ -n "$B" ] || { echo "the browser is still installing" >&2; exit 1; }
-exec "$B" --no-first-run --no-default-browser-check "$@"
-SHIM
-sudo chmod +x /usr/local/bin/chromium
-sudo tee /usr/share/applications/blaude-chromium.desktop >/dev/null <<'DESK'
-[Desktop Entry]
-Type=Application
-Name=Web Browser
-Exec=/usr/local/bin/chromium %U
-Icon=web-browser
-Categories=Network;WebBrowser;
-DESK
-"#
-    .to_string()
-}
-
-fn browser_helper_install_snippet() -> String {
-    use base64::Engine as _;
-    let b64 = |s: &str| base64::engine::general_purpose::STANDARD.encode(s);
-    format!(
-        r#"mkdir -p "$HOME/browser-helper"
-base64 -d > "$HOME/browser-helper/helper.js" <<'B64H'
-{}
-B64H
-base64 -d > "$HOME/browser-helper/detect.js" <<'B64D'
-{}
-B64D
-base64 -d > "$HOME/browser-helper/fill.js" <<'B64F'
-{}
-B64F
-base64 -d > "$HOME/browser-helper/package.json" <<'B64P'
-{}
-B64P
-base64 -d > "$HOME/browser-helper/install-browser-helper.sh" <<'B64I'
-{}
-B64I
-# Backgrounded, and this is the point of it: ~900MB of download that holds no
-# apt lock and that nothing needs until rooms are provisioned a stage later.
-# It now runs while certbot talks to Let's Encrypt and systemd starts the
-# services, instead of adding its whole download to the wall clock. The rooms
-# stage waits on the marker.
-sudo rm -f /tmp/browser-helper.done
-setsid nohup bash -c 'sudo bash "$0/install-browser-helper.sh" "$0" >/tmp/browser-helper-install.log 2>&1; sudo touch /tmp/browser-helper.done' "$HOME/browser-helper" </dev/null >/dev/null 2>&1 &
-"#,
-        b64(BROWSER_HELPER_JS),
-        b64(BROWSER_DETECT_JS),
-        b64(BROWSER_FILL_JS),
-        b64(BROWSER_HELPER_PKG),
-        b64(BROWSER_INSTALL_SCRIPT),
-    )
-}
-
-/// Run a script ON the instance by COPYING it there and executing it — never by
-/// piping it into `bash -s`.
-///
-/// Piping is what wedged team creation: with a script of any size, when the
-/// remote bash finishes (or dies) while the local side still has bytes to
-/// write, the local `ssh` never exits. gcloud then hangs forever and the whole
-/// create sits on one stage — "Securing it…" — with the server already fully
-/// built. Copy-then-run has no stdin at all, so there is nothing to wedge on.
-async fn run_remote_script(
-    gcloud: &PathBuf,
-    project: &str,
-    zone: &str,
-    instance: &str,
-    name: &str,
-    script: &str,
-    attempts: u32,
-) -> Result<String, String> {
-    let mut local = std::env::temp_dir();
-    local.push(format!("blaude-{name}-{}.sh", std::process::id()));
-    std::fs::write(&local, script).map_err(|e| format!("could not stage {name}: {e}"))?;
-    let _cleanup = scopeguard_remove(local.clone());
-
-    run_retry(
-        gcloud,
-        &[
-            "compute", "scp",
-            local.to_str().unwrap_or_default(),
-            &format!("{instance}:~/{name}.sh"),
-            "--project", project, "--zone", zone, "--quiet",
-        ],
-        None,
-        attempts,
-    )
-    .await
-    .map_err(|e| format!("could not copy {name}: {e}"))?;
-
-    run_retry(
-        gcloud,
-        &[
-            "compute", "ssh", instance,
-            "--project", project, "--zone", zone,
-            "--command", &format!("bash ~/{name}.sh"),
-            "--quiet",
-        ],
-        None,
-        attempts,
-    )
-    .await
-}
-
-/// Build the shared room, the owner's room, and the auto-provisioner.
-async fn install_rooms(
-    gcloud: &PathBuf,
-    project: &str,
-    zone: &str,
-    instance: &str,
-) -> Result<(), String> {
-    let mut script = std::env::temp_dir();
-    script.push(format!("blaude-provision-{}.sh", std::process::id()));
-    std::fs::write(&script, PROVISION_SCRIPT)
-        .map_err(|e| format!("could not stage the provisioning script: {e}"))?;
-    let staged = script.clone();
-    let _cleanup = scopeguard_remove(staged);
-
-    run_retry(
-        gcloud,
-        &[
-            "compute",
-            "scp",
-            script.to_str().unwrap_or_default(),
-            &format!("{instance}:~/provision-member.sh"),
-            "--project",
-            project,
-            "--zone",
-            zone,
-            "--quiet",
-        ],
-        None,
-        3,
-    )
-    .await
-    .map_err(|e| format!("could not copy the provisioning script: {e}"))?;
-
-    // Sent over stdin like the main setup, so nothing needs shell quoting.
-    // The desktop packages are what make a screen possible at all: Xvfb to
-    // render, a desktop environment for the furniture, ImageMagick to capture, xdotool
-    // to click, and a browser to point at the app being built.
-    let rooms = format!(
-        r#"set -e
-H=$HOME
-if [ ! -f "$H/provision-member.sh" ]; then echo "PROVISION_SCRIPT_MISSING"; exit 1; fi
-chmod +x "$H/provision-member.sh"
-# Every package a room needs was installed in the setup stage, and the
-# browser download was kicked off there in the background. Wait for it —
-# normally it finished while certbot was talking to Let's Encrypt and systemd
-# was bringing the services up, so this returns at once. The wait is here so
-# a slow link cannot hand a room a helper that is still half written.
-for i in $(seq 1 150); do [ -f /tmp/browser-helper.done ] && break; sleep 2; done
-grep -q BROWSER_HELPER_OK /tmp/browser-helper-install.log 2>/dev/null || {{
-  echo "BROWSER_HELPER_FAILED"; tail -5 /tmp/browser-helper-install.log 2>/dev/null; }}
-sudo BLAUDE_BIN="$H/blaude" "$H/provision-member.sh" blaude-shared --door-home "$H" >/tmp/rooms-shared.log 2>&1 || {{
-  echo "SHARED_ROOM_FAILED"; tail -5 /tmp/rooms-shared.log; exit 1; }}
-OWNER=$(python3 -c "import json,sys;print(json.load(open(sys.argv[1])).get('email',''))" "$H/.jcode/blaude-account.json" 2>/dev/null || echo "")
-if [ -n "$OWNER" ]; then
-  NAME=$(printf '%s' "${{OWNER%%@*}}" | tr '[:upper:]' '[:lower:]' | tr -cd 'a-z0-9_-')
-  [ -n "$NAME" ] || NAME=owner
-  case "$NAME" in [0-9]*) NAME="m$NAME" ;; esac
-  sudo BLAUDE_BIN="$H/blaude" "$H/provision-member.sh" "$NAME" --email "$OWNER" --door-home "$H" >/tmp/rooms-owner.log 2>&1 || {{
-    echo "OWNER_ROOM_FAILED"; tail -5 /tmp/rooms-owner.log; }}
-fi
-# The bridge started at the top of provisioning, BEFORE any room daemon
-# existed. On a fresh team it can wedge in a "daemon unreachable" state and
-# serve only bridge-only verbs — every turn then fails with "the agent daemon
-# is not running", and because the one-shot screen probe fails too, the screen
-# control never appears. Restart it now that every room daemon is up and
-# listening, so it comes up clean. This is exactly the manual restart that
-# recovered a wedged team.
-sudo systemctl restart blaude-bridge >/dev/null 2>&1 || true
-echo ROOMS_OK
-"#
-    );
-    let out = run_remote_script(gcloud, project, zone, instance, "rooms", &rooms, 2)
+/// Delete a team server, by the ws_url the app holds for it.
+pub async fn delete_team(ws_url: &str) -> Result<Value, String> {
+    let token = crate::blaude_account::session_token()
         .await
-        .map_err(|e| format!("rooms setup could not run: {e}"))?;
-    if !out.contains("ROOMS_OK") {
-        return Err(format!("rooms setup did not finish: {out}"));
+        .ok_or_else(|| "Sign in to blaude first — deleting a team server is tied to your account.".to_string())?;
+    let http = client()?;
+    let resp = http
+        .post(format!("{}/v1/teams/delete", api_base()))
+        .bearer_auth(&token)
+        // Deleting waits on the instance delete AND on releasing the address,
+        // which retries — so this one call is allowed to be slow.
+        .timeout(Duration::from_secs(180))
+        .json(&json!({ "ws_url": ws_url }))
+        .send()
+        .await
+        .map_err(|e| format!("Could not reach the blaude service that builds servers: {e}"))?;
+    let code = resp.status();
+    let body: Value = resp
+        .json()
+        .await
+        .map_err(|e| format!("The server-building service sent something unreadable: {e}"))?;
+    if code.is_success() {
+        Ok(body)
+    } else {
+        Err(service_error(code, &body))
     }
-    Ok(())
-}
-
-/// Delete a staged file when the guard drops, so a failed upload does not
-/// leave the script in the temp directory.
-fn scopeguard_remove(path: PathBuf) -> impl Drop {
-    struct Guard(PathBuf);
-    impl Drop for Guard {
-        fn drop(&mut self) {
-            let _ = std::fs::remove_file(&self.0);
-        }
-    }
-    Guard(path)
 }
 
 #[cfg(test)]
-mod delete_tests {
-    /// The delete reply travels on team_create_status, whose record requires
-    /// job_id, stage and done. Omit any of them and the client cannot decode
-    /// the frame, drops it, and waits out the whole timeout on a delete that
-    /// already finished.
+mod tests {
+    use super::*;
+
+    /// No cloud credential, and no cloud CLI, may be reachable from a user's
+    /// machine. The whole reason provisioning moved is that requiring either
+    /// meant only one person could ever create a team.
     #[test]
-    fn the_delete_reply_carries_what_the_event_requires() {
-        for value in [
-            serde_json::json!({
-                "job_id": "", "stage": "Deleted", "done": true,
-                "deleted": serde_json::Value::Null, "already_gone": true, "ip": "1.2.3.4"
-            }),
-            serde_json::json!({
-                "job_id": "", "stage": "Deleted", "done": true,
-                "deleted": "blaude-x", "zone": "asia-south1-a", "ip": "1.2.3.4",
-                "address_released": true
-            }),
-        ] {
-            for key in ["job_id", "stage", "done"] {
-                assert!(value.get(key).is_some(), "{key} missing from {value}");
-            }
-            assert_eq!(value["done"], serde_json::json!(true));
-        }
-    }
-
-    /// An expired sign-in must read as one instruction, not as gcloud's wall
-    /// of text — the banner it lands in is one line wide.
-    #[test]
-    fn an_expired_cloud_sign_in_says_what_to_do() {
-        let raw = "ERROR: (gcloud.compute.instances.list) There was a problem \
-                   refreshing your current auth tokens: Reauthentication failed. \
-                   cannot prompt during non-interactive execution.\nPlease run:\n\n  \
-                   $ gcloud auth login\n";
-        let message = super::friendly_cloud_error("look up the server", raw);
-        assert!(message.contains("gcloud auth login"), "must say the fix: {message}");
-        assert!(!message.contains("ERROR:"), "must not echo gcloud: {message}");
-        assert!(message.lines().count() == 1, "one line: {message}");
-    }
-
-    #[test]
-    fn any_other_failure_keeps_its_first_line_only() {
-        let message = super::friendly_cloud_error("delete it", "boom happened\nstack\nmore");
-        assert_eq!(message, "Could not delete it: boom happened");
-    }
-
-    /// Deletes a REAL throwaway VM. Ignored by default: it costs money and
-    /// destroys an instance, so it runs only when explicitly named, against a
-    /// server created for the purpose. It is the only test that proves the
-    /// instance lookup, the delete and the address release actually work
-    /// against Google rather than against my idea of Google.
-    #[tokio::test]
-    #[ignore = "creates and destroys real cloud resources"]
-    async fn deleting_a_real_throwaway_server_removes_it_and_frees_its_address() {
-        let url = std::env::var("BLAUDE_DELETE_TEST_URL")
-            .expect("set BLAUDE_DELETE_TEST_URL to the throwaway server's wss url");
-        let result = super::delete_team(&url).await.expect("delete should succeed");
-        println!("delete returned: {result}");
-    }
-
-    /// The instance is found by the address in the URL members already hold,
-    /// because nothing else identifies it — a client never learns the VM's
-    /// name. This also means it works for teams created before the name was
-    /// recorded anywhere.
-    fn ip_of(ws_url: &str) -> Option<String> {
-        ws_url
-            .split("://")
-            .nth(1)
-            .and_then(|rest| rest.split(&['/', ':'][..]).next())
-            .and_then(|host| host.strip_suffix(".sslip.io"))
-            .map(|dashed| dashed.replace('-', "."))
-    }
-
-    #[test]
-    fn the_server_is_identified_by_the_address_in_its_url() {
-        assert_eq!(
-            ip_of("wss://34-93-93-41.sslip.io:443/api").as_deref(),
-            Some("34.93.93.41")
-        );
-        assert_eq!(
-            ip_of("wss://35-200-139-215.sslip.io:443/api").as_deref(),
-            Some("35.200.139.215")
-        );
-    }
-
-    /// A URL that is not one of ours must not resolve to something deletable.
-    /// Guessing here would delete the wrong machine.
-    #[test]
-    fn a_url_that_is_not_a_team_server_resolves_to_nothing() {
-        assert_eq!(ip_of("wss://example.com:443/api"), None);
-        assert_eq!(ip_of("not a url"), None);
-        assert_eq!(ip_of("wss://localhost:7644/api"), None);
-    }
-
-    /// Packages are installed ONCE, at boot, from a single snippet.
-    ///
-    /// Every clause here is a measured minute. Installing over ssh instead of
-    /// at boot cost ~2 min of pure wall clock with the VM idle; splitting it
-    /// across stages re-ran the package index fetch and the dpkg trigger pass
-    /// each time; and apt's chromium was a second 274MB browser doing the job
-    /// Playwright's already does. A create that gets slower again will get
-    /// slower in exactly one of these ways.
-    #[test]
-    fn packages_are_installed_once_at_boot() {
-        let pkgs = super::package_install_snippet();
-        assert_eq!(
-            pkgs.matches("apt-get update").count(),
-            1,
-            "one index fetch, not one per install"
-        );
-        // The INSTALL LINES only — the comment above them names chromium on
-        // purpose, and a check that reads the comments passes vacuously.
-        let installs: String = pkgs
+    fn the_client_never_touches_the_cloud_itself() {
+        // Everything above the test module, minus comments — the test names
+        // the very things it forbids, and the doc comment explains why they
+        // are forbidden, so scanning the whole file matches itself.
+        let src = include_str!("team_create_jobs.rs");
+        let body = src.split("#[cfg(test)]").next().expect("module body");
+        let code: String = body
             .lines()
-            .filter(|l| l.contains("apt-get install"))
+            .filter(|l| !l.trim_start().starts_with("//"))
             .collect::<Vec<_>>()
-            .join(" ");
-        assert!(!installs.is_empty(), "nothing is being installed at all");
+            .join("\n");
+        assert!(!code.contains("gcloud"), "the app's runtime must not shell out to gcloud");
         assert!(
-            !installs.contains(" chromium "),
-            "apt's chromium duplicates the Playwright one the shim points at"
-        );
-        assert!(pkgs.contains("/usr/local/bin/chromium"), "the shim must exist");
-
-        let src = include_str!("team_create_jobs.rs");
-        let rooms = src
-            .split("let rooms = format!(")
-            .nth(1)
-            .and_then(|s| s.split("\"#").next())
-            .expect("rooms script");
-        assert!(
-            !rooms.contains("apt-get"),
-            "the rooms stage must install nothing — it waits for the boot install"
-        );
-        assert!(
-            rooms.contains("/tmp/browser-helper.done"),
-            "the rooms stage must wait for the backgrounded browser install"
+            !code.contains("Command::new"),
+            "the app's runtime must not spawn cloud tooling"
         );
     }
 
-    /// The region for releasing the address is the zone minus its letter.
-    /// Getting it wrong leaves a reserved IP billing after the VM is gone.
+    /// The endpoint has to be overridable, or testing against a local service
+    /// means editing and rebuilding the app.
     #[test]
-    fn the_address_region_comes_from_the_zone() {
-        fn region(zone: &str) -> &str {
-            zone.rsplit_once('-').map(|(r, _)| r).unwrap_or(zone)
-        }
-        assert_eq!(region("asia-south1-a"), "asia-south1");
-        assert_eq!(region("us-central1-b"), "us-central1");
-    }
-
-    /// Remote provisioning scripts must be COPIED and executed, never piped
-    /// into `bash -s`. Piping wedges: when the remote bash finishes or dies
-    /// while the local ssh still has bytes to write, ssh never exits and the
-    /// whole create hangs on one stage with the server already built. This
-    /// caught it twice in production; a grep is the cheapest guard that it
-    /// cannot come back.
-    #[test]
-    fn provisioning_never_pipes_a_script_into_bash_dash_s() {
-        let src = include_str!("team_create_jobs.rs");
-        // Ignore this test's own mention of the pattern.
-        let hits = src
-            .lines()
-            .filter(|l| l.contains("\"bash -s\""))
-            .count();
-        assert_eq!(hits, 0, "provisioning must copy-and-run, not pipe into `bash -s`");
-    }
-
-    /// run() must not deadlock when the stdin it feeds is larger than a pipe
-    /// buffer AND the child echoes it back concurrently — which is exactly the
-    /// provisioning script through `gcloud … bash -s`. `cat` is that child: it
-    /// writes stdout as it reads stdin, so a 1 MiB payload fills its stdout
-    /// pipe (64 KiB) long before the writer is done. The OLD run() wrote all of
-    /// stdin before reading a byte of stdout and wedged here forever; a brand-
-    /// new team hung at "Securing…" for 15+ minutes. The 5 s timeout is the
-    /// guard: on the deadlocking version this test times out, on the fixed one
-    /// it returns the payload intact.
-    #[tokio::test]
-    async fn run_does_not_deadlock_on_a_large_stdin_that_is_echoed_back() {
-        let big = "x".repeat(1024 * 1024); // 1 MiB, way past a 64 KiB pipe
-        let cat = std::path::PathBuf::from("/bin/cat");
-        let result = tokio::time::timeout(
-            std::time::Duration::from_secs(5),
-            super::run(&cat, &[], Some(&big)),
-        )
-        .await
-        .expect("run() deadlocked writing a large stdin (the create_team hang)");
-        assert_eq!(result.expect("cat succeeds").len(), big.len(), "the whole payload round-trips");
+    fn the_endpoint_can_be_pointed_somewhere_else() {
+        // Read through the same accessor the code uses, without disturbing a
+        // real environment: absent means the shipped default.
+        unsafe { std::env::remove_var("BLAUDE_PROVISION_API") };
+        assert_eq!(api_base(), DEFAULT_API);
+        unsafe { std::env::set_var("BLAUDE_PROVISION_API", "http://127.0.0.1:8080/") };
+        assert_eq!(api_base(), "http://127.0.0.1:8080");
+        unsafe { std::env::remove_var("BLAUDE_PROVISION_API") };
     }
 }

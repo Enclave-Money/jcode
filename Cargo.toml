@@ -92,6 +92,8 @@ members = [
     "crates/jcode-telemetry-core",
     "crates/jcode-tui-workspace",
     "crates/jcode-render-core",
+    "crates/blaude-provision",
+    "crates/blaude-provision-api",
 ]
 
 [lib]

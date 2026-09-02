@@ -255,6 +255,81 @@ pub async fn refresh_team_invite() -> Option<Value> {
     invite
 }
 
+/// A short-lived session JWT, for proving to a blaude service who this is.
+///
+/// NOT the credential on disk. That one is Clerk's ROTATING client token:
+/// every use returns a replacement, and presenting a spent one is treated as
+/// token theft — Clerk then revokes the client's sessions permanently. Sending
+/// it to one of our own services as a bearer token would burn a person's
+/// sign-in to create a VM. This mints a separate, verifiable token instead,
+/// which a service checks against Clerk's public keys with no round trip and
+/// no rotation.
+///
+/// Runs under the SAME lock as the invite refresh. Two rotations in flight at
+/// once is exactly what destroyed sessions before: both read the saved token,
+/// one wins, and the loser's write puts a spent token back on disk.
+pub async fn session_token() -> Option<String> {
+    let _guard = refresh_lock().lock().await;
+    let base = fapi_base().ok()?;
+    let jwt = load_client_jwt()?;
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(10))
+        .build()
+        .ok()?;
+
+    // Which session to mint for. The client token names the client, not a
+    // session, so the session id has to be read back first.
+    let resp = client
+        .get(format!("{base}/v1/client?_is_native=1"))
+        .header("Authorization", &jwt)
+        .send()
+        .await
+        .ok()?;
+    // Persist the replacement BEFORE anything can fail: dropping it here is
+    // what leaves a spent token on disk for the next call to present.
+    if let Some(rotated) = resp
+        .headers()
+        .get("authorization")
+        .and_then(|v| v.to_str().ok())
+    {
+        save_client_jwt(rotated);
+    }
+    let body: Value = resp.json().await.ok()?;
+    let sid = response_obj(&body)
+        .get("sessions")
+        .and_then(|s| s.as_array())
+        .and_then(|s| s.last())
+        .and_then(|s| s.get("id"))
+        .and_then(|v| v.as_str())
+        .map(str::to_string)?;
+
+    let jwt = load_client_jwt()?;
+    let resp = client
+        .post(format!("{base}/v1/client/sessions/{sid}/tokens?_is_native=1"))
+        .header("Authorization", &jwt)
+        .header("Content-Length", "0")
+        .send()
+        .await
+        .ok()?;
+    if let Some(rotated) = resp
+        .headers()
+        .get("authorization")
+        .and_then(|v| v.to_str().ok())
+    {
+        save_client_jwt(rotated);
+    }
+    let body: Value = resp.json().await.ok()?;
+    // Clerk answers { jwt } directly on this one, not wrapped in `response`.
+    // Accept both shapes so a change in the envelope is not an outage.
+    let wrapped = response_obj(&body);
+    for candidate in [body.get("jwt"), wrapped.get("jwt")] {
+        if let Some(jwt) = candidate.and_then(|v| v.as_str()).filter(|s| !s.is_empty()) {
+            return Some(jwt.to_string());
+        }
+    }
+    None
+}
+
 /// The email IS the user identifier. Everything that names a person —
 /// hello identity, attribution, member rows — should prefer this.
 pub fn identity() -> Option<String> {
