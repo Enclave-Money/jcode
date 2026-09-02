@@ -22,6 +22,11 @@ COPY deploy ./deploy
 # fails with "can't find bin `blaude`" only at the target-resolution step —
 # after every dependency has already compiled.
 COPY src ./src
+# Root markdown and docs/: jcode-app-core's build script embeds README.md and
+# every docs/*.md into the binary (the runtime's built-in documentation
+# corpus), so their absence is a compile error twenty minutes into the build.
+COPY *.md ./
+COPY docs ./docs
 
 # The service AND the server binary it installs on every new VM. Building
 # `blaude` here — the container is the same linux/x86_64 as the team servers —
