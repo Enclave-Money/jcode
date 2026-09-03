@@ -24,7 +24,7 @@ fn display_message_from_stored_message(
         Some(crate::session::StoredDisplayRole::Note) => {
             // Team notes are human-only side chatter; render as a system-style
             // line so terminal viewers see the discussion too.
-            return Some(DisplayMessage::system(format!("[team note] {text}")));
+            Some(DisplayMessage::system(format!("[team note] {text}")))
         }
         Some(crate::session::StoredDisplayRole::System) => {
             // The /add-dir reminder is written for the model; the user only

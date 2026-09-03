@@ -1,7 +1,7 @@
 pub use jcode_provider_env::{
     ambient_env_credentials_allowed, explicit_accounts_policy_path,
-    load_api_key_from_env_or_config, persist_explicit_accounts_policy,
-    load_env_value_from_config_file, load_env_value_from_env_or_config,
+    load_api_key_from_env_or_config, load_env_value_from_config_file,
+    load_env_value_from_env_or_config, persist_explicit_accounts_policy,
     register_api_key_fallback_resolver, save_env_value_to_env_file,
 };
 pub use jcode_provider_metadata::*;

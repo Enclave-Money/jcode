@@ -388,10 +388,7 @@ pub enum Request {
     /// tool can tell which origins have a saved login. Carries NO secrets —
     /// only `{ origin, item_id, username, has_totp }` per entry.
     #[serde(rename = "vault_index_sync")]
-    VaultIndexSync {
-        id: u64,
-        entries: serde_json::Value,
-    },
+    VaultIndexSync { id: u64, entries: serde_json::Value },
 
     /// List every persisted session in THIS daemon's home.
     ///

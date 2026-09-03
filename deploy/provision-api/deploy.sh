@@ -12,16 +12,30 @@ set -euo pipefail
 
 PROJECT="${BLAUDE_PROJECT:-enclave-money}"
 REGION="${BLAUDE_PROVISION_REGION:-asia-south1}"
+ZONE="${BLAUDE_PROVISION_ZONE:-${REGION}-a}"
 SERVICE="${BLAUDE_PROVISION_SERVICE:-blaude-provision-api}"
 SA="blaude-provision"
 SA_EMAIL="${SA}@${PROJECT}.iam.gserviceaccount.com"
 SSH_SECRET="blaude-provision-ssh-key"
+RELAY_SECRET="blaude-directory-relay-key"
+ALLOWED_EMAILS="${BLAUDE_PROVISION_ALLOWED_EMAILS:-}"
+AUTHORIZED_PARTIES="${BLAUDE_CLERK_AUTHORIZED_PARTIES:-}"
+ALLOW_ALL="${BLAUDE_PROVISION_ALLOW_ALL:-0}"
 
 say() { printf '\n== %s\n' "$*"; }
 
 command -v gcloud >/dev/null || { echo "gcloud is not installed"; exit 1; }
 gcloud auth print-access-token >/dev/null 2>&1 || {
   echo "gcloud is not signed in. Run: gcloud auth login"; exit 1; }
+
+# Each accepted account can allocate a continuously billed e2-standard-4 VM.
+# An omitted allowlist must never turn an ordinary redeploy into public compute
+# access. A genuinely public deployment has to say so explicitly.
+if [ -z "$ALLOWED_EMAILS" ] && [ "$ALLOW_ALL" != "1" ]; then
+  echo "BLAUDE_PROVISION_ALLOWED_EMAILS is empty; refusing to deploy open VM creation."
+  echo "Set a comma-separated allowlist, or explicitly set BLAUDE_PROVISION_ALLOW_ALL=1."
+  exit 1
+fi
 
 say "APIs"
 gcloud services enable \
@@ -68,12 +82,11 @@ else
   echo "   $SSH_SECRET already exists"
 fi
 
-# clerk.env, so every new team server can send invites.
+# Clerk's backend credential stays in this service so it can send invites.
 #
-# The engine copies ~/.jcode/clerk.env onto each server it builds. On a Mac it
-# exists because the owner set blaude up; in the container it exists only if
-# this mounts it. Teams built without it work — and their invites silently
-# never send.
+# Team servers receive only a signed, team-scoped relay capability. Copying
+# this file onto every VM would hand a compromised team backend-wide control
+# over every account in the Clerk instance.
 say "clerk.env secret"
 CLERK_SECRET="blaude-clerk-env"
 if ! gcloud secrets describe "$CLERK_SECRET" --project "$PROJECT" >/dev/null 2>&1; then
@@ -84,6 +97,21 @@ if ! gcloud secrets describe "$CLERK_SECRET" --project "$PROJECT" >/dev/null 2>&
   echo "   created $CLERK_SECRET"
 else
   echo "   $CLERK_SECRET already exists"
+fi
+
+# A stable HMAC key for team-scoped directory relay capabilities. The key is
+# mounted only in Cloud Run; each VM receives a signed capability, never this
+# signing key or the Clerk backend key.
+say "directory relay signing key"
+if ! gcloud secrets describe "$RELAY_SECRET" --project "$PROJECT" >/dev/null 2>&1; then
+  relay_key_file="$(mktemp)"
+  openssl rand -hex 32 > "$relay_key_file"
+  gcloud secrets create "$RELAY_SECRET" --project "$PROJECT" \
+    --data-file="$relay_key_file" --quiet
+  rm -f "$relay_key_file"
+  echo "   created $RELAY_SECRET"
+else
+  echo "   $RELAY_SECRET already exists"
 fi
 
 say "Clerk"
@@ -104,6 +132,11 @@ fi
   echo "The service refuses every request without it, so it will not be deployed blind."
   exit 1; }
 echo "   $CLERK_JWKS_URL"
+if [ -n "$ALLOWED_EMAILS" ]; then
+  echo "   provisioning allowlist: $ALLOWED_EMAILS"
+else
+  echo "   provisioning allowlist is unset; every account admitted by this Clerk instance may create teams"
+fi
 
 # Build the image OURSELVES.
 #
@@ -135,8 +168,8 @@ gcloud run deploy "$SERVICE" \
   --region "$REGION" \
   --image "$IMAGE" \
   --service-account "$SA_EMAIL" \
-  --set-env-vars "CLERK_JWKS_URL=${CLERK_JWKS_URL}" \
-  --set-secrets "/secrets/ssh/key=${SSH_SECRET}:latest,/secrets/clerk/env=${CLERK_SECRET}:latest" \
+  --set-env-vars "^|^CLERK_JWKS_URL=${CLERK_JWKS_URL}|BLAUDE_PROJECT=${PROJECT}|BLAUDE_ZONE=${ZONE}|BLAUDE_PROVISION_ALLOWED_EMAILS=${ALLOWED_EMAILS}|BLAUDE_CLERK_AUTHORIZED_PARTIES=${AUTHORIZED_PARTIES}" \
+  --set-secrets "/secrets/ssh/key=${SSH_SECRET}:latest,/secrets/clerk/env=${CLERK_SECRET}:latest,/secrets/relay/key=${RELAY_SECRET}:latest" \
   --allow-unauthenticated \
   --timeout 900 \
   --cpu 1 --memory 1Gi \

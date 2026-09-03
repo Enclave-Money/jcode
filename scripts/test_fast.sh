@@ -23,9 +23,21 @@ echo "Feature profile: $JCODE_DEV_FEATURE_PROFILE"
 run_cargo test --lib --bin jcode "$@"
 
 echo ""
-if [[ -x "$repo_root/target/release/jcode" ]]; then
+release_binary="$repo_root/target/release/jcode"
+newer_source=""
+if [[ -x "$release_binary" ]]; then
+  newer_source=$(find \
+    "$repo_root/src" "$repo_root/crates" \
+    "$repo_root/Cargo.toml" "$repo_root/Cargo.lock" \
+    -type f -newer "$release_binary" -print -quit)
+fi
+if [[ -x "$release_binary" && -z "$newer_source" ]]; then
   echo "=== Startup regression check (release binary) ==="
-  "$repo_root/scripts/check_startup_budget.sh" "$repo_root/target/release/jcode"
+  "$repo_root/scripts/check_startup_budget.sh" "$release_binary"
+  echo ""
+elif [[ -x "$release_binary" ]]; then
+  echo "Skipping startup regression check: target/release/jcode is older than the source"
+  echo "Build it first with: cargo build --release"
   echo ""
 else
   echo "Skipping startup regression check: build release first with cargo build --release"

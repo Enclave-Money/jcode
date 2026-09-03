@@ -305,7 +305,9 @@ pub async fn session_token() -> Option<String> {
 
     let jwt = load_client_jwt()?;
     let resp = client
-        .post(format!("{base}/v1/client/sessions/{sid}/tokens?_is_native=1"))
+        .post(format!(
+            "{base}/v1/client/sessions/{sid}/tokens?_is_native=1"
+        ))
         .header("Authorization", &jwt)
         .header("Content-Length", "0")
         .send()
@@ -411,10 +413,8 @@ pub async fn start(email: &str, resend: bool) -> Result<String, String> {
     if !email.contains('@') || email.len() < 5 {
         return Err("that doesn't look like an email address".into());
     }
-    if !resend {
-        if let Some(existing) = live_attempt_for(&email) {
-            return Ok(existing);
-        }
+    if !resend && let Some(existing) = live_attempt_for(&email) {
+        return Ok(existing);
     }
 
     // Clerk's client token ROTATES on every request and a re-used one is

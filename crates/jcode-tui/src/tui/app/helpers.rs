@@ -214,16 +214,13 @@ pub(super) fn ctrl_bracket_fallback_to_esc(code: &mut KeyCode, modifiers: &mut K
     if !modifiers.contains(KeyModifiers::CONTROL) {
         return;
     }
-    match code {
-        KeyCode::Esc => {
-            *code = KeyCode::Char('[');
-        }
+    if *code == KeyCode::Esc {
+        *code = KeyCode::Char('[');
         // NOTE: Ctrl+5 is deliberately NOT remapped to Ctrl+] here. Ctrl+5..=9
         // is the "jump to the Nth most-recent prompt" gesture (see
         // `ctrl_prompt_rank`); modern macOS terminals send Ctrl+5 and Ctrl+]
         // as distinct codes, so clobbering Ctrl+5 would silently break that
         // feature (it did: the jump scrolled to the bottom instead).
-        _ => {}
     }
 }
 
@@ -422,7 +419,7 @@ pub(super) fn copy_to_clipboard(text: &str) -> bool {
             {
                 return true;
             }
-            return copy_to_clipboard_osc52(text);
+            copy_to_clipboard_osc52(text)
         }
 
         // Same class of bug on macOS: Apple Terminal (Terminal.app) silently
@@ -454,7 +451,7 @@ pub(super) fn copy_to_clipboard(text: &str) -> bool {
                     }
                 }
             }
-            return copy_to_clipboard_osc52(text);
+            copy_to_clipboard_osc52(text)
         }
 
         // Linux has the same failure class (issue #504, Kali/X11): wl-copy fails
@@ -911,13 +908,13 @@ pub(super) fn clipboard_image() -> Option<(String, String)> {
             .output()
         {
             let result = String::from_utf8_lossy(&output.stdout).trim().to_string();
-            if result == "ok" {
-                if let Ok(data) = std::fs::read(&temp_path) {
-                    let _ = std::fs::remove_file(&temp_path);
-                    if !data.is_empty() {
-                        let b64 = base64::engine::general_purpose::STANDARD.encode(&data);
-                        return Some(("image/png".to_string(), b64));
-                    }
+            if result == "ok"
+                && let Ok(data) = std::fs::read(&temp_path)
+            {
+                let _ = std::fs::remove_file(&temp_path);
+                if !data.is_empty() {
+                    let b64 = base64::engine::general_purpose::STANDARD.encode(&data);
+                    return Some(("image/png".to_string(), b64));
                 }
             }
         }

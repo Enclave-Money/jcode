@@ -15,6 +15,7 @@
 //! name attached to it.
 
 mod auth;
+mod directory;
 
 use std::sync::Arc;
 
@@ -31,6 +32,7 @@ use auth::Verifier;
 #[derive(Clone)]
 struct App {
     verifier: Arc<Verifier>,
+    directory: Arc<directory::Directory>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -45,10 +47,31 @@ struct DeleteBody {
     ws_url: String,
 }
 
+#[derive(Debug, Deserialize)]
+struct DirectoryBody {
+    email: String,
+    #[serde(default)]
+    ticket: Option<String>,
+}
+
 /// One shape for every refusal, so a client never has to guess whether a
 /// failure was the caller's or ours.
 fn refuse(code: StatusCode, message: String) -> (StatusCode, Json<Value>) {
     (code, Json(json!({ "error": message })))
+}
+
+fn validate_team_name(raw: &str) -> Result<&str, &'static str> {
+    let name = raw.trim();
+    if name.is_empty() {
+        return Err("a team needs a name");
+    }
+    if name.chars().count() > 80 {
+        return Err("a team name cannot be longer than 80 characters");
+    }
+    if name.chars().any(char::is_control) {
+        return Err("a team name cannot contain control characters");
+    }
+    Ok(name)
 }
 
 async fn health() -> impl IntoResponse {
@@ -60,7 +83,7 @@ async fn create(
     headers: HeaderMap,
     Json(body): Json<CreateBody>,
 ) -> impl IntoResponse {
-    let caller = match app
+    let mut caller = match app
         .verifier
         .verify(headers.get("authorization").and_then(|v| v.to_str().ok()))
         .await
@@ -68,24 +91,31 @@ async fn create(
         Ok(c) => c,
         Err(e) => return refuse(StatusCode::UNAUTHORIZED, e),
     };
-    let name = body.name.trim();
-    if name.is_empty() {
-        return refuse(StatusCode::BAD_REQUEST, "a team needs a name".into());
-    }
+    let name = match validate_team_name(&body.name) {
+        Ok(name) => name,
+        Err(message) => return refuse(StatusCode::BAD_REQUEST, message.into()),
+    };
     // The owner's email names them on the new server (attribution, their own
     // room). Clerk's default session token carries no email claim, so when
     // the token has none it is looked up from the verified subject — never
     // taken from the request body, which anyone can type anything into.
-    let email = match caller.email.clone() {
+    caller.email = match caller.email.clone() {
         Some(e) => Some(e),
         None => auth::lookup_email(&caller.subject).await,
     };
-    tracing::info!(
-        caller = email.as_deref().unwrap_or(&caller.subject),
-        team = name,
-        "creating a team server"
-    );
-    let status = blaude_provision::start(name, body.region.as_deref(), email.as_deref());
+    if let Err(error) = app.verifier.ensure_allowed(&caller) {
+        return refuse(StatusCode::FORBIDDEN, error);
+    }
+    let Some(email) = caller.email.as_deref() else {
+        return refuse(
+            StatusCode::BAD_GATEWAY,
+            "Your verified Clerk account did not resolve to an email address. Try signing in again."
+                .into(),
+        );
+    };
+    tracing::info!(caller = email, team = name, "creating a team server");
+    let status =
+        blaude_provision::start(name, body.region.as_deref(), &caller.subject, Some(email));
     (StatusCode::ACCEPTED, Json(status))
 }
 
@@ -94,14 +124,15 @@ async fn status(
     headers: HeaderMap,
     Path(job_id): Path<String>,
 ) -> impl IntoResponse {
-    if let Err(e) = app
+    let caller = match app
         .verifier
         .verify(headers.get("authorization").and_then(|v| v.to_str().ok()))
         .await
     {
-        return refuse(StatusCode::UNAUTHORIZED, e);
-    }
-    match blaude_provision::status(&job_id) {
+        Ok(caller) => caller,
+        Err(error) => return refuse(StatusCode::UNAUTHORIZED, error),
+    };
+    match blaude_provision::status(&job_id, &caller.subject) {
         Some(v) => (StatusCode::OK, Json(v)),
         None => refuse(StatusCode::NOT_FOUND, format!("no job {job_id}")),
     }
@@ -121,9 +152,81 @@ async fn delete(
         Err(e) => return refuse(StatusCode::UNAUTHORIZED, e),
     };
     tracing::info!(caller = caller.label(), server = %body.ws_url, "deleting a team server");
-    match blaude_provision::delete_team(&body.ws_url).await {
+    match blaude_provision::delete_team(&body.ws_url, &caller.subject).await {
         Ok(v) => (StatusCode::OK, Json(v)),
         Err(e) => refuse(StatusCode::BAD_GATEWAY, e),
+    }
+}
+
+fn relay_claims(headers: &HeaderMap) -> Result<blaude_provision::RelayClaims, String> {
+    let token = headers
+        .get("authorization")
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| {
+            value
+                .strip_prefix("Bearer ")
+                .or_else(|| value.strip_prefix("bearer "))
+        })
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| "no team capability was presented".to_string())?;
+    blaude_provision::verify_relay_token(token)
+}
+
+async fn directory_invite(
+    State(app): State<App>,
+    headers: HeaderMap,
+    Json(body): Json<DirectoryBody>,
+) -> impl IntoResponse {
+    let claims = match relay_claims(&headers) {
+        Ok(claims) => claims,
+        Err(error) => return refuse(StatusCode::UNAUTHORIZED, error),
+    };
+    let Some(ticket) = body.ticket.as_deref() else {
+        return refuse(
+            StatusCode::BAD_REQUEST,
+            "an invite ticket is required".into(),
+        );
+    };
+    match app.directory.invite(&claims, &body.email, ticket).await {
+        Ok(emailed) => (StatusCode::OK, Json(json!({ "emailed": emailed }))),
+        Err(error) => refuse(StatusCode::BAD_GATEWAY, error),
+    }
+}
+
+async fn directory_stamp(
+    State(app): State<App>,
+    headers: HeaderMap,
+    Json(body): Json<DirectoryBody>,
+) -> impl IntoResponse {
+    let claims = match relay_claims(&headers) {
+        Ok(claims) => claims,
+        Err(error) => return refuse(StatusCode::UNAUTHORIZED, error),
+    };
+    let Some(ticket) = body.ticket.as_deref() else {
+        return refuse(
+            StatusCode::BAD_REQUEST,
+            "a replacement ticket is required".into(),
+        );
+    };
+    match app.directory.stamp(&claims, &body.email, ticket).await {
+        Ok(stamped) => (StatusCode::OK, Json(json!({ "stamped": stamped }))),
+        Err(error) => refuse(StatusCode::BAD_GATEWAY, error),
+    }
+}
+
+async fn directory_clear(
+    State(app): State<App>,
+    headers: HeaderMap,
+    Json(body): Json<DirectoryBody>,
+) -> impl IntoResponse {
+    let claims = match relay_claims(&headers) {
+        Ok(claims) => claims,
+        Err(error) => return refuse(StatusCode::UNAUTHORIZED, error),
+    };
+    match app.directory.clear(&claims, &body.email).await {
+        Ok(cleared) => (StatusCode::OK, Json(json!({ "cleared": cleared }))),
+        Err(error) => refuse(StatusCode::BAD_GATEWAY, error),
     }
 }
 
@@ -139,31 +242,6 @@ async fn delete(
 ///
 /// Best effort: if the mount is absent (a local run, say) gcloud falls back to
 /// generating one, which is fine for a single process that is not restarting.
-/// Place the mounted clerk.env where the engine looks for it.
-///
-/// The engine copies `~/.jcode/clerk.env` onto every new team server — that
-/// file is how a server sends team invites. On a Mac it exists because the
-/// owner set blaude up; in this container it exists only if the deploy
-/// mounted it from Secret Manager. Without it teams still build, but their
-/// invites silently never send, which is a miserable thing to discover a
-/// week later.
-fn prepare_clerk_env() {
-    let mounted = std::path::Path::new("/secrets/clerk/env");
-    if !mounted.exists() {
-        tracing::warn!("no mounted clerk.env — new teams will not be able to send invites");
-        return;
-    }
-    let dir = std::path::PathBuf::from(env_or("HOME", "/tmp")).join(".jcode");
-    if let Err(e) = std::fs::create_dir_all(&dir) {
-        tracing::warn!("could not make {}: {e}", dir.display());
-        return;
-    }
-    match std::fs::copy(mounted, dir.join("clerk.env")) {
-        Ok(_) => tracing::info!("clerk.env in place; new teams can send invites"),
-        Err(e) => tracing::warn!("could not place clerk.env: {e}"),
-    }
-}
-
 fn prepare_ssh_key() {
     use std::os::unix::fs::PermissionsExt;
     let mounted = std::path::Path::new("/secrets/ssh/key");
@@ -226,17 +304,26 @@ fn env_or(key: &str, fallback: &str) -> String {
         .unwrap_or_else(|| fallback.to_string())
 }
 
+fn load_relay_signing_key() -> Result<Vec<u8>, String> {
+    if let Ok(value) = std::env::var("BLAUDE_RELAY_SIGNING_KEY")
+        && !value.trim().is_empty()
+    {
+        return Ok(value.into_bytes());
+    }
+    std::fs::read("/secrets/relay/key")
+        .map_err(|error| format!("the mounted team relay signing key is missing: {error}"))
+}
+
 #[tokio::main]
 async fn main() {
     tracing_subscriber::fmt()
         .with_env_filter(
-            tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| "info".into()),
+            tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".into()),
         )
         .init();
 
-    // Clerk's public keys for THIS instance. Pinning the URL is what pins the
-    // issuer: no other instance's tokens can ever verify.
+    // Clerk's public keys for THIS instance. The verifier derives and checks
+    // the exact issuer from this URL as a separate claim check.
     let jwks = std::env::var("CLERK_JWKS_URL").unwrap_or_default();
     if jwks.trim().is_empty() {
         eprintln!(
@@ -255,12 +342,36 @@ async fn main() {
     if let Some(list) = &allowed {
         tracing::info!("provisioning limited to {} account(s)", list.len());
     }
+    // Native Clerk session tokens have no `azp`. If a browser session token
+    // is ever accepted here, its origin must be deliberately allowlisted.
+    let authorized_parties = std::env::var("BLAUDE_CLERK_AUTHORIZED_PARTIES")
+        .ok()
+        .filter(|value| !value.trim().is_empty())
+        .map(|value| value.split(',').map(str::to_string).collect::<Vec<_>>())
+        .unwrap_or_default();
+
+    let relay_key = load_relay_signing_key().unwrap_or_else(|error| {
+        eprintln!("{error}");
+        std::process::exit(2);
+    });
+    blaude_provision::configure_relay_signing_key(&relay_key).unwrap_or_else(|error| {
+        eprintln!("could not configure the team directory relay: {error}");
+        std::process::exit(2);
+    });
+    let directory = directory::Directory::load().unwrap_or_else(|error| {
+        eprintln!("could not configure the Clerk directory relay: {error}");
+        std::process::exit(2);
+    });
 
     prepare_ssh_key();
-    prepare_clerk_env();
 
+    let verifier = Verifier::new(jwks, allowed, authorized_parties).unwrap_or_else(|error| {
+        eprintln!("could not configure Clerk token verification: {error}");
+        std::process::exit(2);
+    });
     let app = App {
-        verifier: Verifier::new(jwks, allowed),
+        verifier,
+        directory: Arc::new(directory),
     };
     let router = Router::new()
         // NOT /healthz: Google's frontend reserves that path on run.app
@@ -270,6 +381,9 @@ async fn main() {
         .route("/v1/teams", post(create))
         .route("/v1/teams/:job_id", get(status))
         .route("/v1/teams/delete", post(delete))
+        .route("/v1/team-directory/invite", post(directory_invite))
+        .route("/v1/team-directory/stamp", post(directory_stamp))
+        .route("/v1/team-directory/clear", post(directory_clear))
         .with_state(app);
 
     // Cloud Run hands the port in; 8080 is its default and a sane local one.
@@ -285,4 +399,17 @@ async fn main() {
         })
         .await
         .expect("server");
+}
+
+#[cfg(test)]
+mod request_tests {
+    use super::validate_team_name;
+
+    #[test]
+    fn team_names_are_trimmed_and_bounded() {
+        assert_eq!(validate_team_name("  Rabani's team  "), Ok("Rabani's team"));
+        assert!(validate_team_name("   ").is_err());
+        assert!(validate_team_name(&"x".repeat(81)).is_err());
+        assert!(validate_team_name("line one\nline two").is_err());
+    }
 }

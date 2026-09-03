@@ -365,6 +365,7 @@ fn reject(status: u16, body: &str) -> ErrorResponse {
 /// Returns `(identity, is_owner)`. The owner presents the owner api-ws-token
 /// (or connects over the local 0600 unix socket); members present a
 /// team-tokens.json bearer. Team-management verbs are owner-gated downstream.
+#[allow(clippy::result_large_err)] // tungstenite's handshake callback requires ErrorResponse.
 fn authorize(request: &Request, token: &str) -> Result<(Option<String>, bool), ErrorResponse> {
     if request.uri().path() != "/api" {
         return Err(reject(404, "unknown path; the harness API lives at /api"));
@@ -558,6 +559,7 @@ async fn serve_http<S: AsyncRead + AsyncWrite + Unpin>(mut tcp: S, head: &str) -
     Ok(())
 }
 
+#[allow(clippy::result_large_err)] // accept_hdr_async fixes the callback error type.
 async fn handle_ws_client<S>(
     mut tcp: S,
     token: &str,
@@ -624,10 +626,8 @@ where
         .unwrap_or((None, false, crate::rooms::Room::Shared));
     // A member's first connection is the moment they have joined, as far as
     // everyone else is concerned. Push the roster to every connected app.
-    if !is_owner {
-        if let Some(who) = identity.as_deref() {
-            crate::note_member_seen(who);
-        }
+    if !is_owner && let Some(who) = identity.as_deref() {
+        crate::note_member_seen(who);
     }
     // Join this connection to the room's daemon. Each room is a daemon running
     // as its own Unix user, so the filesystem and the desktop come with it;
@@ -853,6 +853,7 @@ mod ws_tests {
     /// A browser visit to /join NEVER burns the ticket (it used to, which
     /// stranded the app's auto-join and dropped invitees into the web
     /// client). Only the app's /join/claim redeems it — exactly once.
+    #[allow(clippy::await_holding_lock)] // Serializes process-global JCODE_HOME for the whole test.
     #[tokio::test(flavor = "multi_thread")]
     async fn join_page_never_claims_and_claim_burns_once() {
         let _guard = crate::jcode_home_test_lock();
@@ -978,12 +979,18 @@ mod ws_tests {
     fn the_join_page_offers_a_link_that_carries_the_team() {
         let page = join_page_with_link("jt-abc123", "wss://team.example:443/api", "gm");
 
-        assert!(page.contains("blaude://join?"), "page must offer the app link: {page}");
+        assert!(
+            page.contains("blaude://join?"),
+            "page must offer the app link: {page}"
+        );
         assert!(
             page.contains("ws_url=wss%3A%2F%2Fteam.example%3A443%2Fapi"),
             "the team URL must be carried, percent-encoded: {page}"
         );
-        assert!(page.contains("ticket=jt-abc123"), "the ticket must be carried: {page}");
+        assert!(
+            page.contains("ticket=jt-abc123"),
+            "the ticket must be carried: {page}"
+        );
         assert!(page.contains("gm"), "the team name should be shown: {page}");
     }
 
@@ -1005,18 +1012,23 @@ mod ws_tests {
             1,
             "exactly one ticket parameter: {link}"
         );
-        assert!(link.contains("a%26ticket%3Devil"), "name must be encoded: {link}");
+        assert!(
+            link.contains("a%26ticket%3Devil"),
+            "name must be encoded: {link}"
+        );
     }
 
     #[test]
     fn a_hostile_team_name_cannot_break_out_of_the_link() {
         let page = join_page_with_link("jt-1", "wss://h/api", "a&b\" onmouseover=x");
 
-        assert!(!page.contains("\" onmouseover"), "must not break the attribute: {page}");
+        assert!(
+            !page.contains("\" onmouseover"),
+            "must not break the attribute: {page}"
+        );
         assert!(
             page.contains("a%26b") || page.contains("a&amp;b"),
             "the ampersand must be encoded or escaped: {page}"
         );
     }
-
 }

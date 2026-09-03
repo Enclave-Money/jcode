@@ -103,10 +103,6 @@ async fn session_activity_snapshot_uses_fallback_when_no_live_connection_is_mark
 }
 
 #[tokio::test]
-#[expect(
-    clippy::await_holding_lock,
-    reason = "test intentionally keeps the agent busy lock held to exercise persisted-history fallback"
-)]
 async fn handle_get_history_falls_back_to_persisted_snapshot_when_agent_is_busy() {
     let _guard = crate::storage::lock_test_env();
     let temp_home = tempfile::TempDir::new().expect("create temp home");
@@ -215,10 +211,6 @@ async fn handle_get_history_falls_back_to_persisted_snapshot_when_agent_is_busy(
 }
 
 #[tokio::test]
-#[expect(
-    clippy::await_holding_lock,
-    reason = "test intentionally keeps the agent busy lock held to exercise model-catalog fallback"
-)]
 async fn handle_get_model_catalog_does_not_wait_for_busy_agent_lock() {
     let _guard = crate::storage::lock_test_env();
     let temp_home = tempfile::TempDir::new().expect("create temp home");

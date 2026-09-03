@@ -235,7 +235,9 @@ enum SimpleKind {
         configured: bool,
     },
     /// Awaiting the daemon's `session_list`.
-    SessionList { include_archived: bool },
+    SessionList {
+        include_archived: bool,
+    },
 }
 
 impl BridgeState {
@@ -774,10 +776,10 @@ impl BridgeState {
                             "password": request["password"].as_str().unwrap_or(""),
                             "item_id": request["item_id"].as_str().unwrap_or(""),
                         });
-                        if let Some(totp) = request["totp"].as_str() {
-                            if !totp.is_empty() {
-                                env["totp"] = json!(totp);
-                            }
+                        if let Some(totp) = request["totp"].as_str()
+                            && !totp.is_empty()
+                        {
+                            env["totp"] = json!(totp);
                         }
                         env
                     }
@@ -867,11 +869,14 @@ impl BridgeState {
                 // (its own files, live-snapshot ids) in the reply arm.
                 let include_archived = request["include_archived"].as_bool().unwrap_or(false);
                 let id = self.legacy_id();
-                self.pending_simple
-                    .push((id, api_id, SimpleKind::SessionList { include_archived }));
-                return vec![Outbound::Legacy(json!({"type": "list_sessions", "id": id}))];
+                self.pending_simple.push((
+                    id,
+                    api_id,
+                    SimpleKind::SessionList { include_archived },
+                ));
+                vec![Outbound::Legacy(json!({"type": "list_sessions", "id": id}))]
             }
-                        // Answered from the cached catalog. The daemon pushes it on attach
+            // Answered from the cached catalog. The daemon pushes it on attach
             // and on every change, so asking again would add a round trip to
             // an interaction (opening a picker) that must feel instant.
             "list_models" => {
@@ -1427,9 +1432,7 @@ impl BridgeState {
                 }
                 let metadata: BTreeMap<String, PersistedSessionMetadata> = ids
                     .iter()
-                    .filter_map(|id| {
-                        Self::resolve_session_metadata(id).map(|m| (id.clone(), m))
-                    })
+                    .filter_map(|id| Self::resolve_session_metadata(id).map(|m| (id.clone(), m)))
                     .collect();
                 for id in &ids {
                     if self.session_dirs.contains_key(id) {
@@ -1447,12 +1450,10 @@ impl BridgeState {
                 let _write_guard = Self::state_write_guard();
                 let mut archive = Self::load_archive_state();
                 if let Some(days) = archive.archive_after_days {
-                    let cutoff =
-                        Self::now_ms().saturating_sub(u64::from(days) * 86_400_000);
+                    let cutoff = Self::now_ms().saturating_sub(u64::from(days) * 86_400_000);
                     let mut changed = false;
                     for id in &ids {
-                        if self.session_id.as_ref() == Some(id)
-                            || archive.sessions.contains_key(id)
+                        if self.session_id.as_ref() == Some(id) || archive.sessions.contains_key(id)
                         {
                             continue;
                         }
@@ -1468,7 +1469,10 @@ impl BridgeState {
                     if changed && let Err(message) = Self::save_archive_state(&archive) {
                         return vec![ServerFrame::reply(
                             api_id,
-                            ApiEvent::Error { code: ErrorCode::Internal, message },
+                            ApiEvent::Error {
+                                code: ErrorCode::Internal,
+                                message,
+                            },
                         )];
                     }
                 }
@@ -1510,7 +1514,7 @@ impl BridgeState {
                         }
                     })
                     .collect();
-                return vec![ServerFrame::reply(api_id, ApiEvent::Sessions { sessions })];
+                vec![ServerFrame::reply(api_id, ApiEvent::Sessions { sessions })]
             }
             "history" => {
                 let id = event["id"].as_u64().unwrap_or(0);
@@ -2076,15 +2080,14 @@ impl BridgeState {
             return Some(u32::MAX);
         }
         let mut count = 0u32;
-        if let Ok(raw) = std::fs::read_to_string(&path) {
-            if let Ok(value) = serde_json::from_str::<serde_json::Value>(&raw) {
-                if let Some(messages) = value.get("messages").and_then(|m| m.as_array()) {
-                    count += messages
-                        .iter()
-                        .filter(|m| Self::is_real_user_message(m))
-                        .count() as u32;
-                }
-            }
+        if let Ok(raw) = std::fs::read_to_string(&path)
+            && let Ok(value) = serde_json::from_str::<serde_json::Value>(&raw)
+            && let Some(messages) = value.get("messages").and_then(|m| m.as_array())
+        {
+            count += messages
+                .iter()
+                .filter(|m| Self::is_real_user_message(m))
+                .count() as u32;
         }
         if count > 0 {
             return Some(count);

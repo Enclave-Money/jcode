@@ -931,8 +931,14 @@ mod broadcast_tests {
             },
         )
         .await;
-        assert_eq!(delivered, 0, "the sender is the only one attached; nobody else is reached");
-        assert!(rx_b.try_recv().is_err(), "a client in another chat gets nothing from the fan-out");
+        assert_eq!(
+            delivered, 0,
+            "the sender is the only one attached; nobody else is reached"
+        );
+        assert!(
+            rx_b.try_recv().is_err(),
+            "a client in another chat gets nothing from the fan-out"
+        );
 
         // The broadcast is what tells everyone else the chat moved.
         broadcast_sessions_changed(&members, "chat-a").await;
@@ -941,7 +947,9 @@ mod broadcast_tests {
             matches!(&to_b, ServerEvent::SessionsChanged { session_id: Some(id) } if id == "chat-a"),
             "it names the chat that changed: {to_b:?}"
         );
-        let to_a = rx_a.try_recv().expect("the sender's own connection is told too");
+        let to_a = rx_a
+            .try_recv()
+            .expect("the sender's own connection is told too");
         assert!(matches!(to_a, ServerEvent::SessionsChanged { .. }));
     }
 }

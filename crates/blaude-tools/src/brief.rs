@@ -195,31 +195,6 @@ pub fn cypher(root: &Path, query: &str) -> Result<String> {
     run_gitnexus(root, &["cypher", "--repo", ".", query], false)
 }
 
-/// Re-index the graph after an agent wrote code. Deliberately
-/// `--skip-agents-md`: the watcher must never rewrite AGENTS.md/CLAUDE.md with
-/// GitNexus's MCP-assuming block (that is exactly the clobber `blaude brief`
-/// exists to undo). `--embeddings 0` keeps new symbols embedded regardless of
-/// repo size (the cap only guards the one-time full build; incremental runs
-/// preserve existing embeddings and only embed what changed).
-pub fn refresh_index(root: &Path) -> Result<bool> {
-    // Non-blocking: if another refresh is already running it will pick up our
-    // changes too, so coalescing to a single run is correct (and avoids the
-    // concurrent-analyze corruption risk).
-    // Only refresh repos already indexed — never index uninvited.
-    if !root.join(".gitnexus/meta.json").exists() {
-        return Ok(false);
-    }
-    let Some(_lock) = try_refresh_lock(root) else {
-        return Ok(false);
-    };
-    run_gitnexus(
-        root,
-        &["analyze", "--skip-agents-md", "--embeddings", "0"],
-        false,
-    )?;
-    Ok(true)
-}
-
 /// Whether GitNexus reports the index as behind the working tree. Cheap (one
 /// `status` call, no indexing) — prune prints a hint when true.
 pub fn is_index_stale(root: &Path) -> bool {

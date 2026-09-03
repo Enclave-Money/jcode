@@ -204,7 +204,12 @@ mod tests {
         let default = temp.path().join("default.sock");
         std::fs::write(&default, "").unwrap();
 
-        let socket = daemon_socket(Room::Mine, Some("nobody@example.com"), temp.path(), &default);
+        let socket = daemon_socket(
+            Room::Mine,
+            Some("nobody@example.com"),
+            temp.path(),
+            &default,
+        );
         assert_eq!(socket, default);
     }
 
@@ -281,7 +286,10 @@ mod project_tests {
     #[test]
     fn an_unmapped_member_has_no_project_directory() {
         let temp = tempfile::TempDir::new().unwrap();
-        assert_eq!(project_dir(Room::Mine, Some("nobody@example.com"), temp.path()), None);
+        assert_eq!(
+            project_dir(Room::Mine, Some("nobody@example.com"), temp.path()),
+            None
+        );
         assert_eq!(project_dir(Room::Mine, None, temp.path()), None);
     }
 
@@ -359,7 +367,6 @@ pub fn request_credential_sync(home_root: &Path) -> bool {
     std::fs::write(&path, contents).is_ok()
 }
 
-
 #[cfg(test)]
 mod provision_queue_tests {
     use super::*;
@@ -367,8 +374,14 @@ mod provision_queue_tests {
     #[test]
     fn a_member_is_queued_once_however_often_they_claim() {
         let temp = tempfile::tempdir().expect("temp");
-        assert!(request_member_provision("Akshay@Enclave.money", temp.path()));
-        assert!(request_member_provision("akshay@enclave.money", temp.path()));
+        assert!(request_member_provision(
+            "Akshay@Enclave.money",
+            temp.path()
+        ));
+        assert!(request_member_provision(
+            "akshay@enclave.money",
+            temp.path()
+        ));
         let queue =
             std::fs::read_to_string(temp.path().join(".jcode/provision-queue")).expect("queue");
         assert_eq!(

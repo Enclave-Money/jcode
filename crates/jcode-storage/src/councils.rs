@@ -170,10 +170,10 @@ impl Councils {
         }
         // Guard against colliding with a *different* council (a no-op rename to
         // the same name, modulo case, is fine).
-        if let Some(existing) = self.position(&to) {
-            if self.position(from) != Some(existing) {
-                bail!("a council named “{to}” already exists");
-            }
+        if let Some(existing) = self.position(&to)
+            && self.position(from) != Some(existing)
+        {
+            bail!("a council named “{to}” already exists");
         }
         let idx = self
             .position(from)

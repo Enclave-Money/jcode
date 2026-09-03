@@ -50,6 +50,7 @@ pub(crate) fn capitalize(s: &str) -> String {
 
 /// Compact form of a full build version string: `v0.25.19-dev (abc1234, dirty)`
 /// becomes `v0.25.19-dev`. Used for the per-line server/client version labels.
+#[cfg(test)]
 fn compact_version_label(version: &str) -> String {
     let trimmed = version.trim();
     match trimmed.split_once(" (") {
@@ -61,6 +62,7 @@ fn compact_version_label(version: &str) -> String {
 /// Version label for a `server:`/`client:` header line. Normally compact
 /// (semver only); keeps the git-hash suffix when the two sides share a semver
 /// but differ by build, so the mismatch is still visible at a glance.
+#[cfg(test)]
 fn header_version_label(version: &str, include_hash: bool) -> String {
     if include_hash {
         version.trim().to_string()
@@ -281,6 +283,7 @@ fn auth_dot_color(state: AuthState) -> Color {
     }
 }
 
+#[cfg(test)]
 fn auth_dot_char(state: AuthState) -> &'static str {
     match state {
         AuthState::Available => "●",
@@ -319,6 +322,7 @@ impl ActiveCredentialOverrides {
 }
 
 /// Configured providers with their full labels, in display order.
+#[cfg(test)]
 fn auth_full_specs(
     auth: &AuthStatus,
     active: ActiveCredentialOverrides,
@@ -430,6 +434,7 @@ fn auth_full_specs(
 /// Vertical auth inventory: one line per provider. Configured providers get
 /// green/yellow dots; unconfigured ones get a dim hollow dot so they read as
 /// available-to-add without cluttering the `/login` heading.
+#[cfg(test)]
 pub(super) fn build_auth_status_lines(
     auth: &AuthStatus,
     active: ActiveCredentialOverrides,

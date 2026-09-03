@@ -19,7 +19,9 @@
 //! flag and would have let any local user watch any room.
 
 use anyhow::{Context, Result};
+use std::collections::HashMap;
 use std::path::PathBuf;
+use std::sync::{Arc, Mutex, OnceLock};
 
 /// Where a room's X authority file lives, matching `provision-member.sh`.
 pub fn xauth_path(user: &str) -> PathBuf {
@@ -90,13 +92,7 @@ pub fn frame(user: &str, max_width: Option<u32>) -> Result<Frame> {
     let output = std::process::Command::new("import")
         .env("DISPLAY", display_for(uid))
         .env("XAUTHORITY", &xauth)
-        .args([
-            "-window",
-            "root",
-            "-resize",
-            &format!("{width}x"),
-            "jpg:-",
-        ])
+        .args(["-window", "root", "-resize", &format!("{width}x"), "jpg:-"])
         .output()
         .context("running import to capture the screen")?;
 
@@ -202,6 +198,22 @@ pub enum Input {
 pub const DESKTOP_WIDTH: u32 = 1920;
 pub const DESKTOP_HEIGHT: u32 = 1080;
 
+/// Preserve input order per desktop. WebSocket requests are handled by
+/// independent tasks, while each event launches a separate xdotool process;
+/// without this, a fast drag can execute mouse-up before mouse-move and leave
+/// the pointer or button in the wrong state.
+fn input_lock(user: &str) -> Arc<Mutex<()>> {
+    static LOCKS: OnceLock<Mutex<HashMap<String, Arc<Mutex<()>>>>> = OnceLock::new();
+    let mut locks = LOCKS
+        .get_or_init(|| Mutex::new(HashMap::new()))
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    locks
+        .entry(user.to_string())
+        .or_insert_with(|| Arc::new(Mutex::new(())))
+        .clone()
+}
+
 /// Scale a click from the frame the user actually saw to the real desktop.
 ///
 /// Without this every click lands in the top-left corner region: a thumbnail is
@@ -219,6 +231,8 @@ pub fn to_desktop(x: u32, y: u32, frame_width: u32) -> (u32, u32) {
 
 /// Send one input event into `user`'s desktop.
 pub fn send_input(user: &str, input: &Input) -> Result<()> {
+    let lock = input_lock(user);
+    let _ordered = lock.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
     let xauth = xauth_path(user);
     if !xauth.exists() {
         anyhow::bail!("No screen is running for this room.");
@@ -305,12 +319,32 @@ mod input_tests {
     /// manager sees a click and the window never moves.
     #[test]
     fn a_drag_presses_moves_and_releases_separately() {
-        let down = Input::MouseDown { x: 10, y: 20, button: 1 };
+        let down = Input::MouseDown {
+            x: 10,
+            y: 20,
+            button: 1,
+        };
         let up = Input::MouseUp { button: 1 };
         assert!(matches!(down, Input::MouseDown { button: 1, .. }));
         assert!(matches!(up, Input::MouseUp { button: 1 }));
         // A click is still one event, so nothing about tapping changes.
-        assert!(matches!(Input::Click { x: 1, y: 1, button: 1 }, Input::Click { .. }));
+        assert!(matches!(
+            Input::Click {
+                x: 1,
+                y: 1,
+                button: 1
+            },
+            Input::Click { .. }
+        ));
+    }
+
+    #[test]
+    fn each_desktop_has_one_ordering_lock() {
+        let first = input_lock("room-one");
+        let same = input_lock("room-one");
+        let other = input_lock("room-two");
+        assert!(Arc::ptr_eq(&first, &same));
+        assert!(!Arc::ptr_eq(&first, &other));
     }
 
     #[test]

@@ -3,8 +3,7 @@ use super::client_actions::{
     AgentTaskContext, NotifySessionContext, handle_agent_task, handle_compact, handle_input_shell,
     handle_notify_session, handle_rename_session, handle_run_subagent, handle_set_feature,
     handle_set_subagent_model, handle_set_work_mode, handle_split, handle_stdin_response,
-    handle_vault_index_sync,
-    handle_transfer, handle_trigger_memory_extraction,
+    handle_transfer, handle_trigger_memory_extraction, handle_vault_index_sync,
 };
 use super::client_comm::{
     handle_comm_channel_members, handle_comm_list, handle_comm_list_channels, handle_comm_message,
@@ -75,18 +74,17 @@ use tokio::sync::{Mutex, RwLock, broadcast, mpsc};
 
 type SessionAgents = Arc<RwLock<HashMap<String, Arc<Mutex<Agent>>>>>;
 type ChannelSubscriptions = Arc<RwLock<HashMap<String, HashMap<String, HashSet<String>>>>>;
+type StdinResponses = Arc<Mutex<HashMap<String, tokio::sync::oneshot::Sender<String>>>>;
 const RELOAD_STARTING_GUARD_MAX_AGE: Duration = Duration::from_secs(30);
 const REQUEST_HANDLER_STALL_THRESHOLDS_MS: [u64; 3] = [2_000, 10_000, 60_000];
 
 /// The process-wide map of pending stdin requests, keyed by request_id. Shared
 /// by every client connection so a tool's answer reaches it regardless of which
 /// connection carries the answer. See its use in the client loop.
-fn global_stdin_responses(
-) -> Arc<Mutex<HashMap<String, tokio::sync::oneshot::Sender<String>>>> {
-    static G: std::sync::OnceLock<
-        Arc<Mutex<HashMap<String, tokio::sync::oneshot::Sender<String>>>>,
-    > = std::sync::OnceLock::new();
-    G.get_or_init(|| Arc::new(Mutex::new(HashMap::new()))).clone()
+fn global_stdin_responses() -> StdinResponses {
+    static G: std::sync::OnceLock<StdinResponses> = std::sync::OnceLock::new();
+    G.get_or_init(|| Arc::new(Mutex::new(HashMap::new())))
+        .clone()
 }
 
 fn required_subscribe_working_dir(working_dir: Option<&str>) -> std::result::Result<&str, String> {
@@ -480,8 +478,16 @@ pub(super) async fn handle_client(
     // subscribe first would reject the dedicated sync connection the client
     // opens, which is exactly what silently dropped every index write.
     if let Request::VaultIndexSync { id, entries } = &initial_request {
-        crate::server::client_actions::write_vault_index(entries);
-        write_direct_event(&writer, &ServerEvent::Done { id: *id }).await?;
+        let event = if crate::server::client_actions::write_vault_index(entries) {
+            ServerEvent::Done { id: *id }
+        } else {
+            ServerEvent::Error {
+                id: *id,
+                message: "Vault logins are available only in your private room.".into(),
+                retry_after_secs: None,
+            }
+        };
+        write_direct_event(&writer, &event).await?;
         return Ok(());
     }
     // The session list needs no session of its own, and it is POLLED: the
@@ -500,8 +506,7 @@ pub(super) async fn handle_client(
             match req {
                 Request::ListSessions { id } => {
                     let sessions = crate::server::client_actions::list_session_summaries();
-                    write_direct_event(&writer, &ServerEvent::SessionList { id, sessions })
-                        .await?;
+                    write_direct_event(&writer, &ServerEvent::SessionList { id, sessions }).await?;
                 }
                 Request::Ping { id } => {
                     write_direct_event(&writer, &ServerEvent::Pong { id }).await?;
@@ -517,7 +522,12 @@ pub(super) async fn handle_client(
     // it just hands the answer to the global map by request_id. Requiring a
     // subscribe first would reject the connection that carries the answer, which
     // is exactly what left every fill waiting until it timed out.
-    if let Request::StdinResponse { id, request_id, input } = &initial_request {
+    if let Request::StdinResponse {
+        id,
+        request_id,
+        input,
+    } = &initial_request
+    {
         let responses = global_stdin_responses();
         if let Some(tx) = responses.lock().await.remove(request_id) {
             let _ = tx.send(input.clone());
@@ -3069,6 +3079,7 @@ pub(super) async fn handle_client(
     Ok(())
 }
 
+#[allow(clippy::too_many_arguments)] // Mirrors the wire event plus its two delivery handles.
 async fn append_context_message(
     id: u64,
     content: &str,
@@ -3470,6 +3481,7 @@ fn names_only_available_models_event(event: &ServerEvent) -> Option<ServerEvent>
     })
 }
 
+#[allow(clippy::too_many_arguments)] // Mirrors the interrupt event plus its two delivery handles.
 fn queue_soft_interrupt(
     id: u64,
     content: String,

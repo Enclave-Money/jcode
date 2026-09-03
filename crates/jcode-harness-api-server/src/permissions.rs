@@ -50,13 +50,13 @@ pub fn pending() -> Vec<PendingPermission> {
             let id = entry["id"].as_str()?.to_string();
             let action = entry["action"].as_str().unwrap_or("action").to_string();
             let mut description = entry["description"].as_str().unwrap_or("").to_string();
-            if let Some(rationale) = entry["rationale"].as_str() {
-                if !rationale.is_empty() {
-                    if !description.is_empty() {
-                        description.push_str(" — ");
-                    }
-                    description.push_str(rationale);
+            if let Some(rationale) = entry["rationale"].as_str()
+                && !rationale.is_empty()
+            {
+                if !description.is_empty() {
+                    description.push_str(" — ");
                 }
+                description.push_str(rationale);
             }
             Some(PendingPermission {
                 id,
@@ -199,6 +199,7 @@ mod permission_file_tests {
     /// The watch must fire when the daemon writes the queue. If it does not,
     /// prompts fall back to the safety-net tick and a teammate waits seconds
     /// for a dialog, which is the polling behaviour this replaced.
+    #[allow(clippy::await_holding_lock)] // Serializes process-global JCODE_HOME for the whole test.
     #[tokio::test(flavor = "multi_thread")]
     async fn the_queue_watch_fires_when_a_request_is_written() {
         let _guard = crate::jcode_home_test_lock();

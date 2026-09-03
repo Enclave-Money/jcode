@@ -127,12 +127,26 @@ fn test_parse_tailscale_dns_name_invalid_json() {
 #[test]
 fn configured_auth_test_targets_only_include_configured_supported_providers() {
     let _guard = crate::storage::lock_test_env();
-    // OpenRouter has no OAuth state to set: its availability is read straight
-    // from `OPENROUTER_API_KEY` (or `openrouter.env`). Setting it here is what
-    // makes the expectation below independent of whoever runs the test having
-    // a key exported.
-    let saved_openrouter_key = std::env::var("OPENROUTER_API_KEY").ok();
-    crate::env::set_var("OPENROUTER_API_KEY", "test-key");
+    let _saved_env = SavedEnv::capture(&[
+        "JCODE_HOME",
+        "JCODE_EXPLICIT_ACCOUNTS_ONLY",
+        "OPENROUTER_API_KEY",
+    ]);
+    let temp = tempfile::tempdir().expect("create isolated jcode home");
+    crate::env::set_var("JCODE_HOME", temp.path());
+    crate::env::set_var("JCODE_EXPLICIT_ACCOUNTS_ONLY", "1");
+    crate::env::remove_var("OPENROUTER_API_KEY");
+
+    // The app's runtime accepts only accounts the user explicitly added. A
+    // pasted OpenRouter key is persisted in the app config file; it must still
+    // count as configured even while ambient process credentials are refused.
+    let config_dir = crate::storage::app_config_dir().expect("resolve isolated config dir");
+    std::fs::create_dir_all(&config_dir).expect("create isolated config dir");
+    std::fs::write(
+        config_dir.join("openrouter.env"),
+        "OPENROUTER_API_KEY=test-key\n",
+    )
+    .expect("write explicit OpenRouter account");
 
     let status = AuthStatus {
         anthropic: ProviderAuth {
@@ -151,11 +165,6 @@ fn configured_auth_test_targets_only_include_configured_supported_providers() {
     };
 
     let targets = configured_auth_test_targets(&status);
-
-    match saved_openrouter_key {
-        Some(key) => crate::env::set_var("OPENROUTER_API_KEY", key),
-        None => crate::env::remove_var("OPENROUTER_API_KEY"),
-    }
 
     assert!(targets.contains(&ResolvedAuthTestTarget::Detailed(AuthTestTarget::Claude)));
     assert!(targets.contains(&ResolvedAuthTestTarget::Detailed(AuthTestTarget::Copilot)));

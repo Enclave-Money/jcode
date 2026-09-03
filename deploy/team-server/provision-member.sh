@@ -165,8 +165,10 @@ fi
 # enough on their own, because both would still be serving the same files.
 if [ "$USER_NAME" = "blaude-shared" ]; then
   PROJECT="$SHARED_PROJECT"
+  SHARED_ROOM_ENV="Environment=BLAUDE_SHARED_ROOM=1"
 else
   PROJECT="$HOME_DIR/project"
+  SHARED_ROOM_ENV=""
 fi
 
 echo "==> shared project '$SHARED_PROJECT'"
@@ -254,6 +256,7 @@ Environment=JCODE_DEFERRED_AUTH_BOOTSTRAP=1
 # refuses to borrow an API key that happens to be in the environment, which is
 # the behaviour we want everywhere on a team box.
 Environment=JCODE_SERVER_MODE=1
+$SHARED_ROOM_ENV
 ExecStart=$BINARY --provider auto serve
 Restart=always
 RestartSec=2

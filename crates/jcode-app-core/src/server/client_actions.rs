@@ -1122,12 +1122,21 @@ pub(super) async fn handle_stdin_response(
 /// The pure write; callers reply Done. Split out so the client loop can also
 /// service this as a stateless first request, before the subscribe gate — it
 /// needs no session.
-pub(super) fn write_vault_index(entries: &serde_json::Value) {
+fn shared_room() -> bool {
+    std::env::var("BLAUDE_SHARED_ROOM").is_ok_and(|value| value == "1")
+        || std::env::var("USER").is_ok_and(|value| value == "blaude-shared")
+}
+
+pub(super) fn write_vault_index(entries: &serde_json::Value) -> bool {
+    // The shared room is visible to every teammate. Even though this index has
+    // no passwords, it names one person's sites, usernames, and 1Password item
+    // IDs; never copy that private inventory into a shared Unix account.
+    if shared_room() {
+        return false;
+    }
     let dir = std::env::var("JCODE_HOME")
         .map(std::path::PathBuf::from)
-        .unwrap_or_else(|_| {
-            dirs::home_dir().unwrap_or_default().join(".jcode")
-        });
+        .unwrap_or_else(|_| dirs::home_dir().unwrap_or_default().join(".jcode"));
     let path = dir.join("vault-index.json");
     let list = entries.as_array().cloned().unwrap_or_default();
     if list.is_empty() {
@@ -1148,6 +1157,7 @@ pub(super) fn write_vault_index(entries: &serde_json::Value) {
             }
         }
     }
+    true
 }
 
 pub(super) fn handle_vault_index_sync(
@@ -1155,8 +1165,16 @@ pub(super) fn handle_vault_index_sync(
     entries: serde_json::Value,
     client_event_tx: &mpsc::UnboundedSender<ServerEvent>,
 ) {
-    write_vault_index(&entries);
-    let _ = client_event_tx.send(ServerEvent::Done { id });
+    let event = if write_vault_index(&entries) {
+        ServerEvent::Done { id }
+    } else {
+        ServerEvent::Error {
+            id,
+            message: "Vault logins are available only in your private room.".into(),
+            retry_after_secs: None,
+        }
+    };
+    let _ = client_event_tx.send(event);
 }
 
 pub(super) struct AgentTaskContext<'a> {
@@ -1235,7 +1253,6 @@ pub(super) async fn handle_agent_task(
     }
 }
 
-
 /// One summary per persisted session in THIS daemon's home.
 ///
 /// Served daemon-side because on a team server only the room's own daemon can
@@ -1259,7 +1276,11 @@ pub fn list_session_summaries() -> Vec<serde_json::Value> {
         if !name.ends_with(".json") || name.ends_with(".bak") {
             continue;
         }
-        let Some(id) = path.file_stem().and_then(|s| s.to_str()).map(str::to_string) else {
+        let Some(id) = path
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .map(str::to_string)
+        else {
             continue;
         };
         let Ok(raw) = std::fs::read_to_string(&path) else {

@@ -4,9 +4,31 @@
 # would ship target/ — tens of gigabytes of build output — on every deploy,
 # which is slow enough to look like a hang.
 .git/
+.gitnexus/
 target/
 dist/
 node_modules/
 **/node_modules/
 *.dmg
 *.gz
+
+# The provisioning Dockerfile copies only Cargo metadata, crates/, deploy/,
+# src/, root markdown, and docs/. Keeping unrelated demos, app assets, SDKs,
+# test goldens, and repository automation out of the upload cuts the build
+# context by roughly 180 MiB without changing the image input.
+.cargo/
+.claude/
+.github/
+.jcode/
+assets/
+changelog/
+ios/
+scripts/
+sdk/
+telemetry-worker/
+tests/
+score_shard.py
+
+# Scratch screenshots accidentally left under a crate must never become build
+# context merely because the containing crate is required.
+crates/**/.tmp/

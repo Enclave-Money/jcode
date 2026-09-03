@@ -97,10 +97,10 @@ pub fn start(
         }
         // Output streams to files so the child stays wait()-able (and thus
         // killable) — wait_with_output() would consume it.
-        if let (Some(out), Some(err)) = (&out_path, &err_path) {
-            if let (Ok(o), Ok(e)) = (std::fs::File::create(out), std::fs::File::create(err)) {
-                command.stdout(o).stderr(e);
-            }
+        if let (Some(out), Some(err)) = (&out_path, &err_path)
+            && let (Ok(o), Ok(e)) = (std::fs::File::create(out), std::fs::File::create(err))
+        {
+            command.stdout(o).stderr(e);
         }
         // Belt and braces: if the bridge process dies, children die too.
         command.kill_on_drop(true);

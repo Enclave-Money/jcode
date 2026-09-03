@@ -647,6 +647,7 @@ async fn build_server_memory_incident_payload(
 }
 
 #[cfg(test)]
+#[allow(clippy::items_after_test_module)]
 mod tests {
     use super::*;
     use std::time::Duration;

@@ -18,23 +18,51 @@
 //! expires and there is nothing to renew it. A service account attached to
 //! the service has neither problem.
 //!
-//! Cloud settings come from `~/.jcode/team-cloud.json`:
+//! Cloud settings come from `BLAUDE_PROJECT`, `BLAUDE_ZONE`,
+//! `BLAUDE_MACHINE_TYPE`, and `BLAUDE_TEMPLATE_INSTANCE`, with a legacy local
+//! fallback to `~/.jcode/team-cloud.json`:
 //!   { "project": …, "zone": …, "machine_type": …, "template_instance": … }
 //! with defaults matching the first hand-built team server, and
 //! `template_instance` naming a VM whose built `blaude` is copied onto new
 //! servers (cached locally after the first pull).
 use std::collections::HashMap;
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use serde_json::{Value, json};
+use sha2::{Digest, Sha256};
+
+mod relay_token;
+pub use relay_token::{
+    RelayClaims, configure_relay_signing_key, mint_relay_token, verify_relay_token,
+};
 
 const OVERALL_TIMEOUT_SECS: u64 = 1800;
-const PORT: u16 = 7644;
+const COMPLETED_JOB_RETENTION_SECS: u64 = 3600;
 
-fn jobs() -> &'static Mutex<HashMap<String, Value>> {
-    static JOBS: OnceLock<Mutex<HashMap<String, Value>>> = OnceLock::new();
+#[derive(Clone, Debug)]
+struct CloudResources {
+    project: String,
+    zone: String,
+    instance: String,
+    address_name: String,
+    address_region: String,
+    address_reserved: bool,
+    instance_created: bool,
+}
+
+#[derive(Debug)]
+struct Job {
+    owner_subject: String,
+    record: Value,
+    finished_at: Option<u64>,
+    resources: Option<CloudResources>,
+}
+
+fn jobs() -> &'static Mutex<HashMap<String, Job>> {
+    static JOBS: OnceLock<Mutex<HashMap<String, Job>>> = OnceLock::new();
     JOBS.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
@@ -46,61 +74,149 @@ fn now_secs() -> u64 {
 }
 
 fn new_job_id() -> String {
+    static SEQUENCE: AtomicU64 = AtomicU64::new(0);
     let nanos = SystemTime::now()
         .duration_since(UNIX_EPOCH)
-        .map(|d| d.subsec_nanos())
+        .map(|d| d.as_nanos())
         .unwrap_or(0);
-    format!("tc-{:x}{:04x}", now_secs(), nanos & 0xffff)
+    let sequence = SEQUENCE.fetch_add(1, Ordering::Relaxed);
+    format!("tc-{nanos:x}-{sequence:x}")
+}
+
+fn prune_finished(map: &mut HashMap<String, Job>) {
+    let cutoff = now_secs().saturating_sub(COMPLETED_JOB_RETENTION_SECS);
+    map.retain(|_, job| job.finished_at.is_none_or(|finished| finished >= cutoff));
 }
 
 fn set_stage(job_id: &str, stage: &str) {
-    if let Ok(mut map) = jobs().lock() {
-        if let Some(rec) = map.get_mut(job_id) {
-            rec["stage"] = json!(stage);
-        }
+    if let Ok(mut map) = jobs().lock()
+        && let Some(job) = map.get_mut(job_id)
+    {
+        job.record["stage"] = json!(stage);
     }
 }
 
 fn finish_err(job_id: &str, message: String) {
-    if let Ok(mut map) = jobs().lock() {
-        if let Some(rec) = map.get_mut(job_id) {
-            rec["done"] = json!(true);
-            rec["error"] = json!(message);
-        }
+    if let Ok(mut map) = jobs().lock()
+        && let Some(job) = map.get_mut(job_id)
+    {
+        job.record["done"] = json!(true);
+        job.record["error"] = json!(message);
+        job.finished_at = Some(now_secs());
     }
 }
 
 fn finish_ok(job_id: &str, ws_url: &str, token: &str, ca_pem: &str) {
-    if let Ok(mut map) = jobs().lock() {
-        if let Some(rec) = map.get_mut(job_id) {
-            rec["done"] = json!(true);
-            rec["stage"] = json!("Ready.");
-            rec["ws_url"] = json!(ws_url);
-            rec["token"] = json!(token);
-            rec["ca_pem"] = json!(ca_pem);
-        }
+    if let Ok(mut map) = jobs().lock()
+        && let Some(job) = map.get_mut(job_id)
+    {
+        job.record["done"] = json!(true);
+        job.record["stage"] = json!("Ready.");
+        job.record["ws_url"] = json!(ws_url);
+        job.record["token"] = json!(token);
+        job.record["ca_pem"] = json!(ca_pem);
+        job.finished_at = Some(now_secs());
     }
 }
 
-/// Current record for a job, if it exists.
-pub fn status(job_id: &str) -> Option<Value> {
-    jobs().lock().ok()?.get(job_id).cloned()
+fn register_resources(job_id: &str, resources: CloudResources) {
+    if let Ok(mut map) = jobs().lock()
+        && let Some(job) = map.get_mut(job_id)
+    {
+        job.resources = Some(resources);
+    }
+}
+
+fn mark_address_reserved(job_id: &str) {
+    if let Ok(mut map) = jobs().lock()
+        && let Some(resources) = map.get_mut(job_id).and_then(|job| job.resources.as_mut())
+    {
+        resources.address_reserved = true;
+    }
+}
+
+fn mark_instance_created(job_id: &str) {
+    if let Ok(mut map) = jobs().lock()
+        && let Some(resources) = map.get_mut(job_id).and_then(|job| job.resources.as_mut())
+    {
+        resources.instance_created = true;
+    }
+}
+
+fn resources_for(job_id: &str) -> Option<CloudResources> {
+    jobs().lock().ok()?.get(job_id)?.resources.clone()
+}
+
+/// Current record for a job, but only for the identity that created it.
+pub fn status(job_id: &str, owner_subject: &str) -> Option<Value> {
+    let mut map = jobs().lock().ok()?;
+    prune_finished(&mut map);
+    let job = map.get(job_id)?;
+    (job.owner_subject == owner_subject).then(|| job.record.clone())
 }
 
 /// Start provisioning; returns the initial record immediately.
 /// Region shortcuts the app offers; anything else falls back to the
 /// configured default zone.
 fn zone_for_region(region: Option<&str>, default_zone: &str) -> String {
-    match region.map(|r| r.to_ascii_lowercase()) {
-        Some(r) if r.contains("india") => "asia-south1-a".into(),
-        Some(r) if r.contains("singapore") => "asia-southeast1-a".into(),
-        Some(r) if r.contains("europe") => "europe-west3-a".into(),
-        Some(r) if r.contains("us") => "us-central1-a".into(),
+    match region.map(|r| r.trim().to_ascii_lowercase()) {
+        Some(r) if r == "india" => "asia-south1-a".into(),
+        Some(r) if r == "singapore" => "asia-southeast1-a".into(),
+        Some(r) if r == "europe" => "europe-west3-a".into(),
+        Some(r) if matches!(r.as_str(), "us" | "usa" | "united states") => "us-central1-a".into(),
         _ => default_zone.into(),
     }
 }
 
-pub fn start(name: &str, region: Option<&str>, owner_email: Option<&str>) -> Value {
+#[cfg(test)]
+mod region_tests {
+    use super::{shell_quote, zone_for_region};
+
+    #[test]
+    fn region_shortcuts_are_exact_and_unknown_values_use_the_default() {
+        assert_eq!(zone_for_region(Some("india"), "default-a"), "asia-south1-a");
+        assert_eq!(
+            zone_for_region(Some(" Singapore "), "default-a"),
+            "asia-southeast1-a"
+        );
+        assert_eq!(zone_for_region(Some("australia"), "default-a"), "default-a");
+        assert_eq!(zone_for_region(Some("business"), "default-a"), "default-a");
+    }
+
+    #[test]
+    fn team_names_are_one_literal_shell_argument() {
+        assert_eq!(shell_quote("O'Brien"), "'O'\\''Brien'");
+        assert_eq!(
+            shell_quote("$(touch /tmp/pwned) `id` \"quoted\""),
+            "'$(touch /tmp/pwned) `id` \"quoted\"'"
+        );
+    }
+}
+
+fn team_ip(ws_url: &str) -> Option<String> {
+    let authority = ws_url.strip_prefix("wss://")?.split('/').next()?;
+    let host = authority.split(':').next()?;
+    let dashed = host.strip_suffix(".sslip.io")?;
+    let octets = dashed
+        .split('-')
+        .map(str::parse::<u8>)
+        .collect::<Result<Vec<_>, _>>()
+        .ok()?;
+    (octets.len() == 4).then(|| {
+        octets
+            .iter()
+            .map(u8::to_string)
+            .collect::<Vec<_>>()
+            .join(".")
+    })
+}
+
+pub fn start(
+    name: &str,
+    region: Option<&str>,
+    owner_subject: &str,
+    owner_email: Option<&str>,
+) -> Value {
     let job_id = new_job_id();
     let record = json!({
         "job_id": job_id,
@@ -109,31 +225,84 @@ pub fn start(name: &str, region: Option<&str>, owner_email: Option<&str>) -> Val
         "done": false,
     });
     if let Ok(mut map) = jobs().lock() {
-        map.insert(job_id.clone(), record.clone());
+        prune_finished(&mut map);
+        map.insert(
+            job_id.clone(),
+            Job {
+                owner_subject: owner_subject.to_string(),
+                record: record.clone(),
+                finished_at: None,
+                resources: None,
+            },
+        );
     }
     let name = name.to_string();
     let region = region.map(str::to_string);
+    let owner_subject = owner_subject.to_string();
     let owner_email = owner_email.map(str::to_string);
     tokio::spawn(async move {
         let id = job_id.clone();
-        let work = provision(job_id.clone(), name, region, owner_email);
+        let work = provision(job_id.clone(), name, region, owner_subject, owner_email);
         match tokio::time::timeout(Duration::from_secs(OVERALL_TIMEOUT_SECS), work).await {
             Ok(Ok(())) => {}
-            Ok(Err(message)) => finish_err(&id, message),
-            Err(_) => finish_err(
-                &id,
-                "Ran out of time building the server. It may still finish — check your \
-                 cloud console, or try again."
-                    .into(),
-            ),
+            Ok(Err(message)) => {
+                let cleanup = cleanup_failed_job(&id).await;
+                finish_err(&id, with_cleanup_result(message, cleanup));
+            }
+            Err(_) => {
+                let cleanup = cleanup_failed_job(&id).await;
+                finish_err(
+                    &id,
+                    with_cleanup_result("Ran out of time building the server.".into(), cleanup),
+                );
+            }
         }
     });
     record
 }
 
+#[cfg(test)]
+mod job_tests {
+    use super::{Job, jobs, new_job_id, owner_label, status};
+
+    #[test]
+    fn job_status_is_visible_only_to_its_creator() {
+        let job_id = new_job_id();
+        let record = serde_json::json!({ "job_id": job_id, "done": false });
+        jobs().lock().unwrap().insert(
+            job_id.clone(),
+            Job {
+                owner_subject: "user_owner".into(),
+                record: record.clone(),
+                finished_at: None,
+                resources: None,
+            },
+        );
+
+        assert_eq!(status(&job_id, "user_owner"), Some(record));
+        assert_eq!(status(&job_id, "user_someone_else"), None);
+        jobs().lock().unwrap().remove(&job_id);
+    }
+
+    #[test]
+    fn job_ids_do_not_collide_within_one_process() {
+        assert_ne!(new_job_id(), new_job_id());
+    }
+
+    #[test]
+    fn ownership_labels_are_stable_and_subject_specific() {
+        let owner = owner_label("user_owner");
+        assert_eq!(owner, owner_label("user_owner"));
+        assert_ne!(owner, owner_label("user_someone_else"));
+        assert!(owner.starts_with('u'));
+        assert!(owner.len() <= 63);
+    }
+}
+
 // ---------------------------------------------------------------------------
 // cloud config
 
+#[derive(Clone)]
 struct CloudCfg {
     project: String,
     zone: String,
@@ -163,21 +332,33 @@ fn cloud_cfg() -> CloudCfg {
     };
     if let Some(home) = std::env::var_os("HOME") {
         let path = PathBuf::from(home).join(".jcode/team-cloud.json");
-        if let Ok(text) = std::fs::read_to_string(path) {
-            if let Ok(v) = serde_json::from_str::<Value>(&text) {
-                if let Some(s) = v["project"].as_str() {
-                    cfg.project = s.into();
-                }
-                if let Some(s) = v["zone"].as_str() {
-                    cfg.zone = s.into();
-                }
-                if let Some(s) = v["machine_type"].as_str() {
-                    cfg.machine_type = s.into();
-                }
-                if let Some(s) = v["template_instance"].as_str() {
-                    cfg.template_instance = s.into();
-                }
+        if let Ok(text) = std::fs::read_to_string(path)
+            && let Ok(v) = serde_json::from_str::<Value>(&text)
+        {
+            if let Some(s) = v["project"].as_str() {
+                cfg.project = s.into();
             }
+            if let Some(s) = v["zone"].as_str() {
+                cfg.zone = s.into();
+            }
+            if let Some(s) = v["machine_type"].as_str() {
+                cfg.machine_type = s.into();
+            }
+            if let Some(s) = v["template_instance"].as_str() {
+                cfg.template_instance = s.into();
+            }
+        }
+    }
+    for (key, target) in [
+        ("BLAUDE_PROJECT", &mut cfg.project),
+        ("BLAUDE_ZONE", &mut cfg.zone),
+        ("BLAUDE_MACHINE_TYPE", &mut cfg.machine_type),
+        ("BLAUDE_TEMPLATE_INSTANCE", &mut cfg.template_instance),
+    ] {
+        if let Ok(value) = std::env::var(key)
+            && !value.trim().is_empty()
+        {
+            *target = value;
         }
     }
     cfg
@@ -226,14 +407,14 @@ async fn run(bin: &PathBuf, args: &[&str], stdin: Option<&str>) -> Result<String
     // stdout/stderr, nothing ever drains and both sides wedge. A brand-new
     // team hung here for 15+ minutes. The writer task lets wait_with_output
     // read output while the script is still going out.
-    if let Some(text) = stdin {
-        if let Some(mut pipe) = child.stdin.take() {
-            let bytes = text.as_bytes().to_vec();
-            tokio::spawn(async move {
-                let _ = pipe.write_all(&bytes).await;
-                let _ = pipe.shutdown().await;
-            });
-        }
+    if let Some(text) = stdin
+        && let Some(mut pipe) = child.stdin.take()
+    {
+        let bytes = text.as_bytes().to_vec();
+        tokio::spawn(async move {
+            let _ = pipe.write_all(&bytes).await;
+            let _ = pipe.shutdown().await;
+        });
     }
     let out = child
         .wait_with_output()
@@ -269,6 +450,111 @@ async fn run_retry(
     Err(last)
 }
 
+/// A short, deterministic GCP-label-safe identity. The original Clerk subject
+/// never leaves the service; the label is only an ownership discriminator.
+fn owner_label(subject: &str) -> String {
+    let digest = Sha256::digest(subject.as_bytes());
+    format!("u{}", hex::encode(&digest[..16]))
+}
+
+/// Addresses do not support GCP labels. Keep the same opaque ownership value
+/// in their description instead, using a whitespace-free marker so gcloud's
+/// `value(...)` output can be parsed without treating free text as identity.
+fn owner_description(owner: &str) -> String {
+    format!("blaude-managed-owner-{owner}")
+}
+
+async fn release_address(
+    gcloud: &PathBuf,
+    project: &str,
+    region: &str,
+    address_name: &str,
+) -> Result<(), String> {
+    let mut last = String::new();
+    for attempt in 0..6 {
+        match run(
+            gcloud,
+            &[
+                "compute",
+                "addresses",
+                "delete",
+                address_name,
+                "--project",
+                project,
+                "--region",
+                region,
+                "--quiet",
+            ],
+            None,
+        )
+        .await
+        {
+            Ok(_) => return Ok(()),
+            Err(error) if error.to_ascii_lowercase().contains("not found") => return Ok(()),
+            Err(error) => last = error,
+        }
+        if attempt < 5 {
+            tokio::time::sleep(Duration::from_secs(5)).await;
+        }
+    }
+    Err(last)
+}
+
+async fn cleanup_failed_job(job_id: &str) -> Result<(), String> {
+    let Some(resources) = resources_for(job_id) else {
+        return Ok(());
+    };
+    let gcloud = gcloud_bin().ok_or_else(|| "gcloud disappeared during cleanup".to_string())?;
+    let mut failures = Vec::new();
+
+    if resources.instance_created
+        && let Err(error) = run(
+            &gcloud,
+            &[
+                "compute",
+                "instances",
+                "delete",
+                &resources.instance,
+                "--project",
+                &resources.project,
+                "--zone",
+                &resources.zone,
+                "--quiet",
+            ],
+            None,
+        )
+        .await
+        && !error.to_ascii_lowercase().contains("not found")
+    {
+        failures.push(format!("VM cleanup failed: {error}"));
+    }
+
+    if resources.address_reserved
+        && let Err(error) = release_address(
+            &gcloud,
+            &resources.project,
+            &resources.address_region,
+            &resources.address_name,
+        )
+        .await
+    {
+        failures.push(format!("address cleanup failed: {error}"));
+    }
+
+    if failures.is_empty() {
+        Ok(())
+    } else {
+        Err(failures.join("; "))
+    }
+}
+
+fn with_cleanup_result(message: String, cleanup: Result<(), String>) -> String {
+    match cleanup {
+        Ok(()) => format!("{message} The partial cloud resources were removed."),
+        Err(error) => format!("{message} Automatic cleanup also failed: {error}"),
+    }
+}
+
 fn slugify(name: &str) -> String {
     let slug: String = name
         .to_lowercase()
@@ -280,6 +566,12 @@ fn slugify(name: &str) -> String {
     slug.chars().take(20).collect()
 }
 
+/// One shell argument, represented literally even when a team name contains
+/// quotes, substitutions, or option-looking text.
+fn shell_quote(value: &str) -> String {
+    format!("'{}'", value.replace('\'', r"'\''"))
+}
+
 // ---------------------------------------------------------------------------
 // the provisioning sequence
 
@@ -287,14 +579,11 @@ async fn provision(
     job_id: String,
     name: String,
     region: Option<String>,
+    owner_subject: String,
     owner_email: Option<String>,
 ) -> Result<(), String> {
     let Some(gcloud) = gcloud_bin() else {
-        return Err(
-            "Google Cloud isn't set up on this Mac. Install the gcloud CLI and run \
-             `gcloud auth login`, then try again."
-                .into(),
-        );
+        return Err("The provisioning service is missing the Google Cloud CLI.".into());
     };
     let cfg = cloud_cfg();
     // The template (binary source) stays in ITS zone; the new server goes to
@@ -302,16 +591,22 @@ async fn provision(
     let template_zone = cfg.zone.clone();
     let zone = zone_for_region(region.as_deref(), &cfg.zone);
 
-    // Authed at all? A cheap read that fails fast when logged out.
+    // Authenticated at all? On Cloud Run this comes from the attached service
+    // account and cannot expire like a human gcloud login.
     run(&gcloud, &["auth", "print-access-token", "--quiet"], None)
         .await
-        .map_err(|e| format!("Google Cloud isn't signed in — run `gcloud auth login`. ({e})"))?;
+        .map_err(|e| {
+            format!("The provisioning service cannot authenticate to Google Cloud: {e}")
+        })?;
 
-    let nanos = SystemTime::now()
+    let unique = SystemTime::now()
         .duration_since(UNIX_EPOCH)
-        .map(|d| d.subsec_nanos())
+        .map(|d| d.as_nanos() as u64)
         .unwrap_or(0);
-    let instance = format!("blaude-{}-{:04x}", slugify(&name), nanos & 0xffff);
+    let instance = format!("blaude-{}-{:010x}", slugify(&name), unique & 0xffffffffff);
+    let owner = owner_label(&owner_subject);
+    let resource_labels = format!("blaude_managed=true,blaude_owner={owner}");
+    let address_description = owner_description(&owner);
 
     // The shared firewall rule for every created team: 7644 open to the
     // world, protected by wss + per-member bearer tokens (same posture as
@@ -401,9 +696,9 @@ async fn provision(
     // saved URL and the certificate for every member — seen live when resizing
     // a running team moved it from 34.93.93.41 to 35.200.139.215.
     //
-    // Reserving costs nothing while attached to a running VM, and a failure
-    // here is not fatal: the instance is created either way and falls back to
-    // an ephemeral address rather than refusing to make the team.
+    // Reserving costs nothing while attached to a running VM. A failure is
+    // fatal: an ephemeral address would change on restart and invalidate every
+    // member's saved URL and the TLS certificate.
     let address_name = format!("{instance}-ip");
     // An address is a REGIONAL resource and the zone is `<region>-<letter>`,
     // so the region is the zone with its last segment removed.
@@ -411,7 +706,22 @@ async fn provision(
         .rsplit_once('-')
         .map(|(region, _)| region.to_string())
         .unwrap_or_else(|| zone.clone());
-    let reserved = run(
+    register_resources(
+        &job_id,
+        CloudResources {
+            project: cfg.project.clone(),
+            zone: zone.clone(),
+            instance: instance.clone(),
+            address_name: address_name.clone(),
+            address_region: address_region.clone(),
+            address_reserved: false,
+            instance_created: false,
+        },
+    );
+    // Treat an ambiguous create response as "may exist" so rollback checks
+    // the deterministic name instead of trusting the process exit alone.
+    mark_address_reserved(&job_id);
+    run(
         &gcloud,
         &[
             "compute",
@@ -422,12 +732,14 @@ async fn provision(
             &cfg.project,
             "--region",
             &address_region,
+            "--description",
+            &address_description,
             "--quiet",
         ],
         None,
     )
     .await
-    .is_ok();
+    .map_err(|e| format!("Could not reserve the team's stable address: {e}"))?;
 
     // Install the packages AT BOOT, not over ssh three stages later.
     //
@@ -492,11 +804,11 @@ touch /var/lib/blaude-apt.done
         "debian-cloud",
         "--tags",
         "blaude-team",
+        "--labels",
+        &resource_labels,
         "--quiet",
     ];
-    if reserved {
-        create_args.extend_from_slice(&["--address", &address_name]);
-    }
+    create_args.extend_from_slice(&["--address", &address_name]);
     if booted {
         create_args.extend_from_slice(&["--metadata-from-file", &boot_arg]);
     }
@@ -504,6 +816,9 @@ touch /var/lib/blaude-apt.done
         create_args.extend_from_slice(&["--metadata", meta]);
     }
 
+    // From this point a failed/ambiguous gcloud response may still have made
+    // the VM. Mark it before the call so rollback verifies deletion by name.
+    mark_instance_created(&job_id);
     let created = run(&gcloud, &create_args, None).await;
     let _ = std::fs::remove_file(&boot_path);
     created.map_err(|e| format!("Could not create the server: {e}"))?;
@@ -578,10 +893,10 @@ touch /var/lib/blaude-apt.done
         .await;
         // The template VM may no longer exist (teams get deleted); a cached
         // binary is a fine fallback — only a missing cache is fatal.
-        if let Err(e) = pulled {
-            if !cache.is_file() {
-                return Err(format!("Could not fetch the blaude server build: {e}"));
-            }
+        if let Err(e) = pulled
+            && !cache.is_file()
+        {
+            return Err(format!("Could not fetch the blaude server build: {e}"));
         }
     }
     run_retry(
@@ -627,49 +942,59 @@ touch /var/lib/blaude-apt.done
         .await;
     }
 
-    // The email key rides along when the owner has one, so invites from the
-    // new team send real emails from day one (the setup script moves it into
-    // ~/.jcode and locks it down). Best-effort: no key just means invites
-    // fall back to share-the-endpoint.
-    let clerk = PathBuf::from(&home).join(".jcode/clerk.env");
-    if clerk.is_file() {
-        let _ = run_retry(
-            &gcloud,
-            &[
-                "compute",
-                "scp",
-                clerk.to_str().unwrap_or_default(),
-                &format!("{instance}:~/clerk.env"),
-                "--project",
-                &cfg.project,
-                "--zone",
-                &zone,
-                "--quiet",
-            ],
-            None,
-            3,
-        )
-        .await;
-    }
+    // A team may ask the provisioning service to deliver invitations, but it
+    // must never receive the Clerk backend secret itself. This signed
+    // capability is scoped to this team's URL and name; the Cloud Run relay
+    // reconstructs metadata from those signed claims before touching Clerk.
+    let team_ws_url = format!("wss://{}.sslip.io:443/api", ip.replace('.', "-"));
+    let relay_capability = mint_relay_token(&team_ws_url, &name)
+        .map_err(|error| format!("Could not authorize team invitations: {error}"))?;
+    let relay_path = std::env::temp_dir().join(format!("{instance}-relay-token"));
+    std::fs::write(&relay_path, &relay_capability)
+        .map_err(|error| format!("Could not stage the invitation capability: {error}"))?;
+    let relay_copy = run_retry(
+        &gcloud,
+        &[
+            "compute",
+            "scp",
+            relay_path.to_str().unwrap_or_default(),
+            &format!("{instance}:~/blaude-relay-token"),
+            "--project",
+            &cfg.project,
+            "--zone",
+            &zone,
+            "--quiet",
+        ],
+        None,
+        3,
+    )
+    .await;
+    let _ = std::fs::remove_file(&relay_path);
+    relay_copy.map_err(|error| format!("Could not authorize team invitations: {error}"))?;
 
     // The owner's blaude identity rides along too, so the team server names
     // the owner by their EMAIL (attribution, member rows) instead of a unix
-    // username. Best-effort like the email key.
+    // username. This is required: without it the owner silently lands in the
+    // shared room instead of their private one.
     let mut account = PathBuf::from(&home).join(".jcode/blaude-account.json");
+    let mut synthesized_account = None;
     // The service has no account file — it is nobody. It DOES know who asked,
     // from their verified sign-in, so the owner's identity is written from
     // that. Without it the server cannot name the owner and never provisions
     // their own room, which surfaces as "Mine" quietly meaning "Shared".
     if !account.is_file() {
-        if let Some(email) = owner_email.as_deref().filter(|e| e.contains('@')) {
-            let synthesized = std::env::temp_dir().join(format!("{instance}-owner.json"));
-            if std::fs::write(&synthesized, json!({ "email": email }).to_string()).is_ok() {
-                account = synthesized;
-            }
-        }
+        let email = owner_email
+            .as_deref()
+            .filter(|email| email.contains('@'))
+            .ok_or_else(|| "Could not determine the team owner's verified email.".to_string())?;
+        let synthesized = std::env::temp_dir().join(format!("{instance}-owner.json"));
+        std::fs::write(&synthesized, json!({ "email": email }).to_string())
+            .map_err(|error| format!("Could not stage the owner's identity: {error}"))?;
+        account = synthesized.clone();
+        synthesized_account = Some(synthesized);
     }
     if account.is_file() {
-        let _ = run_retry(
+        let account_copy = run_retry(
             &gcloud,
             &[
                 "compute",
@@ -686,6 +1011,10 @@ touch /var/lib/blaude-apt.done
             3,
         )
         .await;
+        if let Some(path) = synthesized_account {
+            let _ = std::fs::remove_file(path);
+        }
+        account_copy.map_err(|error| format!("Could not copy the owner's identity: {error}"))?;
     }
 
     // TLS, tokens, and the two SYSTEM units — the same known-good layout as
@@ -696,7 +1025,8 @@ touch /var/lib/blaude-apt.done
     let domain = format!("{}.sslip.io", ip.replace('.', "-"));
     // Single-quoted for the shell, with embedded quotes escaped the POSIX way
     // ('\''), so a team called O'Brien's does not break the setup script.
-    let name_quoted = format!("'{}'", name.replace('\'', r"'\''"));
+    let name_quoted = shell_quote(&name);
+    let git_name_quoted = shell_quote(&format!("blaude ({name})"));
     let setup = format!(
         r#"set -e
 U=$(whoami)
@@ -708,7 +1038,9 @@ mkdir -p "$H/.jcode/tls" "$H/.jcode/runtime" "$H/team"
 printf '%s' {name_quoted} > "$H/.jcode/team-name"
 chmod +x "$H/blaude"
 [ -f "$H/blaude-tools" ] && chmod +x "$H/blaude-tools"
-[ -f "$H/clerk.env" ] && {{ mv "$H/clerk.env" "$H/.jcode/clerk.env"; chmod 600 "$H/.jcode/clerk.env"; }}
+[ -f "$H/blaude-relay-token" ] || {{ echo "invitation capability missing" >&2; exit 1; }}
+mv "$H/blaude-relay-token" "$H/.jcode/team-relay-token"
+chmod 600 "$H/.jcode/team-relay-token"
 [ -f "$H/blaude-account.json" ] && {{ mv "$H/blaude-account.json" "$H/.jcode/blaude-account.json"; chmod 600 "$H/.jcode/blaude-account.json"; }}
 # The packages were started at BOOT (see the startup-script on the instance),
 # so by now they are usually in. Wait for the marker rather than racing the
@@ -752,7 +1084,7 @@ else
 fi
 echo "$TLS_MODE" > "$H/.jcode/tls-mode"
 # Commits made by team agents need an identity; the owner can refine later.
-git config --global user.name "blaude ({name})" 2>/dev/null || true
+git config --global user.name {git_name_quoted} 2>/dev/null || true
 git config --global user.email "blaude-team@users.noreply.github.com" 2>/dev/null || true
 [ -f "$H/.jcode/api-ws-token" ] || {{ openssl rand -hex 24 > "$H/.jcode/api-ws-token"; chmod 600 "$H/.jcode/api-ws-token"; }}
 [ -f "$H/.jcode/team-tokens.json" ] || echo '{{}}' > "$H/.jcode/team-tokens.json"
@@ -839,13 +1171,11 @@ echo SETUP_OK
     // meaning "Shared", and the screen panel with nothing to show. The whole
     // rooms feature existed only on the server I had provisioned by hand.
     //
-    // Best-effort: a team that comes up without rooms is still a working team
-    // in the shared sense, so a failure here reports but does not destroy a
-    // server the owner has already waited for.
+    // Rooms are part of the product contract, not an optional embellishment:
+    // without them "Mine" is shared, member isolation is absent, and screen
+    // control never appears. Fail the transaction and roll the partial VM back.
     set_stage(&job_id, "Setting up rooms and screens…");
-    if let Err(error) = install_rooms(&gcloud, &cfg.project, &zone, &instance).await {
-        eprintln!("blaude: rooms setup failed for {instance}: {error}");
-    }
+    install_rooms(&gcloud, &cfg.project, &zone, &instance).await?;
 
     // The wss door answering is the readiness signal (the daemon keeps
     // crash-retrying until an AI account lands — that's expected and the
@@ -905,7 +1235,7 @@ echo SETUP_OK
         return Err("The server is up but its credentials could not be read.".into());
     }
 
-    finish_ok(&job_id, &format!("wss://{domain}:443/api"), &token, &ca_pem);
+    finish_ok(&job_id, &team_ws_url, &token, &ca_pem);
     Ok(())
 }
 
@@ -928,30 +1258,42 @@ mod address_tests {
         // Degenerate input must not panic or produce an empty region.
         assert_eq!(region_of("weird"), "weird");
     }
+
+    /// Regional addresses reject `--labels`, so ownership is stored in the
+    /// supported description field. It must remain opaque and one token for
+    /// safe matching when a failed deletion leaves only the address behind.
+    #[test]
+    fn address_ownership_description_is_stable_and_parseable() {
+        let owner = super::owner_label("user_owner");
+        let description = super::owner_description(&owner);
+        assert_eq!(description, format!("blaude-managed-owner-{owner}"));
+        assert!(!description.chars().any(char::is_whitespace));
+        assert_ne!(
+            description,
+            super::owner_description(&super::owner_label("user_someone_else"))
+        );
+    }
 }
 
 /// Delete a team server: the VM, its disk, and its reserved address.
 ///
 /// The instance name is not something a client knows — members hold a
 /// `wss://<ip-with-dashes>.sslip.io/api` URL and nothing else — so the server
-/// is found by matching that address against the project's instances. That
-/// also means this works for teams created before the name was ever recorded.
+/// is found by matching that address against the project's instances AND the
+/// ownership labels written during create. An authenticated user must never
+/// be able to delete another user's team or an unrelated VM in the project.
 ///
 /// Deliberately NOT best-effort about the address: an unreleased static IP
 /// keeps billing after the VM is gone, which is exactly the kind of leftover
 /// nobody notices.
-pub async fn delete_team(ws_url: &str) -> Result<Value, String> {
+pub async fn delete_team(ws_url: &str, owner_subject: &str) -> Result<Value, String> {
     let gcloud = gcloud_bin().ok_or_else(|| "gcloud is not installed".to_string())?;
     let cfg = cloud_cfg();
+    let owner = owner_label(owner_subject);
+    let address_description = owner_description(&owner);
 
     // wss://34-93-93-41.sslip.io:443/api -> 34.93.93.41
-    let ip = ws_url
-        .split("://")
-        .nth(1)
-        .and_then(|rest| rest.split(&['/', ':'][..]).next())
-        .and_then(|host| host.strip_suffix(".sslip.io"))
-        .map(|dashed| dashed.replace('-', "."))
-        .ok_or_else(|| format!("cannot tell which server {ws_url} is"))?;
+    let ip = team_ip(ws_url).ok_or_else(|| format!("cannot tell which server {ws_url} is"))?;
 
     let listed = run(
         &gcloud,
@@ -962,7 +1304,10 @@ pub async fn delete_team(ws_url: &str) -> Result<Value, String> {
             "--project",
             &cfg.project,
             "--filter",
-            &format!("networkInterfaces[0].accessConfigs[0].natIP={ip}"),
+            &format!(
+                "labels.blaude_managed=true AND labels.blaude_owner={owner} AND \
+                 networkInterfaces[0].accessConfigs[0].natIP={ip}"
+            ),
             "--format",
             "value(name,zone)",
         ],
@@ -973,20 +1318,58 @@ pub async fn delete_team(ws_url: &str) -> Result<Value, String> {
 
     let mut fields = listed.split_whitespace();
     let (Some(instance), Some(zone)) = (fields.next(), fields.next()) else {
-        // Already gone is the outcome the caller wanted, not a failure. As an
-        // error it left a destroyed team sitting in the switcher permanently,
-        // with Delete refusing it every time because there was nothing left
-        // to delete.
+        // The VM may already be gone while its owned address remains billable.
+        // Find and release that address before reporting success.
+        let addresses = run(
+            &gcloud,
+            &[
+                "compute",
+                "addresses",
+                "list",
+                "--project",
+                &cfg.project,
+                "--filter",
+                &format!("address={ip}"),
+                "--format",
+                "value(name,region,description)",
+            ],
+            None,
+        )
+        .await
+        .map_err(|e| friendly_cloud_error("look up the server's address", &e))?;
+        let mut address_fields = addresses.split_whitespace();
+        if let (Some(address_name), Some(region), Some(description)) = (
+            address_fields.next(),
+            address_fields.next(),
+            address_fields.next(),
+        ) && description == address_description
+        {
+            let region = region.rsplit('/').next().unwrap_or(region);
+            release_address(&gcloud, &cfg.project, region, address_name)
+                .await
+                .map_err(|e| {
+                    format!("the VM is gone but its address could not be released: {e}")
+                })?;
+        }
         return Ok(json!({
             "job_id": "", "stage": "Deleted", "done": true,
-            "deleted": Value::Null, "already_gone": true, "ip": ip
+            "deleted": Value::Null, "already_gone": true, "ip": ip,
+            "address_released": true
         }));
     };
+    let zone = zone.rsplit('/').next().unwrap_or(zone);
 
     run(
         &gcloud,
         &[
-            "compute", "instances", "delete", instance, "--project", &cfg.project, "--zone", zone,
+            "compute",
+            "instances",
+            "delete",
+            instance,
+            "--project",
+            &cfg.project,
+            "--zone",
+            zone,
             "--quiet",
         ],
         None,
@@ -1004,33 +1387,9 @@ pub async fn delete_team(ws_url: &str) -> Result<Value, String> {
     // team deleted cleanly and still cost money afterwards.
     let region = zone.rsplit_once('-').map(|(r, _)| r).unwrap_or(zone);
     let address_name = format!("{instance}-ip");
-    let mut address_released = false;
-    for attempt in 0..6 {
-        if run(
-            &gcloud,
-            &[
-                "compute",
-                "addresses",
-                "delete",
-                &address_name,
-                "--project",
-                &cfg.project,
-                "--region",
-                region,
-                "--quiet",
-            ],
-            None,
-        )
+    release_address(&gcloud, &cfg.project, region, &address_name)
         .await
-        .is_ok()
-        {
-            address_released = true;
-            break;
-        }
-        if attempt < 5 {
-            tokio::time::sleep(std::time::Duration::from_secs(5)).await;
-        }
-    }
+        .map_err(|e| format!("deleted {instance}, but could not release its address: {e}"))?;
 
     // job_id/stage/done ride along because this reply is carried by the
     // team_create_status event, whose record REQUIRES them. Without them the
@@ -1043,7 +1402,7 @@ pub async fn delete_team(ws_url: &str) -> Result<Value, String> {
         "deleted": instance,
         "zone": zone,
         "ip": ip,
-        "address_released": address_released,
+        "address_released": true,
     }))
 }
 
@@ -1057,11 +1416,14 @@ fn friendly_cloud_error(action: &str, error: &str) -> String {
         || error.contains("gcloud auth login")
         || error.contains("credentials are no longer valid")
     {
-        return "Your Google Cloud sign-in has expired. Run `gcloud auth login` in a \
-                terminal, then try again."
+        return "The provisioning service's Google Cloud credential is unavailable. Contact the \
+                blaude operator; no gcloud login is needed on this Mac."
             .to_string();
     }
-    let first = error.lines().find(|l| !l.trim().is_empty()).unwrap_or(error);
+    let first = error
+        .lines()
+        .find(|l| !l.trim().is_empty())
+        .unwrap_or(error);
     format!("Could not {action}: {}", first.trim())
 }
 
@@ -1081,6 +1443,38 @@ const BROWSER_HELPER_JS: &str = include_str!("../../../deploy/browser-helper/hel
 const BROWSER_DETECT_JS: &str = include_str!("../../../deploy/browser-helper/detect.js");
 const BROWSER_FILL_JS: &str = include_str!("../../../deploy/browser-helper/fill.js");
 const BROWSER_HELPER_PKG: &str = include_str!("../../../deploy/browser-helper/package.json");
+const ROOMS_SETUP_SCRIPT: &str = r#"set -e
+H=$HOME
+if [ ! -f "$H/provision-member.sh" ]; then echo "PROVISION_SCRIPT_MISSING"; exit 1; fi
+chmod +x "$H/provision-member.sh"
+# Every package a room needs was installed in the setup stage, and the
+# browser download was kicked off there in the background. Wait for it —
+# normally it finished while certbot was talking to Let's Encrypt and systemd
+# was bringing the services up, so this returns at once. The wait is here so
+# a slow link cannot hand a room a helper that is still half written.
+for i in $(seq 1 150); do [ -f /tmp/browser-helper.done ] && break; sleep 2; done
+grep -q BROWSER_HELPER_OK /tmp/browser-helper-install.log 2>/dev/null || {
+  echo "BROWSER_HELPER_FAILED"; tail -5 /tmp/browser-helper-install.log 2>/dev/null; }
+sudo BLAUDE_BIN="$H/blaude" "$H/provision-member.sh" blaude-shared --door-home "$H" >/tmp/rooms-shared.log 2>&1 || {
+  echo "SHARED_ROOM_FAILED"; tail -5 /tmp/rooms-shared.log; exit 1; }
+OWNER=$(python3 -c "import json,sys;print(json.load(open(sys.argv[1])).get('email',''))" "$H/.jcode/blaude-account.json" 2>/dev/null || echo "")
+if [ -n "$OWNER" ]; then
+  NAME=$(printf '%s' "${OWNER%%@*}" | tr '[:upper:]' '[:lower:]' | tr -cd 'a-z0-9_-')
+  [ -n "$NAME" ] || NAME=owner
+  case "$NAME" in [0-9]*) NAME="m$NAME" ;; esac
+  sudo BLAUDE_BIN="$H/blaude" "$H/provision-member.sh" "$NAME" --email "$OWNER" --door-home "$H" >/tmp/rooms-owner.log 2>&1 || {
+    echo "OWNER_ROOM_FAILED"; tail -5 /tmp/rooms-owner.log; }
+fi
+# The bridge started at the top of provisioning, BEFORE any room daemon
+# existed. On a fresh team it can wedge in a "daemon unreachable" state and
+# serve only bridge-only verbs — every turn then fails with "the agent daemon
+# is not running", and because the one-shot screen probe fails too, the screen
+# control never appears. Restart it now that every room daemon is up and
+# listening, so it comes up clean. This is exactly the manual restart that
+# recovered a wedged team.
+sudo systemctl restart blaude-bridge >/dev/null 2>&1 || true
+echo ROOMS_OK
+"#;
 
 /// A bash snippet that stages the browser-helper files (base64, so no quoting
 /// hazard) and runs the installer. Idempotent — safe to run on every create.
@@ -1194,10 +1588,15 @@ async fn run_remote_script(
     run_retry(
         gcloud,
         &[
-            "compute", "scp",
+            "compute",
+            "scp",
             local.to_str().unwrap_or_default(),
             &format!("{instance}:~/{name}.sh"),
-            "--project", project, "--zone", zone, "--quiet",
+            "--project",
+            project,
+            "--zone",
+            zone,
+            "--quiet",
         ],
         None,
         attempts,
@@ -1208,9 +1607,15 @@ async fn run_remote_script(
     run_retry(
         gcloud,
         &[
-            "compute", "ssh", instance,
-            "--project", project, "--zone", zone,
-            "--command", &format!("bash ~/{name}.sh"),
+            "compute",
+            "ssh",
+            instance,
+            "--project",
+            project,
+            "--zone",
+            zone,
+            "--command",
+            &format!("bash ~/{name}.sh"),
             "--quiet",
         ],
         None,
@@ -1256,43 +1661,17 @@ async fn install_rooms(
     // The desktop packages are what make a screen possible at all: Xvfb to
     // render, a desktop environment for the furniture, ImageMagick to capture, xdotool
     // to click, and a browser to point at the app being built.
-    let rooms = format!(
-        r#"set -e
-H=$HOME
-if [ ! -f "$H/provision-member.sh" ]; then echo "PROVISION_SCRIPT_MISSING"; exit 1; fi
-chmod +x "$H/provision-member.sh"
-# Every package a room needs was installed in the setup stage, and the
-# browser download was kicked off there in the background. Wait for it —
-# normally it finished while certbot was talking to Let's Encrypt and systemd
-# was bringing the services up, so this returns at once. The wait is here so
-# a slow link cannot hand a room a helper that is still half written.
-for i in $(seq 1 150); do [ -f /tmp/browser-helper.done ] && break; sleep 2; done
-grep -q BROWSER_HELPER_OK /tmp/browser-helper-install.log 2>/dev/null || {{
-  echo "BROWSER_HELPER_FAILED"; tail -5 /tmp/browser-helper-install.log 2>/dev/null; }}
-sudo BLAUDE_BIN="$H/blaude" "$H/provision-member.sh" blaude-shared --door-home "$H" >/tmp/rooms-shared.log 2>&1 || {{
-  echo "SHARED_ROOM_FAILED"; tail -5 /tmp/rooms-shared.log; exit 1; }}
-OWNER=$(python3 -c "import json,sys;print(json.load(open(sys.argv[1])).get('email',''))" "$H/.jcode/blaude-account.json" 2>/dev/null || echo "")
-if [ -n "$OWNER" ]; then
-  NAME=$(printf '%s' "${{OWNER%%@*}}" | tr '[:upper:]' '[:lower:]' | tr -cd 'a-z0-9_-')
-  [ -n "$NAME" ] || NAME=owner
-  case "$NAME" in [0-9]*) NAME="m$NAME" ;; esac
-  sudo BLAUDE_BIN="$H/blaude" "$H/provision-member.sh" "$NAME" --email "$OWNER" --door-home "$H" >/tmp/rooms-owner.log 2>&1 || {{
-    echo "OWNER_ROOM_FAILED"; tail -5 /tmp/rooms-owner.log; }}
-fi
-# The bridge started at the top of provisioning, BEFORE any room daemon
-# existed. On a fresh team it can wedge in a "daemon unreachable" state and
-# serve only bridge-only verbs — every turn then fails with "the agent daemon
-# is not running", and because the one-shot screen probe fails too, the screen
-# control never appears. Restart it now that every room daemon is up and
-# listening, so it comes up clean. This is exactly the manual restart that
-# recovered a wedged team.
-sudo systemctl restart blaude-bridge >/dev/null 2>&1 || true
-echo ROOMS_OK
-"#
-    );
-    let out = run_remote_script(gcloud, project, zone, instance, "rooms", &rooms, 2)
-        .await
-        .map_err(|e| format!("rooms setup could not run: {e}"))?;
+    let out = run_remote_script(
+        gcloud,
+        project,
+        zone,
+        instance,
+        "rooms",
+        ROOMS_SETUP_SCRIPT,
+        2,
+    )
+    .await
+    .map_err(|e| format!("rooms setup could not run: {e}"))?;
     if !out.contains("ROOMS_OK") {
         return Err(format!("rooms setup did not finish: {out}"));
     }
@@ -1337,8 +1716,8 @@ mod delete_tests {
         }
     }
 
-    /// An expired sign-in must read as one instruction, not as gcloud's wall
-    /// of text — the banner it lands in is one line wide.
+    /// A service credential failure must not tell an app user to authenticate
+    /// gcloud on their Mac; that coupling is exactly what this API removed.
     #[test]
     fn an_expired_cloud_sign_in_says_what_to_do() {
         let raw = "ERROR: (gcloud.compute.instances.list) There was a problem \
@@ -1346,8 +1725,18 @@ mod delete_tests {
                    cannot prompt during non-interactive execution.\nPlease run:\n\n  \
                    $ gcloud auth login\n";
         let message = super::friendly_cloud_error("look up the server", raw);
-        assert!(message.contains("gcloud auth login"), "must say the fix: {message}");
-        assert!(!message.contains("ERROR:"), "must not echo gcloud: {message}");
+        assert!(
+            message.contains("provisioning service"),
+            "must name the owner: {message}"
+        );
+        assert!(
+            message.contains("no gcloud login"),
+            "must keep gcloud off the Mac: {message}"
+        );
+        assert!(
+            !message.contains("ERROR:"),
+            "must not echo gcloud: {message}"
+        );
         assert!(message.lines().count() == 1, "one line: {message}");
     }
 
@@ -1367,7 +1756,11 @@ mod delete_tests {
     async fn deleting_a_real_throwaway_server_removes_it_and_frees_its_address() {
         let url = std::env::var("BLAUDE_DELETE_TEST_URL")
             .expect("set BLAUDE_DELETE_TEST_URL to the throwaway server's wss url");
-        let result = super::delete_team(&url).await.expect("delete should succeed");
+        let subject = std::env::var("BLAUDE_DELETE_TEST_SUBJECT")
+            .expect("set BLAUDE_DELETE_TEST_SUBJECT to the throwaway server owner's Clerk subject");
+        let result = super::delete_team(&url, &subject)
+            .await
+            .expect("delete should succeed");
         println!("delete returned: {result}");
     }
 
@@ -1375,23 +1768,14 @@ mod delete_tests {
     /// because nothing else identifies it — a client never learns the VM's
     /// name. This also means it works for teams created before the name was
     /// recorded anywhere.
-    fn ip_of(ws_url: &str) -> Option<String> {
-        ws_url
-            .split("://")
-            .nth(1)
-            .and_then(|rest| rest.split(&['/', ':'][..]).next())
-            .and_then(|host| host.strip_suffix(".sslip.io"))
-            .map(|dashed| dashed.replace('-', "."))
-    }
-
     #[test]
     fn the_server_is_identified_by_the_address_in_its_url() {
         assert_eq!(
-            ip_of("wss://34-93-93-41.sslip.io:443/api").as_deref(),
+            super::team_ip("wss://34-93-93-41.sslip.io:443/api").as_deref(),
             Some("34.93.93.41")
         );
         assert_eq!(
-            ip_of("wss://35-200-139-215.sslip.io:443/api").as_deref(),
+            super::team_ip("wss://35-200-139-215.sslip.io:443/api").as_deref(),
             Some("35.200.139.215")
         );
     }
@@ -1400,9 +1784,12 @@ mod delete_tests {
     /// Guessing here would delete the wrong machine.
     #[test]
     fn a_url_that_is_not_a_team_server_resolves_to_nothing() {
-        assert_eq!(ip_of("wss://example.com:443/api"), None);
-        assert_eq!(ip_of("not a url"), None);
-        assert_eq!(ip_of("wss://localhost:7644/api"), None);
+        assert_eq!(super::team_ip("wss://example.com:443/api"), None);
+        assert_eq!(super::team_ip("not a url"), None);
+        assert_eq!(super::team_ip("wss://localhost:7644/api"), None);
+        assert_eq!(super::team_ip("https://34-93-93-41.sslip.io/api"), None);
+        assert_eq!(super::team_ip("wss://999-93-93-41.sslip.io/api"), None);
+        assert_eq!(super::team_ip("wss://34-93-93-41-or-1.sslip.io/api"), None);
     }
 
     /// Packages are installed ONCE, at boot, from a single snippet.
@@ -1433,14 +1820,12 @@ mod delete_tests {
             !installs.contains(" chromium "),
             "apt's chromium duplicates the Playwright one the shim points at"
         );
-        assert!(pkgs.contains("/usr/local/bin/chromium"), "the shim must exist");
+        assert!(
+            pkgs.contains("/usr/local/bin/chromium"),
+            "the shim must exist"
+        );
 
-        let src = include_str!("lib.rs");
-        let rooms = src
-            .split("let rooms = format!(")
-            .nth(1)
-            .and_then(|s| s.split("\"#").next())
-            .expect("rooms script");
+        let rooms = super::ROOMS_SETUP_SCRIPT;
         assert!(
             !rooms.contains("apt-get"),
             "the rooms stage must install nothing — it waits for the boot install"
@@ -1472,11 +1857,25 @@ mod delete_tests {
     fn provisioning_never_pipes_a_script_into_bash_dash_s() {
         let src = include_str!("lib.rs");
         // Ignore this test's own mention of the pattern.
-        let hits = src
-            .lines()
-            .filter(|l| l.contains("\"bash -s\""))
-            .count();
-        assert_eq!(hits, 0, "provisioning must copy-and-run, not pipe into `bash -s`");
+        let hits = src.lines().filter(|l| l.contains("\"bash -s\"")).count();
+        assert_eq!(
+            hits, 0,
+            "provisioning must copy-and-run, not pipe into `bash -s`"
+        );
+    }
+
+    /// The Clerk backend key controls the entire identity instance. A team VM
+    /// receives only its signed relay capability, never clerk.env itself.
+    #[test]
+    fn provisioning_never_copies_the_clerk_backend_secret_to_a_team() {
+        let src = include_str!("lib.rs");
+        let body = src
+            .split("#[cfg(test)]\nmod delete_tests")
+            .next()
+            .unwrap_or(src);
+        assert!(!body.contains(":~/clerk.env"));
+        assert!(!body.contains("$H/clerk.env"));
+        assert!(body.contains(":~/blaude-relay-token"));
     }
 
     /// run() must not deadlock when the stdin it feeds is larger than a pipe
@@ -1498,6 +1897,10 @@ mod delete_tests {
         )
         .await
         .expect("run() deadlocked writing a large stdin (the create_team hang)");
-        assert_eq!(result.expect("cat succeeds").len(), big.len(), "the whole payload round-trips");
+        assert_eq!(
+            result.expect("cat succeeds").len(),
+            big.len(),
+            "the whole payload round-trips"
+        );
     }
 }

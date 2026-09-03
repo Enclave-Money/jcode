@@ -15,11 +15,11 @@
 
 use super::{StdinInputRequest, ToolContext, ToolOutput};
 use anyhow::{Context, Result};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use std::process::Stdio;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::process::{Child, ChildStdin};
-use tokio::sync::{oneshot, Mutex};
+use tokio::sync::{Mutex, oneshot};
 
 /// The origin (scheme://host[:port]) of a URL, or None if it will not parse.
 fn origin_of(url: &str) -> Option<String> {
@@ -63,21 +63,30 @@ fn browsers_path() -> String {
 
 /// The current Unix user's name, or None off a Unix host.
 fn current_user() -> Option<String> {
-    std::env::var("USER").ok().filter(|u| !u.is_empty()).or_else(|| {
-        std::process::Command::new("id").arg("-un").output().ok().and_then(|o| {
-            if o.status.success() {
-                Some(String::from_utf8_lossy(&o.stdout).trim().to_string())
-            } else {
-                None
-            }
+    std::env::var("USER")
+        .ok()
+        .filter(|u| !u.is_empty())
+        .or_else(|| {
+            std::process::Command::new("id")
+                .arg("-un")
+                .output()
+                .ok()
+                .and_then(|o| {
+                    if o.status.success() {
+                        Some(String::from_utf8_lossy(&o.stdout).trim().to_string())
+                    } else {
+                        None
+                    }
+                })
         })
-    })
 }
 
 fn current_uid() -> Option<u32> {
-    std::process::Command::new("id").arg("-u").output().ok().and_then(|o| {
-        String::from_utf8_lossy(&o.stdout).trim().parse().ok()
-    })
+    std::process::Command::new("id")
+        .arg("-u")
+        .output()
+        .ok()
+        .and_then(|o| String::from_utf8_lossy(&o.stdout).trim().parse().ok())
 }
 
 /// The room's X authority file, matching provision-member.sh and screen.rs.
@@ -95,7 +104,9 @@ fn display_for(uid: u32) -> String {
 /// room browser applies. A local runtime (someone's Mac) has neither, and
 /// keeps the Firefox bridge.
 pub fn is_room_runtime() -> bool {
-    current_user().map(|u| xauth_path(&u).exists()).unwrap_or(false)
+    current_user()
+        .map(|u| xauth_path(&u).exists())
+        .unwrap_or(false)
 }
 
 /// One running helper, owned for the life of the daemon. The browser is a
@@ -166,7 +177,12 @@ impl Helper {
             }
         });
 
-        Ok(Helper { stdin, reader_lines: rx, _child: child, next_id: 1 })
+        Ok(Helper {
+            stdin,
+            reader_lines: rx,
+            _child: child,
+            next_id: 1,
+        })
     }
 
     /// Send one command and wait for its reply. Events (`{"event":...}`) are
@@ -182,10 +198,11 @@ impl Helper {
         // The helper answers one command at a time (serialized by the caller's
         // mutex), so the next id-matching line is ours.
         loop {
-            let raw = tokio::time::timeout(std::time::Duration::from_secs(90), self.reader_lines.recv())
-                .await
-                .context("room browser timed out")?
-                .context("room browser closed")?;
+            let raw =
+                tokio::time::timeout(std::time::Duration::from_secs(90), self.reader_lines.recv())
+                    .await
+                    .context("room browser timed out")?
+                    .context("room browser closed")?;
             let msg: Value = match serde_json::from_str(&raw) {
                 Ok(v) => v,
                 Err(_) => continue,
@@ -197,7 +214,10 @@ impl Helper {
                 if msg.get("ok").and_then(|v| v.as_bool()) == Some(true) {
                     return Ok(msg.get("result").cloned().unwrap_or(json!({})));
                 }
-                let err = msg.get("error").and_then(|v| v.as_str()).unwrap_or("browser error");
+                let err = msg
+                    .get("error")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("browser error");
                 anyhow::bail!("{err}");
             }
         }
@@ -295,7 +315,11 @@ fn audit(origin: &str, outcome: &str, item_id: &str) {
     })
     .to_string();
     use std::io::Write as _;
-    if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(&path) {
+    if let Ok(mut f) = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&path)
+    {
         let _ = writeln!(f, "{line}");
     }
 }
@@ -366,7 +390,9 @@ fn login_aware_output(action: &str, result: Value) -> ToolOutput {
         let origin = result.get("origin").and_then(|v| v.as_str()).unwrap_or("");
         let has = !index_candidates(origin).is_empty();
         body = if has {
-            format!("{action} ok — this is a login page for {origin}; call action='fill_login' to sign in without handling the password")
+            format!(
+                "{action} ok — this is a login page for {origin}; call action='fill_login' to sign in without handling the password"
+            )
         } else {
             format!("{action} ok — login page ({origin}); no saved login for it")
         };
@@ -379,7 +405,9 @@ fn login_aware_output(action: &str, result: Value) -> ToolOutput {
 async fn fill_login(input: &Value, ctx: &ToolContext) -> Result<ToolOutput> {
     // The shared room is watched and driven by every member — a fill there
     // would type one member's credential onto everyone's screen. Refuse it.
-    if current_user().as_deref() == Some("blaude-shared") {
+    if std::env::var("BLAUDE_SHARED_ROOM").is_ok_and(|value| value == "1")
+        || current_user().as_deref() == Some("blaude-shared")
+    {
         return Ok(ToolOutput::new(
             "fill_login is refused in the shared room: its screen is visible to every teammate. \
              Open this in your own room.",
@@ -399,14 +427,17 @@ async fn fill_login(input: &Value, ctx: &ToolContext) -> Result<ToolOutput> {
     let (origin, login_url) = match field_str(input, "url") {
         Some(u) => {
             with_helper("open", json!({ "url": u })).await?;
-            live_page().await.unwrap_or_else(|| {
-                (origin_of(u).unwrap_or_else(|| u.to_string()), u.to_string())
-            })
+            live_page()
+                .await
+                .unwrap_or_else(|| (origin_of(u).unwrap_or_else(|| u.to_string()), u.to_string()))
         }
         None => live_page().await.unwrap_or_default(),
     };
     if origin.is_empty() {
-        return Ok(fill_result("no_item", "No origin to sign in to. Open the login page first."));
+        return Ok(fill_result(
+            "no_item",
+            "No origin to sign in to. Open the login page first.",
+        ));
     }
 
     let candidates = index_candidates(&origin);
@@ -448,7 +479,10 @@ async fn fill_login(input: &Value, ctx: &ToolContext) -> Result<ToolOutput> {
         Ok(Ok(s)) => s,
         _ => {
             audit(&origin, "timeout", "");
-            return Ok(fill_result("timeout", "No response to the sign-in request."));
+            return Ok(fill_result(
+                "timeout",
+                "No response to the sign-in request.",
+            ));
         }
     };
     let answer: Value = serde_json::from_str(&reply).unwrap_or(json!({}));
@@ -458,7 +492,10 @@ async fn fill_login(input: &Value, ctx: &ToolContext) -> Result<ToolOutput> {
     }
     if answer.get("needs_human").and_then(|v| v.as_bool()) == Some(true) {
         audit(&origin, "needs_human", "");
-        return Ok(fill_result("needs_human", "The teammate will finish the sign-in on the screen."));
+        return Ok(fill_result(
+            "needs_human",
+            "The teammate will finish the sign-in on the screen.",
+        ));
     }
     let username = answer.get("username").and_then(|v| v.as_str());
     let password = answer.get("password").and_then(|v| v.as_str());
@@ -504,16 +541,24 @@ async fn fill_login(input: &Value, ctx: &ToolContext) -> Result<ToolOutput> {
         fill_args["totp"] = json!(totp);
     }
     let result = with_helper("fill_and_submit", fill_args).await?;
-    let outcome = result.get("outcome").and_then(|v| v.as_str()).unwrap_or("needs_human").to_string();
+    let outcome = result
+        .get("outcome")
+        .and_then(|v| v.as_str())
+        .unwrap_or("needs_human")
+        .to_string();
     audit(&origin, &outcome, item_id);
 
     let message = match outcome.as_str() {
         "submitted" => "Signed in.".to_string(),
         "needs_human" => {
             let reason = result.get("reason").and_then(|v| v.as_str()).unwrap_or("");
-            format!("Could not finish automatically ({reason}); the teammate can complete it on the screen.")
+            format!(
+                "Could not finish automatically ({reason}); the teammate can complete it on the screen."
+            )
         }
-        "unsupported_auth" => "This site needs a passkey, which cannot be filled remotely.".to_string(),
+        "unsupported_auth" => {
+            "This site needs a passkey, which cannot be filled remotely.".to_string()
+        }
         "origin_changed" => format!(
             "The page left {origin} before the credential could be typed, so nothing was sent."
         ),
@@ -568,7 +613,10 @@ mod tests {
         let ask = body.find("stdin_tx").expect("the approval is requested");
         let fill = body.find("fill_and_submit").expect("the fill happens");
         let open = body.find("\"open\"").expect("the page is opened");
-        assert!(open < ask, "the page must be OPEN before a person is asked about it");
+        assert!(
+            open < ask,
+            "the page must be OPEN before a person is asked about it"
+        );
         let recheck = body[ask..fill].find("live_origin");
         assert!(
             recheck.is_some(),
@@ -590,9 +638,18 @@ mod tests {
 
     #[test]
     fn origin_is_scheme_host_port() {
-        assert_eq!(origin_of("https://vercel.com/login?x=1").as_deref(), Some("https://vercel.com"));
-        assert_eq!(origin_of("http://localhost:3000/app").as_deref(), Some("http://localhost:3000"));
-        assert_eq!(origin_of("https://a.b.com").as_deref(), Some("https://a.b.com"));
+        assert_eq!(
+            origin_of("https://vercel.com/login?x=1").as_deref(),
+            Some("https://vercel.com")
+        );
+        assert_eq!(
+            origin_of("http://localhost:3000/app").as_deref(),
+            Some("http://localhost:3000")
+        );
+        assert_eq!(
+            origin_of("https://a.b.com").as_deref(),
+            Some("https://a.b.com")
+        );
         assert_eq!(origin_of("not a url"), None);
     }
 

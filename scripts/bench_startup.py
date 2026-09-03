@@ -15,6 +15,7 @@ from __future__ import annotations
 import argparse
 import os
 import re
+import shlex
 import shutil
 import socket
 import statistics
@@ -165,6 +166,13 @@ def require_script_binary() -> str:
     return script_bin
 
 
+def require_timeout_binary() -> str:
+    timeout_bin = shutil.which("timeout") or shutil.which("gtimeout")
+    if not timeout_bin:
+        raise RuntimeError("'timeout' (or GNU 'gtimeout') is required for the TTY startup benchmark")
+    return timeout_bin
+
+
 def parse_startup_profile(log_path: Path) -> StartupProfile:
     lines = log_path.read_text().splitlines()
     last_block: list[str] = []
@@ -202,6 +210,7 @@ def parse_startup_profile(log_path: Path) -> StartupProfile:
 
 def measure_cold_client_startup(binary: str, runs: int) -> list[StartupProfile]:
     script_bin = require_script_binary()
+    timeout_bin = require_timeout_binary()
     profiles: list[StartupProfile] = []
 
     for _ in range(runs):
@@ -209,17 +218,36 @@ def measure_cold_client_startup(binary: str, runs: int) -> list[StartupProfile]:
         env = isolated_env(root)
         log_path = Path(env["JCODE_HOME"]) / "logs" / f"jcode-{time.strftime('%Y-%m-%d')}.log"
         try:
-            command = (
-                f"{binary} --no-update --debug-socket "
-                f"--socket {env['JCODE_SOCKET']}"
+            client_args = [
+                binary,
+                "--no-update",
+                "--no-selfdev",
+                "--debug-socket",
+                "--socket",
+                env["JCODE_SOCKET"],
+            ]
+            # BSD `script` (macOS) accepts the command as trailing argv. GNU
+            # util-linux `script` requires `-c` and a shell command string.
+            # The old GNU-only `-qefc` invocation failed before starting jcode
+            # on every Mac, then the benchmark crashed trying to read a log
+            # that could never have existed.
+            script_args = (
+                [script_bin, "-q", "/dev/null", *client_args]
+                if sys.platform == "darwin"
+                else [script_bin, "-qefc", shlex.join(client_args), "/dev/null"]
             )
-            subprocess.run(
-                ["timeout", "3s", script_bin, "-qefc", command, "/dev/null"],
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
+            result = subprocess.run(
+                [timeout_bin, "3s", *script_args],
+                capture_output=True,
                 env=env,
                 check=False,
             )
+            if not log_path.is_file():
+                stderr = result.stderr.decode(errors="replace").strip()
+                detail = f": {stderr}" if stderr else ""
+                raise RuntimeError(
+                    f"cold-start command produced no log (exit {result.returncode}){detail}"
+                )
             profiles.append(parse_startup_profile(log_path))
         finally:
             shutil.rmtree(root, ignore_errors=True)

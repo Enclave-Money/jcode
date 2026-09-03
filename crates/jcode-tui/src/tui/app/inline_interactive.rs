@@ -266,6 +266,7 @@ fn model_picker_is_favorite(
 /// stable identity order. The runtime picker itself is sorted with the current
 /// model first, so using its row order after reopening the picker can only
 /// alternate between the current model and the highest-ranked other favorite.
+#[cfg(test)]
 fn next_model_favorite_after_current(picker: &InlineInteractiveState) -> Option<usize> {
     let mut favorites: Vec<(String, usize, bool)> = picker
         .filtered
@@ -668,9 +669,7 @@ fn council_create_row_detail(builder: Option<&[String]>) -> String {
             jcode_storage::councils::MIN_MEMBERS,
             jcode_storage::councils::MAX_MEMBERS
         ),
-        Some(members) if members.is_empty() => {
-            "type to search · Enter toggles · Ctrl+S saves".to_string()
-        }
+        Some([]) => "type to search · Enter toggles · Ctrl+S saves".to_string(),
         Some(members) => members.join(" + "),
     }
 }
@@ -3658,6 +3657,7 @@ impl App {
         }
     }
 
+    #[cfg(test)]
     fn cycle_model_favorite_after_current(&mut self) -> bool {
         let selected_name = (|| {
             let picker = self.inline_interactive_state.as_mut()?;
@@ -3682,6 +3682,7 @@ impl App {
         }
     }
 
+    #[cfg(test)]
     pub(super) fn cycle_model_favorite_hotkey(&mut self) {
         if self
             .inline_interactive_state

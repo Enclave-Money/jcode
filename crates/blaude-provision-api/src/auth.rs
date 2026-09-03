@@ -26,21 +26,12 @@ use tokio::sync::RwLock;
 /// token itself carries none, the answer comes from Clerk, keyed by the
 /// subject that DID verify.
 ///
-/// The secret key is read from the same clerk.env the deploy mounts for
-/// sending invites. The explicit User-Agent is not decoration: api.clerk.com
+/// The secret key is read from the secret mounted only in this Cloud Run
+/// service. The explicit User-Agent is not decoration: api.clerk.com
 /// sits behind Cloudflare, which 403s some default client UAs, and that 403
 /// decodes as an empty answer — a lookup that silently "finds nothing".
 pub async fn lookup_email(subject: &str) -> Option<String> {
-    let raw = std::fs::read_to_string(
-        std::path::PathBuf::from(std::env::var("HOME").unwrap_or_else(|_| "/tmp".into()))
-            .join(".jcode/clerk.env"),
-    )
-    .ok()?;
-    let key = raw.lines().find_map(|l| {
-        let (k, v) = l.split_once('=')?;
-        (k.trim() == "CLERK_SECRET_KEY")
-            .then(|| v.trim().trim_matches('"').trim_matches('\'').to_string())
-    })?;
+    let key = crate::directory::clerk_secret()?;
     let client = reqwest::Client::builder()
         .timeout(Duration::from_secs(10))
         .user_agent("reqwest/0.12")
@@ -55,7 +46,9 @@ pub async fn lookup_email(subject: &str) -> Option<String> {
         .json()
         .await
         .ok()?;
-    let primary = user.get("primary_email_address_id").and_then(|v| v.as_str());
+    let primary = user
+        .get("primary_email_address_id")
+        .and_then(|v| v.as_str());
     let addresses = user.get("email_addresses").and_then(|v| v.as_array())?;
     addresses
         .iter()
@@ -85,8 +78,12 @@ impl Caller {
 #[derive(Debug, Deserialize)]
 struct Claims {
     sub: String,
+    iss: String,
+    sid: String,
     #[serde(default)]
     email: Option<String>,
+    #[serde(default)]
+    azp: Option<String>,
     exp: usize,
 }
 
@@ -110,9 +107,11 @@ struct Jwks {
 /// would either be too slow on rotation or too chatty the rest of the time.
 pub struct Verifier {
     jwks_url: String,
+    issuer: String,
     http: reqwest::Client,
     keys: RwLock<Cache>,
     allowed_emails: Option<Vec<String>>,
+    authorized_parties: Vec<String>,
 }
 
 struct Cache {
@@ -121,9 +120,15 @@ struct Cache {
 }
 
 impl Verifier {
-    pub fn new(jwks_url: String, allowed_emails: Option<Vec<String>>) -> Arc<Self> {
-        Arc::new(Self {
+    pub fn new(
+        jwks_url: String,
+        allowed_emails: Option<Vec<String>>,
+        authorized_parties: Vec<String>,
+    ) -> Result<Arc<Self>, String> {
+        let issuer = issuer_for_jwks(&jwks_url)?;
+        Ok(Arc::new(Self {
             jwks_url,
+            issuer,
             http: reqwest::Client::builder()
                 .timeout(Duration::from_secs(10))
                 .build()
@@ -138,7 +143,12 @@ impl Verifier {
                     .filter(|e| !e.is_empty())
                     .collect()
             }),
-        })
+            authorized_parties: authorized_parties
+                .into_iter()
+                .map(|party| party.trim().trim_end_matches('/').to_string())
+                .filter(|party| !party.is_empty())
+                .collect(),
+        }))
     }
 
     async fn key_for(&self, kid: &str) -> Result<DecodingKey, String> {
@@ -161,7 +171,10 @@ impl Verifier {
         // Clerk.
         {
             let cache = self.keys.read().await;
-            if cache.fetched.is_some_and(|t| t.elapsed() < Duration::from_secs(30)) {
+            if cache
+                .fetched
+                .is_some_and(|t| t.elapsed() < Duration::from_secs(30))
+            {
                 return Ok(());
             }
         }
@@ -188,39 +201,167 @@ impl Verifier {
     /// Verify one `Authorization: Bearer <jwt>` header.
     pub async fn verify(&self, header: Option<&str>) -> Result<Caller, String> {
         let raw = header
-            .and_then(|h| h.strip_prefix("Bearer ").or_else(|| h.strip_prefix("bearer ")))
+            .and_then(|h| {
+                h.strip_prefix("Bearer ")
+                    .or_else(|| h.strip_prefix("bearer "))
+            })
             .map(str::trim)
             .filter(|s| !s.is_empty())
             .ok_or_else(|| "no sign-in was presented".to_string())?;
 
         let header = decode_header(raw).map_err(|e| format!("not a readable token: {e}"))?;
-        let kid = header.kid.ok_or_else(|| "token names no signing key".to_string())?;
+        let kid = header
+            .kid
+            .ok_or_else(|| "token names no signing key".to_string())?;
         let key = self.key_for(&kid).await?;
 
         let mut validation = Validation::new(Algorithm::RS256);
-        // Clerk session tokens are minted for a browser-ish audience and the
-        // set varies by instance, so the audience is not the check that
-        // matters here — the signature and expiry are. Issuer is pinned by
-        // the JWKS URL: only that instance's keys are ever loaded.
+        // These are Clerk SESSION tokens, not arbitrary JWT templates signed
+        // by the same instance. Requiring sid distinguishes that token class;
+        // checking iss prevents a future key/configuration mix-up from
+        // silently granting provisioning authority to a different instance.
         validation.validate_aud = false;
+        validation.validate_nbf = true;
+        validation.set_issuer(&[self.issuer.as_str()]);
+        validation.required_spec_claims.insert("sub".into());
+        validation.required_spec_claims.insert("iss".into());
+        validation.required_spec_claims.insert("sid".into());
         let token = decode::<Claims>(raw, &key, &validation)
             .map_err(|e| format!("sign-in was not valid: {e}"))?;
+
+        validate_session_claims(&token.claims, &self.authorized_parties)?;
 
         let caller = Caller {
             subject: token.claims.sub,
             email: token.claims.email.map(|e| e.to_ascii_lowercase()),
         };
         let _ = token.claims.exp; // enforced by `decode`; named so it reads as deliberate.
-
-        if let Some(allowed) = &self.allowed_emails {
-            let ok = caller
-                .email
-                .as_ref()
-                .is_some_and(|e| allowed.iter().any(|a| a == e));
-            if !ok {
-                return Err(format!("{} is not allowed to create team servers", caller.label()));
-            }
-        }
         Ok(caller)
+    }
+
+    /// Apply the optional provisioning allowlist after the handler has filled
+    /// in Clerk's primary email. Default Clerk session tokens usually contain
+    /// only `sub`; enforcing this inside `verify` rejected every legitimate
+    /// allowlisted caller before the Backend API lookup could run.
+    pub fn ensure_allowed(&self, caller: &Caller) -> Result<(), String> {
+        ensure_allowed_email(self.allowed_emails.as_deref(), caller)
+    }
+}
+
+fn issuer_for_jwks(jwks_url: &str) -> Result<String, String> {
+    const SUFFIX: &str = "/.well-known/jwks.json";
+    let url = jwks_url.trim().trim_end_matches('/');
+    let issuer = url.strip_suffix(SUFFIX).ok_or_else(|| {
+        format!("CLERK_JWKS_URL must end in {SUFFIX}, so the token issuer can be pinned")
+    })?;
+    if !issuer.starts_with("https://") || issuer.len() == "https://".len() {
+        return Err("CLERK_JWKS_URL must be an https URL".into());
+    }
+    Ok(issuer.trim_end_matches('/').to_string())
+}
+
+fn validate_session_claims(claims: &Claims, authorized_parties: &[String]) -> Result<(), String> {
+    if claims.sub.trim().is_empty() || claims.sid.trim().is_empty() || claims.iss.trim().is_empty()
+    {
+        return Err("sign-in was not a Clerk session token".into());
+    }
+    if let Some(party) = claims.azp.as_deref() {
+        let normalized = party.trim_end_matches('/');
+        if !authorized_parties
+            .iter()
+            .any(|allowed| allowed == normalized)
+        {
+            return Err("sign-in came from an unauthorized application origin".into());
+        }
+    }
+    Ok(())
+}
+
+fn ensure_allowed_email(allowed: Option<&[String]>, caller: &Caller) -> Result<(), String> {
+    let Some(allowed) = allowed else {
+        return Ok(());
+    };
+    let ok = caller
+        .email
+        .as_ref()
+        .is_some_and(|email| allowed.iter().any(|allowed| allowed == email));
+    if ok {
+        Ok(())
+    } else {
+        Err(format!(
+            "{} is not allowed to create team servers",
+            caller.label()
+        ))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{Caller, Claims, ensure_allowed_email, issuer_for_jwks, validate_session_claims};
+
+    fn claims() -> Claims {
+        Claims {
+            sub: "user_123".into(),
+            iss: "https://clerk.example".into(),
+            sid: "sess_123".into(),
+            email: None,
+            azp: None,
+            exp: usize::MAX,
+        }
+    }
+
+    #[test]
+    fn allowlist_is_checked_after_email_resolution() {
+        let allowed = vec!["owner@example.com".into()];
+        let unresolved = Caller {
+            subject: "user_123".into(),
+            email: None,
+        };
+        assert!(ensure_allowed_email(Some(&allowed), &unresolved).is_err());
+
+        let resolved = Caller {
+            subject: "user_123".into(),
+            email: Some("owner@example.com".into()),
+        };
+        assert!(ensure_allowed_email(Some(&allowed), &resolved).is_ok());
+    }
+
+    #[test]
+    fn no_allowlist_accepts_any_verified_caller() {
+        let caller = Caller {
+            subject: "user_123".into(),
+            email: None,
+        };
+        assert!(ensure_allowed_email(None, &caller).is_ok());
+    }
+
+    #[test]
+    fn issuer_is_derived_from_the_exact_clerk_jwks_endpoint() {
+        assert_eq!(
+            issuer_for_jwks("https://wanted.example/.well-known/jwks.json").unwrap(),
+            "https://wanted.example"
+        );
+        assert!(issuer_for_jwks("https://wanted.example/keys.json").is_err());
+        assert!(issuer_for_jwks("http://wanted.example/.well-known/jwks.json").is_err());
+    }
+
+    #[test]
+    fn native_session_without_authorized_party_is_accepted() {
+        assert!(validate_session_claims(&claims(), &[]).is_ok());
+    }
+
+    #[test]
+    fn browser_origin_must_be_explicitly_authorized() {
+        let mut browser = claims();
+        browser.azp = Some("https://app.example/".into());
+        assert!(validate_session_claims(&browser, &[]).is_err());
+        assert!(validate_session_claims(&browser, &["https://app.example".into()]).is_ok());
+    }
+
+    #[test]
+    fn malformed_sessions_are_refused() {
+        let mut missing_session = claims();
+        missing_session.sid.clear();
+        assert!(validate_session_claims(&missing_session, &[]).is_err());
     }
 }

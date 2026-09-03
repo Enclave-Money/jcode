@@ -42,10 +42,10 @@ fn new_job_id() -> String {
 }
 
 fn update(job_id: &str, patch: impl FnOnce(&mut Value)) {
-    if let Ok(mut map) = jobs().lock() {
-        if let Some(rec) = map.get_mut(job_id) {
-            patch(rec);
-        }
+    if let Ok(mut map) = jobs().lock()
+        && let Some(rec) = map.get_mut(job_id)
+    {
+        patch(rec);
     }
 }
 
@@ -251,10 +251,10 @@ pub async fn start() -> Value {
     // Reply once the one-time code is parsed (arrives within a second or
     // two); give up after 20s and let the poll surface whatever happened.
     for _ in 0..100 {
-        if let Some(rec) = status(&job_id) {
-            if rec["user_code"].as_str().is_some() || rec["done"].as_bool() == Some(true) {
-                return rec;
-            }
+        if let Some(rec) = status(&job_id)
+            && (rec["user_code"].as_str().is_some() || rec["done"].as_bool() == Some(true))
+        {
+            return rec;
         }
         tokio::time::sleep(Duration::from_millis(200)).await;
     }

@@ -192,11 +192,9 @@ async fn run(local_id: &str, name: String, region: Option<String>) -> Result<(),
 
 /// A fresh Clerk session token, or a message a person can act on.
 async fn mint_token() -> Result<String, String> {
-    crate::blaude_account::session_token()
-        .await
-        .ok_or_else(|| {
-            "Sign in to blaude first — creating a team server is tied to your account.".to_string()
-        })
+    crate::blaude_account::session_token().await.ok_or_else(|| {
+        "Sign in to blaude first — creating a team server is tied to your account.".to_string()
+    })
 }
 
 /// Turn the service's refusal into something a person can act on.
@@ -256,7 +254,10 @@ mod tests {
             .filter(|l| !l.trim_start().starts_with("//"))
             .collect::<Vec<_>>()
             .join("\n");
-        assert!(!code.contains("gcloud"), "the app's runtime must not shell out to gcloud");
+        assert!(
+            !code.contains("gcloud"),
+            "the app's runtime must not shell out to gcloud"
+        );
         assert!(
             !code.contains("Command::new"),
             "the app's runtime must not spawn cloud tooling"

@@ -1251,8 +1251,7 @@ fn archive_restore_and_retention_are_reversible_and_owner_only() {
         }))),
         ApiEvent::Ok
     ));
-    let ApiEvent::Sessions { sessions } =
-        list_sessions_via_daemon(&mut state, 2, false, json!([]))
+    let ApiEvent::Sessions { sessions } = list_sessions_via_daemon(&mut state, 2, false, json!([]))
     else {
         panic!("expected sessions");
     };
@@ -1276,8 +1275,7 @@ fn archive_restore_and_retention_are_reversible_and_owner_only() {
         ApiEvent::Ok
     ));
 
-    let ApiEvent::Sessions { sessions } =
-        list_sessions_via_daemon(&mut state, 5, true, json!([]))
+    let ApiEvent::Sessions { sessions } = list_sessions_via_daemon(&mut state, 5, true, json!([]))
     else {
         panic!("expected sessions");
     };
@@ -1285,7 +1283,7 @@ fn archive_restore_and_retention_are_reversible_and_owner_only() {
         .iter()
         .find(|session| session.session_id == "old_session")
         .expect("old session remains restorable");
-    assert_eq!(old.archived, true);
+    assert!(old.archived);
     assert!(old.archived_at_ms.is_some());
     let recent = sessions
         .iter()
@@ -1317,10 +1315,12 @@ fn credential_provisioning_normalizes_gemini_and_supports_jcode() {
         "GOOGLE_API_KEY=stale\nKEEP_ME=yes\n",
     )
     .unwrap();
-    let mut state = BridgeState::default();
     // An ATTACHED connection notifies the daemon so a running agent picks up
     // the new credential immediately.
-    state.session_id = Some("sess_cred".to_string());
+    let mut state = BridgeState {
+        session_id: Some("sess_cred".to_string()),
+        ..Default::default()
+    };
 
     let outbound = state.api_request_to_legacy(&json!({
         "req": "set_api_key",
@@ -1558,8 +1558,10 @@ fn rooted_file_operations_reject_traversal_and_symlink_escapes_and_bound_results
 /// non-message requests (subscribe etc.) must stay silent.
 #[test]
 fn foreign_turn_terminal_becomes_turn_done() {
-    let mut state = BridgeState::default();
-    state.session_id = Some("s1".into());
+    let mut state = BridgeState {
+        session_id: Some("s1".into()),
+        ..Default::default()
+    };
 
     // A done with no local pending message and no foreign stream: silent
     // (this is the subscribe/other-request completion case).
@@ -1836,7 +1838,11 @@ fn a_member_sees_only_the_accounts_they_added() {
 
     // Positive control: the member DOES see their own, so a failure below is
     // the ownership check and not a filter that rejects everything.
-    assert!(BridgeState::account_is_visible(&mine, Some("member@example.com"), false));
+    assert!(BridgeState::account_is_visible(
+        &mine,
+        Some("member@example.com"),
+        false
+    ));
 
     assert!(
         !BridgeState::account_is_visible(&theirs, Some("member@example.com"), false),
@@ -1854,7 +1860,11 @@ fn the_owner_sees_every_account_including_unattributed_ones() {
         email: "owner@example.com".into(),
         added_by: None,
     };
-    assert!(BridgeState::account_is_visible(&legacy, Some("owner@example.com"), true));
+    assert!(BridgeState::account_is_visible(
+        &legacy,
+        Some("owner@example.com"),
+        true
+    ));
 
     assert!(
         !BridgeState::account_is_visible(&legacy, Some("member@example.com"), false),
@@ -1893,7 +1903,10 @@ fn stdin_request_becomes_a_fill_approval_only_for_fill_envelopes() {
         "is_password": true,
     }));
     let json = serde_json::to_string(&frames).unwrap();
-    assert!(json.contains("fill_approval"), "should surface a fill_approval event: {json}");
+    assert!(
+        json.contains("fill_approval"),
+        "should surface a fill_approval event: {json}"
+    );
     assert!(json.contains("https://vercel.com"));
     assert!(json.contains("fill-xyz"));
 
@@ -1922,10 +1935,13 @@ fn fill_credentials_answer_becomes_a_stdin_response() {
         "totp": "424242",
     }));
     // One legacy stdin_response (to the daemon) and one Ok reply (to the app).
-    let legacy = out.iter().find_map(|o| match o {
-        Outbound::Legacy(v) => Some(v.clone()),
-        _ => None,
-    }).expect("a legacy stdin_response");
+    let legacy = out
+        .iter()
+        .find_map(|o| match o {
+            Outbound::Legacy(v) => Some(v.clone()),
+            _ => None,
+        })
+        .expect("a legacy stdin_response");
     assert_eq!(legacy["type"], "stdin_response");
     assert_eq!(legacy["request_id"], "fill-xyz");
     let input: serde_json::Value = serde_json::from_str(legacy["input"].as_str().unwrap()).unwrap();
@@ -1936,10 +1952,13 @@ fn fill_credentials_answer_becomes_a_stdin_response() {
     let deny = state.api_request_to_legacy(&serde_json::json!({
         "req": "fill_deny", "id": 6, "request_id": "fill-xyz",
     }));
-    let legacy = deny.iter().find_map(|o| match o {
-        Outbound::Legacy(v) => Some(v.clone()),
-        _ => None,
-    }).unwrap();
+    let legacy = deny
+        .iter()
+        .find_map(|o| match o {
+            Outbound::Legacy(v) => Some(v.clone()),
+            _ => None,
+        })
+        .unwrap();
     let input: serde_json::Value = serde_json::from_str(legacy["input"].as_str().unwrap()).unwrap();
     assert_eq!(input["denied"], true);
     assert!(input.get("password").is_none());
@@ -1964,11 +1983,13 @@ fn credential_canary_never_reaches_a_client_surface() {
             // The tool-bound legacy frame MUST carry it (else the fill fails).
             Outbound::Legacy(v) => assert!(
                 serde_json::to_string(v).unwrap().contains(CANARY),
-                "the tool-bound frame must carry the credential, or nothing fills"),
+                "the tool-bound frame must carry the credential, or nothing fills"
+            ),
             // The client-facing reply must NOT.
             Outbound::Reply(f) => assert!(
                 !serde_json::to_string(f).unwrap().contains(CANARY),
-                "a client-facing reply leaked the credential"),
+                "a client-facing reply leaked the credential"
+            ),
         }
     }
 
@@ -1978,6 +1999,8 @@ fn credential_canary_never_reaches_a_client_surface() {
         "prompt": serde_json::json!({"blaude_fill": {"origin": "https://x.com",
             "candidates": [{"item_id": "op://v/1", "username": "u@x.com", "has_totp": false}]}}).to_string(),
     }));
-    assert!(!serde_json::to_string(&frames).unwrap().contains(CANARY),
-        "the approval event must never carry a credential");
+    assert!(
+        !serde_json::to_string(&frames).unwrap().contains(CANARY),
+        "the approval event must never carry a credential"
+    );
 }

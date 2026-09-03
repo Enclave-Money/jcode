@@ -4,9 +4,11 @@
 //! `join-tickets.json` itself and POST to Clerk with a secret it read off
 //! disk — the frontend writing the bridge's own authorization database
 //! out-of-band. These are bridge operations now: the app asks over the
-//! wire, the bridge mints/writes/revokes and talks to Clerk. Bearer
-//! tokens are returned only on the owner-facing invite reply (local
-//! 0600 socket / token-gated WS — the same trust boundary as the files).
+//! wire, and the bridge mints/writes/revokes. Clerk operations are relayed by
+//! the provisioning service through a signed capability scoped to this team;
+//! the Clerk backend key never lives on a team VM. Bearer tokens are returned
+//! only on the owner-facing invite reply (local 0600 socket / token-gated WS —
+//! the same trust boundary as the files).
 
 use anyhow::{Context, Result};
 use serde_json::{Value, json};
@@ -19,10 +21,10 @@ pub(crate) fn home() -> Result<std::path::PathBuf> {
     // directory itself (tests point it at a scratch dir; the door and the
     // access store must agree or claims read a different token file than
     // invites write).
-    if let Ok(dir) = std::env::var("JCODE_HOME") {
-        if !dir.is_empty() {
-            return Ok(std::path::PathBuf::from(dir));
-        }
+    if let Ok(dir) = std::env::var("JCODE_HOME")
+        && !dir.is_empty()
+    {
+        return Ok(std::path::PathBuf::from(dir));
     }
     let home = std::env::var("HOME").context("HOME is not set")?;
     Ok(std::path::PathBuf::from(home).join(".jcode"))
@@ -171,9 +173,9 @@ pub fn claim_ticket(code: &str) -> Option<Grant> {
             json!({ "email": &email, "created_ms": now_ms(), "ws_url": &ws_url, "name": &name }),
         );
         write_owner_only(&path, &serde_json::to_vec(&tickets).ok()?).ok()?;
-        (email, ws_url, name, fresh)
+        (email, ws_url, fresh)
     };
-    let (email, ws_url, name, fresh) = renewal;
+    let (email, ws_url, fresh) = renewal;
     // A valid ticket IS the authorization: the owner minted it for this
     // email. Issue (or return) the member token at claim time — requiring a
     // pre-existing token made a revoke-then-rejoin (or any token-store loss)
@@ -184,26 +186,18 @@ pub fn claim_ticket(code: &str) -> Option<Grant> {
     // the shared one and "Mine" silently meant "Shared" for them forever.
     crate::rooms::request_member_provision(&email, &crate::rooms::door_home());
     if !ws_url.is_empty() {
-        restamp_with_fresh_ticket(email.clone(), ws_url, name, fresh);
+        restamp_with_fresh_ticket(email.clone(), fresh);
     }
     Some(Grant { email, token })
 }
 
 /// Best-effort: point the account's stamp at the replacement ticket.
-fn restamp_with_fresh_ticket(email: String, ws_url: String, name: String, ticket: String) {
-    let Some(secret) = clerk_secret() else { return };
+fn restamp_with_fresh_ticket(email: String, ticket: String) {
     let Ok(handle) = tokio::runtime::Handle::try_current() else {
         return;
     };
     handle.spawn(async move {
-        let client = reqwest::Client::new();
-        if let Ok(Some(user)) = find_user(&client, &secret, &email).await {
-            if let Some(id) = user["id"].as_str() {
-                let metadata =
-                    json!({ "blaude_team": { "name": name, "ws_url": ws_url, "ticket": ticket } });
-                let _ = stamp_user(&client, &secret, id, &metadata).await;
-            }
-        }
+        let _ = directory_call("stamp", &email, Some(&ticket)).await;
     });
 }
 
@@ -348,66 +342,61 @@ fn mint_join_ticket(email: &str, ws_url: &str, team_name: &str) -> Result<String
     Ok(code)
 }
 
-fn clerk_secret() -> Option<String> {
-    let raw = std::fs::read_to_string(home().ok()?.join("clerk.env")).ok()?;
-    for line in raw.lines() {
-        let mut parts = line.splitn(2, '=');
-        if parts.next()?.trim() == "CLERK_SECRET_KEY" {
-            let value = parts.next()?.trim();
-            if !value.is_empty() {
-                return Some(value.to_string());
-            }
-        }
-    }
-    None
+const DEFAULT_DIRECTORY_API: &str = "https://blaude-provision-api-860657606686.asia-south1.run.app";
+
+fn directory_api() -> String {
+    std::env::var("BLAUDE_PROVISION_API")
+        .ok()
+        .map(|value| value.trim().trim_end_matches('/').to_string())
+        .filter(|value| !value.is_empty())
+        .unwrap_or_else(|| DEFAULT_DIRECTORY_API.to_string())
 }
 
-/// The signed-up user's Clerk id for an email, if the account exists.
-async fn find_user(
-    client: &reqwest::Client,
-    secret: &str,
-    email: &str,
-) -> Result<Option<Value>, String> {
-    let response = client
-        .get("https://api.clerk.com/v1/users")
-        .query(&[("email_address", email)])
-        .bearer_auth(secret)
-        .send()
-        .await
-        .map_err(|e| format!("Clerk request failed: {e}"))?;
-    let users: Value = response
-        .json()
-        .await
-        .map_err(|e| format!("Clerk user lookup unreadable: {e}"))?;
-    let list = users
-        .as_array()
-        .cloned()
-        .or_else(|| users.get("data").and_then(|d| d.as_array()).cloned())
-        .unwrap_or_default();
-    Ok(list.first().cloned())
-}
-
-/// Merge the blaude_team stamp into a user's public_metadata.
-async fn stamp_user(
-    client: &reqwest::Client,
-    secret: &str,
-    user_id: &str,
-    metadata: &Value,
-) -> Result<(), String> {
-    let response = client
-        .patch(format!("https://api.clerk.com/v1/users/{user_id}/metadata"))
-        .bearer_auth(secret)
-        .json(&json!({ "public_metadata": metadata }))
-        .send()
-        .await
-        .map_err(|e| format!("Clerk request failed: {e}"))?;
-    if response.status().is_success() {
-        Ok(())
+fn relay_token() -> Result<String, String> {
+    let token = std::fs::read_to_string(
+        home()
+            .map_err(|error| error.to_string())?
+            .join("team-relay-token"),
+    )
+    .map_err(|_| {
+        "this team has no directory relay capability; ask the owner to recreate it".to_string()
+    })?;
+    let token = token.trim().to_string();
+    if token.is_empty() {
+        Err("this team's directory relay capability is empty".to_string())
     } else {
-        Err(format!(
-            "Clerk refused the stamp (HTTP {})",
-            response.status()
-        ))
+        Ok(token)
+    }
+}
+
+async fn directory_call(action: &str, email: &str, ticket: Option<&str>) -> Result<Value, String> {
+    let mut body = json!({ "email": email });
+    if let Some(ticket) = ticket {
+        body["ticket"] = json!(ticket);
+    }
+    let response = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(20))
+        .build()
+        .map_err(|error| format!("could not build the directory client: {error}"))?
+        .post(format!("{}/v1/team-directory/{action}", directory_api()))
+        .bearer_auth(relay_token()?)
+        .json(&body)
+        .send()
+        .await
+        .map_err(|error| format!("the team directory service could not be reached: {error}"))?;
+    let status = response.status();
+    let body = response
+        .json::<Value>()
+        .await
+        .map_err(|error| format!("the team directory service sent an unreadable reply: {error}"))?;
+    if status.is_success() {
+        Ok(body)
+    } else {
+        Err(body
+            .get("error")
+            .and_then(Value::as_str)
+            .unwrap_or("the team directory request was refused")
+            .to_string())
     }
 }
 
@@ -418,44 +407,12 @@ async fn stamp_user(
 /// account → Clerk refuses invitations, so the team is stamped straight
 /// onto the user and their signed-in app picks it up on its account watch.
 /// Returns Ok(true) when an email went out, Ok(false) for a silent stamp.
-async fn deliver_invite(email: &str, join_url: &str, metadata: &Value) -> Result<bool, String> {
-    let Some(secret) = clerk_secret() else {
-        return Err("no Clerk key at ~/.jcode/clerk.env".into());
-    };
-    let client = reqwest::Client::new();
-    // Retire older invitations first: their emails carry stale tickets.
-    revoke_pending_invitations(&client, &secret, email).await;
-    if let Some(user) = find_user(&client, &secret, email).await? {
-        if let Some(id) = user["id"].as_str() {
-            stamp_user(&client, &secret, id, metadata).await?;
-            return Ok(false);
-        }
-    }
-    let response = client
-        .post("https://api.clerk.com/v1/invitations")
-        .bearer_auth(&secret)
-        .json(&json!({
-            "email_address": email,
-            "redirect_url": join_url,
-            "public_metadata": metadata,
-        }))
-        .send()
-        .await
-        .map_err(|e| format!("Clerk request failed: {e}"))?;
-    let status = response.status();
-    if status.is_success() {
-        return Ok(true);
-    }
-    if status.as_u16() == 422 {
-        // Raced a signup between lookup and invitation — stamp instead.
-        if let Some(user) = find_user(&client, &secret, email).await? {
-            if let Some(id) = user["id"].as_str() {
-                stamp_user(&client, &secret, id, metadata).await?;
-                return Ok(false);
-            }
-        }
-    }
-    Err(format!("Clerk invitation failed (HTTP {status})"))
+async fn deliver_invite(email: &str, ticket: &str) -> Result<bool, String> {
+    let response = directory_call("invite", email, Some(ticket)).await?;
+    response
+        .get("emailed")
+        .and_then(Value::as_bool)
+        .ok_or_else(|| "the team directory reply omitted its delivery result".to_string())
 }
 
 /// Closes the invited-but-signed-up-manually hole: someone who never opens
@@ -464,114 +421,38 @@ async fn deliver_invite(email: &str, join_url: &str, metadata: &Value) -> Result
 /// wherever an account now exists for an invited email without this ticket
 /// stamped, stamp it (and retire the now-pointless invitation email).
 pub async fn reconcile_invites() {
-    let Some(secret) = clerk_secret() else { return };
     let Ok(home) = home() else { return };
     let tickets: HashMap<String, Value> = std::fs::read_to_string(home.join("join-tickets.json"))
         .ok()
         .and_then(|raw| serde_json::from_str(&raw).ok())
         .unwrap_or_default();
-    let client = reqwest::Client::new();
     for (code, record) in tickets {
         // Stamping an expired ticket guarantees the invitee a 410 — worse
         // than not stamping, because it looks like a delivered invite.
         if is_expired(&record) {
             continue;
         }
-        let (Some(email), Some(ws_url)) = (
-            record.get("email").and_then(|v| v.as_str()),
-            record.get("ws_url").and_then(|v| v.as_str()),
-        ) else {
+        let Some(email) = record.get("email").and_then(|v| v.as_str()) else {
             continue;
         };
-        let Ok(Some(user)) = find_user(&client, &secret, email).await else {
-            continue; // no account yet — the invitation email still covers them
-        };
-        let stamped = user
-            .pointer("/public_metadata/blaude_team/ticket")
-            .and_then(|v| v.as_str());
-        if stamped == Some(code.as_str()) {
-            continue;
-        }
-        let name = record.get("name").and_then(|v| v.as_str()).unwrap_or("");
-        let metadata = json!({ "blaude_team": { "name": name, "ws_url": ws_url, "ticket": code } });
-        if let Some(id) = user["id"].as_str() {
-            if stamp_user(&client, &secret, id, &metadata).await.is_ok() {
-                revoke_pending_invitations(&client, &secret, email).await;
-            }
-        }
+        // The relay returns false while no Clerk account exists; the pending
+        // invitation remains the path in that case. It also avoids sending the
+        // backend key to this VM merely to perform the lookup.
+        let _ = directory_call("stamp", email, Some(&code)).await;
     }
 }
 
 /// Best-effort removal of the team stamp when a member is revoked, so
 /// their next sign-in doesn't auto-join with a dead ticket.
 fn clear_team_metadata(email: String) {
-    let Some(secret) = clerk_secret() else { return };
     // revoke() is sync; only detach the Clerk call when a runtime exists
     // (it always does on the ws path — this guards future callers).
     let Ok(handle) = tokio::runtime::Handle::try_current() else {
         return;
     };
     handle.spawn(async move {
-        let client = reqwest::Client::new();
-        let Ok(response) = client
-            .get("https://api.clerk.com/v1/users")
-            .query(&[("email_address", email.as_str())])
-            .bearer_auth(&secret)
-            .send()
-            .await
-        else {
-            return;
-        };
-        let Ok(users) = response.json::<Value>().await else {
-            return;
-        };
-        let list = users
-            .as_array()
-            .cloned()
-            .or_else(|| users.get("data").and_then(|d| d.as_array()).cloned())
-            .unwrap_or_default();
-        if let Some(id) = list.first().and_then(|u| u["id"].as_str()) {
-            let _ = client
-                .patch(format!("https://api.clerk.com/v1/users/{id}/metadata"))
-                .bearer_auth(&secret)
-                // null deletes the key under Clerk's merge semantics.
-                .json(&json!({ "public_metadata": { "blaude_team": null } }))
-                .send()
-                .await;
-        }
+        let _ = directory_call("clear", &email, None).await;
     });
-}
-
-/// Best-effort revoke of every pending invitation for `email` — the prelude
-/// to re-inviting with a fresh link.
-async fn revoke_pending_invitations(client: &reqwest::Client, secret: &str, email: &str) {
-    let Ok(response) = client
-        .get("https://api.clerk.com/v1/invitations?status=pending")
-        .bearer_auth(secret)
-        .send()
-        .await
-    else {
-        return;
-    };
-    let Ok(items) = response.json::<serde_json::Value>().await else {
-        return;
-    };
-    let list = items
-        .as_array()
-        .cloned()
-        .or_else(|| items.get("data").and_then(|d| d.as_array()).cloned())
-        .unwrap_or_default();
-    for item in list {
-        if item["email_address"].as_str() == Some(email) {
-            if let Some(id) = item["id"].as_str() {
-                let _ = client
-                    .post(format!("https://api.clerk.com/v1/invitations/{id}/revoke"))
-                    .bearer_auth(secret)
-                    .send()
-                    .await;
-            }
-        }
-    }
 }
 
 /// True when the WS door terminates TLS — the scheme handed to members must
@@ -613,25 +494,20 @@ pub async fn invite(
     let ticket = mint_join_ticket(email, &ws_url, name)?;
     let port = std::env::var("JCODE_API_WS_PORT").unwrap_or_else(|_| "7644".into());
     let join_url = format!("{}://{host}:{port}/join?ticket={ticket}", http_scheme());
-    let metadata = json!({ "blaude_team": {
-        "name": name,
-        "ws_url": ws_url,
-        "ticket": ticket,
-    }});
     // emailed=true → an invitation email went out (new address);
     // emailed=false with no error → existing account was stamped directly,
     // their signed-in app attaches the team on its account watch.
     let mut emailed = false;
     let mut email_error: Option<String> = None;
     if send_email {
-        match deliver_invite(email, &join_url, &metadata).await {
+        match deliver_invite(email, &ticket).await {
             Ok(sent) => emailed = sent,
             Err(error) => email_error = Some(error),
         }
     }
     Ok(json!({
         "email": email,
-        "ws_url": ws_endpoint(host),
+        "ws_url": ws_url,
         // The join link is the fallback credential: redeeming it mints the
         // bearer without an account.
         "token": "",
@@ -691,6 +567,21 @@ mod ticket_tests {
         unsafe { std::env::set_var("JCODE_HOME", temp.path()) };
 
         assert!(peek_ticket("jt-doesnotexist0000").is_none());
-        assert!(peek_ticket("short").is_none(), "a too-short code is rejected outright");
+        assert!(
+            peek_ticket("short").is_none(),
+            "a too-short code is rejected outright"
+        );
+    }
+
+    /// Team servers talk only to the scoped relay. This source guard prevents
+    /// a future "quick fix" from restoring the Clerk backend key and direct
+    /// instance-wide API calls on every VM.
+    #[test]
+    fn a_team_server_has_no_direct_clerk_backend_access() {
+        let source = include_str!("team_access.rs");
+        let body = source.split("#[cfg(test)]").next().unwrap_or(source);
+        assert!(!body.contains("api.clerk.com"));
+        assert!(!body.contains("CLERK_SECRET_KEY"));
+        assert!(body.contains("team-relay-token"));
     }
 }

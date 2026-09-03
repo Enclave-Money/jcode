@@ -13,6 +13,7 @@
 //!      code back via `complete_login { job_id, code }`.
 //!   4. The bridge exchanges the code for tokens IN PROCESS and saves them into
 //!      the daemon's own account store (so a team server's own agents use them).
+//!
 //! No localhost dependency on the server, no CLI subprocess, no code-paste.
 
 use std::collections::HashMap;

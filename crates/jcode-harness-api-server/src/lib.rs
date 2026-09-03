@@ -364,10 +364,10 @@ fn respawn_daemon_throttled() {
             Ok(guard) => guard,
             Err(_) => return,
         };
-        if let Some(at) = *guard {
-            if at.elapsed() < Duration::from_secs(15) {
-                return;
-            }
+        if let Some(at) = *guard
+            && at.elapsed() < Duration::from_secs(15)
+        {
+            return;
         }
         *guard = Some(Instant::now());
     }
@@ -407,18 +407,11 @@ pub(crate) fn broadcast_team_members() {
     let _ = team_events().send(frame);
 }
 
-/// Announce a member the first time this process sees them connect. That is
-/// the moment a joined teammate becomes real to everyone else; before this,
-/// nothing told the owner's Mac at all.
+/// Announce a member when they connect. Repeating an identical roster is cheap
+/// and important: a process-global "seen" set suppressed someone who had been
+/// revoked and later re-invited, leaving the owner stale until the next poll.
 pub(crate) fn note_member_seen(identity: &str) {
-    static SEEN: std::sync::OnceLock<std::sync::Mutex<std::collections::HashSet<String>>> =
-        std::sync::OnceLock::new();
-    let seen = SEEN.get_or_init(|| std::sync::Mutex::new(std::collections::HashSet::new()));
-    let fresh = seen
-        .lock()
-        .map(|mut set| set.insert(identity.to_string()))
-        .unwrap_or(false);
-    if fresh {
+    if !identity.trim().is_empty() {
         broadcast_team_members();
     }
 }
@@ -875,7 +868,7 @@ where
                             continue;
                         }
                     }
-                    let result: anyhow::Result<()> = (|| {
+                    let result: anyhow::Result<()> = {
                         let is_openai =
                             matches!(provider, "openai" | "codex" | "openai-oauth" | "chatgpt");
                         match (is_openai, label.is_empty()) {
@@ -884,7 +877,7 @@ where
                             (false, true) => jcode_base::auth::claude::clear_accounts().map(|_| ()),
                             (false, false) => jcode_base::auth::claude::remove_account(label),
                         }
-                    })();
+                    };
                     jcode_base::auth::AuthStatus::invalidate_cache();
                     // Rooms read their OWN user's auth file, so an account
                     // removed at the door has to be removed from the rooms as
@@ -1032,10 +1025,10 @@ where
                     // the invite stamps the Clerk user, and this refresh is
                     // how the stamp reaches a machine that signed in before
                     // the invite existed. (There are no invite emails.)
-                    if let Some(serde_json::Value::Object(map)) = account.as_mut() {
-                        if let Some(invite) = blaude_account::refresh_team_invite().await {
-                            map.insert("team_invite".into(), invite);
-                        }
+                    if let Some(serde_json::Value::Object(map)) = account.as_mut()
+                        && let Some(invite) = blaude_account::refresh_team_invite().await
+                    {
+                        map.insert("team_invite".into(), invite);
                     }
                     let frame = ServerFrame::reply(api_id, ApiEvent::BlaudeAccount { account });
                     write_json_line(&mut write_half, &frame).await?;
@@ -1315,21 +1308,45 @@ where
                     let email = request["email"].as_str().unwrap_or_default().to_string();
                     let host = request["host"].as_str().unwrap_or("127.0.0.1").to_string();
                     let send_email = request["send_email"].as_bool().unwrap_or(false);
-                    let frame = if email.is_empty() {
-                        ServerFrame::reply(api_id, ApiEvent::Error {
-                            code: ErrorCode::InvalidRequest,
-                            message: "invite_member needs `email`".into(),
-                        })
-                    } else {
-                        match team_access::invite(&email, &host, send_email, request["team_name"].as_str()).await {
-                            Ok(invite) => ServerFrame::reply(api_id, ApiEvent::MemberInvited { invite }),
-                            Err(error) => ServerFrame::reply(api_id, ApiEvent::Error {
-                                code: ErrorCode::Internal,
-                                message: error.to_string(),
+                    let (frame, roster_changed) = if email.is_empty() {
+                        (
+                            ServerFrame::reply(api_id, ApiEvent::Error {
+                                code: ErrorCode::InvalidRequest,
+                                message: "invite_member needs `email`".into(),
                             }),
+                            false,
+                        )
+                    } else {
+                        match team_access::invite(
+                            &email,
+                            &host,
+                            send_email,
+                            request["team_name"].as_str(),
+                        )
+                        .await
+                        {
+                            Ok(invite) => (
+                                ServerFrame::reply(api_id, ApiEvent::MemberInvited { invite }),
+                                true,
+                            ),
+                            Err(error) => (
+                                ServerFrame::reply(
+                                    api_id,
+                                    ApiEvent::Error {
+                                        code: ErrorCode::Internal,
+                                        message: error.to_string(),
+                                    },
+                                ),
+                                false,
+                            ),
                         }
                     };
                     write_json_line(&mut write_half, &frame).await?;
+                    if roster_changed {
+                        // Pending invitations and already-registered members
+                        // both change what every connected app should show.
+                        broadcast_team_members();
+                    }
                     continue;
                 }
                 if request["req"].as_str() == Some("list_team_members") {
@@ -1340,9 +1357,6 @@ where
                         emails: team_access::member_emails(),
                         pending: team_access::pending_invites(),
                     });
-                    // An invite changes the roster (a pending entry, or an
-                    // already-registered member attached at once): push it.
-                    broadcast_team_members();
                     write_json_line(&mut write_half, &frame).await?;
                     continue;
                 }
@@ -1443,12 +1457,12 @@ where
                             // re-dial — credentials may have just landed via
                             // the login job and systemd brought it up — so
                             // the same connection upgrades in place.
-                            if legacy_write.is_none() {
-                                if let Some((rx, write)) = dial_legacy(&legacy_socket).await {
-                                    legacy_rx = Some(rx);
-                                    legacy_write = Some(write);
-                                    eprintln!("harness API bridge: daemon is up — connection upgraded");
-                                }
+                            if legacy_write.is_none()
+                                && let Some((rx, write)) = dial_legacy(&legacy_socket).await
+                            {
+                                legacy_rx = Some(rx);
+                                legacy_write = Some(write);
+                                eprintln!("harness API bridge: daemon is up — connection upgraded");
                             }
                             match legacy_write.as_mut() {
                                 Some(legacy) => write_json_line(legacy, &value).await?,
@@ -1536,6 +1550,21 @@ mod framing_tests;
 #[cfg(test)]
 #[path = "login_jobs_tests.rs"]
 mod login_jobs_tests;
+
+#[cfg(test)]
+mod team_event_tests {
+    #[tokio::test]
+    async fn a_reinvited_member_is_announced_again() {
+        let mut receiver = super::team_events().subscribe();
+        super::note_member_seen("reinvited@example.com");
+        assert!(receiver.recv().await.is_ok());
+
+        // A revoked and re-invited identity can reconnect in the same bridge
+        // process. The second connection must not be suppressed as "seen".
+        super::note_member_seen("reinvited@example.com");
+        assert!(receiver.recv().await.is_ok());
+    }
+}
 
 #[cfg(all(test, unix))]
 mod single_instance_tests {

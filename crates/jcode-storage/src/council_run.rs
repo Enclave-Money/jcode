@@ -87,14 +87,9 @@ pub fn deliberate(
 
     // Stage 2: each member critiques all drafts.
     let drafts_block = format_block(&drafts);
-    let critiques = run_stage(
-        members,
-        workspace,
-        runner,
-        observe,
-        "critiquing",
-        |model| critique_prompt(task, model, &drafts_block),
-    );
+    let critiques = run_stage(members, workspace, runner, observe, "critiquing", |model| {
+        critique_prompt(task, model, &drafts_block)
+    });
 
     // Stage 3: the first member synthesizes the joint plan.
     let critiques_block = format_block(&critiques);
@@ -362,7 +357,10 @@ mod tests {
 
         // Every member must be handed the workspace itself as its cwd.
         let runner = |cwd: &Path, model: &str, prompt: &str| -> Result<String> {
-            assert_eq!(cwd, workspace, "members run in the workspace, not a worktree");
+            assert_eq!(
+                cwd, workspace,
+                "members run in the workspace, not a worktree"
+            );
             if prompt.contains("output only your plan") {
                 Ok(format!("{model} draft"))
             } else if prompt.contains("only your critique") {

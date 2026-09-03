@@ -5,7 +5,6 @@ mod bash;
 mod batch;
 mod bg;
 mod browser;
-mod room_browser;
 mod communicate;
 #[cfg(target_os = "macos")]
 mod computer;
@@ -28,6 +27,7 @@ mod multiedit;
 mod open;
 mod patch;
 mod read;
+mod room_browser;
 pub mod selfdev;
 pub(crate) mod serde_coerce;
 mod session_search;

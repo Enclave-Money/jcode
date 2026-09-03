@@ -599,6 +599,10 @@ fn session_to_display_messages(session: &Session, max_messages: usize) -> Vec<Di
             continue;
         }
         match message.display_role {
+            Some(StoredDisplayRole::Note) => {
+                out.push(DisplayMessage::system(format!("[team note] {text}")));
+                continue;
+            }
             Some(StoredDisplayRole::System) => {
                 out.push(DisplayMessage::system(text));
                 continue;

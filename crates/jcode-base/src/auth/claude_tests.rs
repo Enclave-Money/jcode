@@ -748,11 +748,11 @@ async fn a_refresh_targets_the_acting_members_own_account() {
         Some("claude-otter")
     );
 
-    let target = crate::auth::account_store::with_acting_member(
-        Some("member@example.com".into()),
-        async { crate::auth::claude::refresh_target_label() },
-    )
-    .await;
+    let target =
+        crate::auth::account_store::with_acting_member(Some("member@example.com".into()), async {
+            crate::auth::claude::refresh_target_label()
+        })
+        .await;
     assert_eq!(
         target.as_deref(),
         Some("claude-fox"),
@@ -798,11 +798,11 @@ async fn a_token_refresh_does_not_un_claim_the_member_who_signed_in() {
     .unwrap();
 
     // The refresh must have landed (positive control) AND kept the claim.
-    let creds = crate::auth::account_store::with_acting_member(
-        Some("member@example.com".into()),
-        async { load_credentials() },
-    )
-    .await
-    .expect("the member still owns this account after a refresh");
+    let creds =
+        crate::auth::account_store::with_acting_member(Some("member@example.com".into()), async {
+            load_credentials()
+        })
+        .await
+        .expect("the member still owns this account after a refresh");
     assert_eq!(creds.access_token, "REFRESHED", "the refresh must apply");
 }

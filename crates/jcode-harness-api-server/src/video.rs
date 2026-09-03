@@ -134,7 +134,11 @@ pub fn start(user: &str) -> Result<(Stream, tokio::process::ChildStdout)> {
         .take()
         .context("ffmpeg produced no output stream")?;
     Ok((
-        Stream { child, width: STREAM_WIDTH, height: STREAM_HEIGHT },
+        Stream {
+            child,
+            width: STREAM_WIDTH,
+            height: STREAM_HEIGHT,
+        },
         stdout,
     ))
 }
@@ -187,16 +191,30 @@ mod tests {
             .split(' ')
             .next()
             .unwrap();
-        assert!(x264.contains("intra-refresh=0"), "IDRs, not intra refresh: {x264}");
-        assert!(x264.contains("repeat-headers=1"), "SPS/PPS before each keyframe: {x264}");
+        assert!(
+            x264.contains("intra-refresh=0"),
+            "IDRs, not intra refresh: {x264}"
+        );
+        assert!(
+            x264.contains("repeat-headers=1"),
+            "SPS/PPS before each keyframe: {x264}"
+        );
         assert!(
             x264.contains(&format!("keyint={STREAM_FPS}")),
             "a keyframe every second, so a viewer has a picture within one: {x264}"
         );
-        assert!(x264.contains("scenecut=0"), "keyframes on a clock, not on scene changes: {x264}");
+        assert!(
+            x264.contains("scenecut=0"),
+            "keyframes on a clock, not on scene changes: {x264}"
+        );
         // The tune that caused all of the above must still be there — it is
         // what keeps click-to-glass under a frame or two.
         assert!(args.contains("-tune zerolatency"), "{args}");
-        assert!(STREAM_WIDTH < crate::screen::DESKTOP_WIDTH, "scaled down to stay real-time");
+        const {
+            assert!(
+                STREAM_WIDTH < crate::screen::DESKTOP_WIDTH,
+                "scaled down to stay real-time"
+            );
+        }
     }
 }

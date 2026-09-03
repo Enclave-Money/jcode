@@ -1298,7 +1298,7 @@ pub enum NativeProviderKind {
     Cursor,
     Copilot,
     Bedrock,
-    jcode,
+    Jcode,
     Azure,
 }
 
@@ -1311,7 +1311,7 @@ impl NativeProviderKind {
             "cursor" => Some(Self::Cursor),
             "copilot" => Some(Self::Copilot),
             "bedrock" => Some(Self::Bedrock),
-            "jcode" => Some(Self::jcode),
+            "jcode" => Some(Self::Jcode),
             "azure-openai" => Some(Self::Azure),
             _ => None,
         }
@@ -1389,7 +1389,7 @@ impl NativeProviderKind {
                 auth_env_key: Some("AWS_BEARER_TOKEN_BEDROCK"),
                 login_hint: "blaude login --provider bedrock",
             },
-            Self::jcode => NativeProviderSpec {
+            Self::Jcode => NativeProviderSpec {
                 provider_id: "jcode",
                 label: "blaude Subscription",
                 // The transport is OpenAI-compatible internally, but the public
@@ -1480,7 +1480,7 @@ impl NativeProviderKind {
             Self::Bedrock => {
                 std::sync::Arc::new(jcode_base::provider::bedrock::BedrockProvider::new())
             }
-            Self::jcode => std::sync::Arc::new(jcode_base::provider::jcode::JcodeProvider::new()),
+            Self::Jcode => std::sync::Arc::new(jcode_base::provider::jcode::JcodeProvider::new()),
             Self::Azure => {
                 // Azure OpenAI is the OpenRouter transport configured via Azure
                 // env; apply that env (endpoint/key/header wiring) before building
@@ -1549,7 +1549,7 @@ impl NativeProviderKind {
                 }
                 Ok("AWS Bedrock credential resolved".to_string())
             }
-            Self::jcode => {
+            Self::Jcode => {
                 if !jcode_base::subscription_catalog::has_credentials() {
                     anyhow::bail!(
                         "no blaude subscription credential found (set JCODE_API_KEY or run \
@@ -1588,7 +1588,7 @@ impl NativeProviderKind {
             Self::Cursor => &["composer", "fast", "mini"],
             Self::Copilot => &["mini", "haiku", "flash", "fast"],
             Self::Bedrock => &["haiku", "micro", "lite", "mini", "flash"],
-            Self::jcode => &["mini", "flash", "haiku", "lite", "nano"],
+            Self::Jcode => &["mini", "flash", "haiku", "lite", "nano"],
             Self::Azure => &["mini", "nano", "flash", "haiku"],
         };
         for marker in cheap_markers {
@@ -2430,7 +2430,7 @@ mod tests {
             ("cursor", NativeProviderKind::Cursor),
             ("copilot", NativeProviderKind::Copilot),
             ("bedrock", NativeProviderKind::Bedrock),
-            ("jcode", NativeProviderKind::jcode),
+            ("jcode", NativeProviderKind::Jcode),
             ("azure-openai", NativeProviderKind::Azure),
         ] {
             assert_eq!(NativeProviderKind::from_normalized(id), Some(expected));
@@ -2451,13 +2451,13 @@ mod tests {
             NativeProviderKind::Cursor,
             NativeProviderKind::Copilot,
             NativeProviderKind::Bedrock,
-            NativeProviderKind::jcode,
+            NativeProviderKind::Jcode,
             NativeProviderKind::Azure,
         ] {
             let spec = kind.spec();
             assert!(!spec.provider_id.is_empty(), "{kind:?} has empty id");
             assert!(!spec.label.is_empty(), "{kind:?} has empty label");
-            if kind == NativeProviderKind::jcode {
+            if kind == NativeProviderKind::Jcode {
                 assert!(
                     spec.contract.switch_prefix.is_empty(),
                     "blaude switches must use bare managed model ids"
@@ -2556,7 +2556,7 @@ mod tests {
             NativeProviderKind::Cursor,
             NativeProviderKind::Copilot,
             NativeProviderKind::Bedrock,
-            NativeProviderKind::jcode,
+            NativeProviderKind::Jcode,
             NativeProviderKind::Azure,
         ] {
             let id = kind.spec().provider_id;
@@ -2585,7 +2585,7 @@ mod tests {
 
     #[test]
     fn native_jcode_contract_uses_managed_subscription_identity() {
-        let contract = NativeProviderKind::jcode.spec().contract;
+        let contract = NativeProviderKind::Jcode.spec().contract;
         assert_eq!(
             contract.api_method,
             jcode_base::subscription_catalog::JCODE_ROUTE_API_METHOD

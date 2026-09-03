@@ -33,8 +33,9 @@ pub fn share_socket_with_group(path: &Path, group: &str) -> std::io::Result<()> 
     use std::os::unix::ffi::OsStrExt;
     use std::os::unix::fs::PermissionsExt;
 
-    let name = CString::new(group)
-        .map_err(|_| std::io::Error::new(std::io::ErrorKind::InvalidInput, "group name has a NUL"))?;
+    let name = CString::new(group).map_err(|_| {
+        std::io::Error::new(std::io::ErrorKind::InvalidInput, "group name has a NUL")
+    })?;
     // getgrnam returns a pointer into a static buffer: read the gid out
     // immediately rather than holding it.
     let gid = unsafe {

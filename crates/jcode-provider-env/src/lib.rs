@@ -368,8 +368,14 @@ mod tests {
         // daemon started before the app switched policies actually reads.
         jcode_core::env::remove_var("JCODE_EXPLICIT_ACCOUNTS_ONLY");
         jcode_core::env::set_var("OPENROUTER_API_KEY", "sk-ambient-should-be-ignored");
-        assert!(persist_explicit_accounts_policy(), "first persist creates the file");
-        assert!(!persist_explicit_accounts_policy(), "second persist is a no-op");
+        assert!(
+            persist_explicit_accounts_policy(),
+            "first persist creates the file"
+        );
+        assert!(
+            !persist_explicit_accounts_policy(),
+            "second persist is a no-op"
+        );
         assert_eq!(
             load_api_key_from_env_or_config("OPENROUTER_API_KEY", "openrouter.env"),
             None,
@@ -379,8 +385,12 @@ mod tests {
 
         // A key added through the app lives in the config FILE — still found,
         // even with the flag on, so real accounts are untouched.
-        save_env_value_to_env_file("OPENROUTER_API_KEY", "openrouter.env", Some("sk-from-the-app"))
-            .expect("write config file");
+        save_env_value_to_env_file(
+            "OPENROUTER_API_KEY",
+            "openrouter.env",
+            Some("sk-from-the-app"),
+        )
+        .expect("write config file");
         // save_env_value_to_env_file also sets the process env; clear it so the
         // only remaining source is the file.
         jcode_core::env::remove_var("OPENROUTER_API_KEY");
