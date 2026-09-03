@@ -45,6 +45,13 @@ It is not an allowlist. It is a triage record so advisories are visible and acti
 - The same reconciliation updated the TypeScript SDK's `fast-uri` to 3.1.7
   and the browser helper's Playwright to 1.55.1. `npm audit` reports zero
   vulnerabilities in both package trees.
+- The jsonwebtoken 10.4 upgrade exposed an interoperability defect in its
+  generic JOSE header parser: Clerk's native session token includes a numeric
+  custom header, while the crate assumes every unknown value is a string. The
+  provisioning API now parses only `alg`, `kid`, and `crit`, ignores unknown
+  non-critical headers as JOSE specifies, and still delegates RS256 signature
+  verification to jsonwebtoken. A Clerk-shaped numeric-header regression test
+  protects the production path.
 - `RUSTSEC-2023-0086` (`lexical-core`) is no longer present in the lockfile as
   of the 2026-09-03 audit.
 - The provider/auth hardening work should continue independently of these dependency upgrades.

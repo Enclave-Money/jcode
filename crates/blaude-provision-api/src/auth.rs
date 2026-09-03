@@ -13,10 +13,13 @@
 
 use std::collections::HashMap;
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-use jsonwebtoken::{Algorithm, DecodingKey, Validation, decode, decode_header};
+use base64::Engine as _;
+use base64::engine::general_purpose::URL_SAFE_NO_PAD;
+use jsonwebtoken::{Algorithm, DecodingKey, crypto};
 use serde::Deserialize;
+use serde::de::DeserializeOwned;
 use tokio::sync::RwLock;
 
 /// The verified subject's primary email, from Clerk's Backend API.
@@ -84,7 +87,32 @@ struct Claims {
     email: Option<String>,
     #[serde(default)]
     azp: Option<String>,
-    exp: usize,
+    exp: u64,
+    #[serde(default)]
+    nbf: Option<u64>,
+}
+
+/// Only the JOSE fields this service understands.
+///
+/// Clerk includes a numeric custom header in native session tokens. Starting
+/// in jsonwebtoken 10.3, its public `Header` flattens every unknown field into
+/// `HashMap<String, String>` and therefore rejects that valid number before it
+/// can verify the signature. JOSE says unknown non-critical fields are to be
+/// ignored, so parse the narrow contract here and let jsonwebtoken perform the
+/// RS256 verification below.
+#[derive(Debug, Deserialize)]
+struct SessionHeader {
+    alg: Algorithm,
+    kid: Option<String>,
+    #[serde(default)]
+    crit: Vec<String>,
+}
+
+struct TokenParts<'a> {
+    header: SessionHeader,
+    encoded_claims: &'a str,
+    signature: &'a str,
+    signed: &'a str,
 }
 
 #[derive(Debug, Deserialize)]
@@ -209,33 +237,39 @@ impl Verifier {
             .filter(|s| !s.is_empty())
             .ok_or_else(|| "no sign-in was presented".to_string())?;
 
-        let header = decode_header(raw).map_err(|e| format!("not a readable token: {e}"))?;
-        let kid = header
+        let parts = parse_token(raw).map_err(|e| format!("not a readable token: {e}"))?;
+        if parts.header.alg != Algorithm::RS256 {
+            return Err("sign-in did not use RS256".into());
+        }
+        if !parts.header.crit.is_empty() {
+            return Err("sign-in uses unsupported critical JWT headers".into());
+        }
+        let kid = parts
+            .header
             .kid
             .ok_or_else(|| "token names no signing key".to_string())?;
         let key = self.key_for(&kid).await?;
 
-        let mut validation = Validation::new(Algorithm::RS256);
-        // These are Clerk SESSION tokens, not arbitrary JWT templates signed
-        // by the same instance. Requiring sid distinguishes that token class;
-        // checking iss prevents a future key/configuration mix-up from
-        // silently granting provisioning authority to a different instance.
-        validation.validate_aud = false;
-        validation.validate_nbf = true;
-        validation.set_issuer(&[self.issuer.as_str()]);
-        validation.required_spec_claims.insert("sub".into());
-        validation.required_spec_claims.insert("iss".into());
-        validation.required_spec_claims.insert("sid".into());
-        let token = decode::<Claims>(raw, &key, &validation)
-            .map_err(|e| format!("sign-in was not valid: {e}"))?;
+        let valid = crypto::verify(
+            parts.signature,
+            parts.signed.as_bytes(),
+            &key,
+            Algorithm::RS256,
+        )
+        .map_err(|e| format!("sign-in was not valid: {e}"))?;
+        if !valid {
+            return Err("sign-in was not valid: signature mismatch".into());
+        }
 
-        validate_session_claims(&token.claims, &self.authorized_parties)?;
+        let claims: Claims = decode_json_segment(parts.encoded_claims)
+            .map_err(|e| format!("sign-in claims were unreadable: {e}"))?;
+        validate_registered_claims(&claims, &self.issuer)?;
+        validate_session_claims(&claims, &self.authorized_parties)?;
 
         let caller = Caller {
-            subject: token.claims.sub,
-            email: token.claims.email.map(|e| e.to_ascii_lowercase()),
+            subject: claims.sub,
+            email: claims.email.map(|e| e.to_ascii_lowercase()),
         };
-        let _ = token.claims.exp; // enforced by `decode`; named so it reads as deliberate.
         Ok(caller)
     }
 
@@ -246,6 +280,58 @@ impl Verifier {
     pub fn ensure_allowed(&self, caller: &Caller) -> Result<(), String> {
         ensure_allowed_email(self.allowed_emails.as_deref(), caller)
     }
+}
+
+fn parse_token(raw: &str) -> Result<TokenParts<'_>, String> {
+    let (encoded_header, rest) = raw
+        .split_once('.')
+        .ok_or_else(|| "expected three JWT segments".to_string())?;
+    let (encoded_claims, signature) = rest
+        .split_once('.')
+        .ok_or_else(|| "expected three JWT segments".to_string())?;
+    if encoded_header.is_empty()
+        || encoded_claims.is_empty()
+        || signature.is_empty()
+        || signature.contains('.')
+    {
+        return Err("expected exactly three non-empty JWT segments".into());
+    }
+    let signed_len = encoded_header.len() + 1 + encoded_claims.len();
+    let header = decode_json_segment(encoded_header)?;
+    Ok(TokenParts {
+        header,
+        encoded_claims,
+        signature,
+        signed: &raw[..signed_len],
+    })
+}
+
+fn decode_json_segment<T: DeserializeOwned>(encoded: &str) -> Result<T, String> {
+    let decoded = URL_SAFE_NO_PAD
+        .decode(encoded)
+        .map_err(|error| format!("invalid base64url: {error}"))?;
+    serde_json::from_slice(&decoded).map_err(|error| format!("invalid JSON: {error}"))
+}
+
+fn validate_registered_claims(claims: &Claims, issuer: &str) -> Result<(), String> {
+    if claims.iss != issuer {
+        return Err("sign-in came from the wrong Clerk instance".into());
+    }
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_err(|_| "system clock is before the Unix epoch".to_string())?
+        .as_secs();
+    const CLOCK_SKEW: u64 = 60;
+    if claims.exp.saturating_add(CLOCK_SKEW) < now {
+        return Err("sign-in has expired".into());
+    }
+    if claims
+        .nbf
+        .is_some_and(|not_before| not_before > now.saturating_add(CLOCK_SKEW))
+    {
+        return Err("sign-in is not active yet".into());
+    }
+    Ok(())
 }
 
 fn issuer_for_jwks(jwks_url: &str) -> Result<String, String> {
@@ -297,7 +383,14 @@ fn ensure_allowed_email(allowed: Option<&[String]>, caller: &Caller) -> Result<(
 
 #[cfg(test)]
 mod tests {
-    use super::{Caller, Claims, ensure_allowed_email, issuer_for_jwks, validate_session_claims};
+    use base64::Engine as _;
+    use base64::engine::general_purpose::URL_SAFE_NO_PAD;
+    use jsonwebtoken::Algorithm;
+
+    use super::{
+        Caller, Claims, ensure_allowed_email, issuer_for_jwks, parse_token,
+        validate_registered_claims, validate_session_claims,
+    };
 
     fn claims() -> Claims {
         Claims {
@@ -306,8 +399,30 @@ mod tests {
             sid: "sess_123".into(),
             email: None,
             azp: None,
-            exp: usize::MAX,
+            exp: u64::MAX,
+            nbf: None,
         }
+    }
+
+    #[test]
+    fn clerk_numeric_custom_header_is_accepted() {
+        let header = URL_SAFE_NO_PAD
+            .encode(br#"{"alg":"RS256","kid":"clerk-key","typ":"JWT","v":1788445382}"#);
+        let payload = URL_SAFE_NO_PAD.encode(br#"{"sub":"user_123"}"#);
+        let raw = format!("{header}.{payload}.signature");
+        let parsed = parse_token(&raw).expect("Clerk-shaped header should parse");
+        assert_eq!(parsed.header.alg, Algorithm::RS256);
+        assert_eq!(parsed.header.kid.as_deref(), Some("clerk-key"));
+    }
+
+    #[test]
+    fn registered_claims_pin_issuer_and_time_window() {
+        let mut value = claims();
+        assert!(validate_registered_claims(&value, "https://clerk.example").is_ok());
+        assert!(validate_registered_claims(&value, "https://other.example").is_err());
+
+        value.exp = 0;
+        assert!(validate_registered_claims(&value, "https://clerk.example").is_err());
     }
 
     #[test]
