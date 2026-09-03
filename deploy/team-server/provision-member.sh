@@ -74,18 +74,17 @@ getent group "$DOOR_GROUP" >/dev/null || groupadd "$DOOR_GROUP"
 
 # The socket directory, recreated on every boot because /run is a tmpfs.
 #
-# 1771 root:$DOOR_GROUP — the door (in that group) reaches every room, and the
-# sticky bit stops one member's daemon deleting another's socket.
+# 1731 root:$GROUP — members (all in $GROUP) can CREATE their room's socket
+# and cookie here, the sticky bit stops one member's daemon deleting
+# another's, and group has no read so nobody can enumerate the rooms.
 #
-# The final 1 is execute-for-others, and it is load-bearing: a member must
-# traverse this directory to open its OWN X cookie, and at 1770 it could not,
-# so a browser the agent launched died with "Missing X server" while the
-# door's capture kept working — a screen you could watch but never draw on.
-# Traverse is not read: others still cannot LIST the directory, so no member
-# can enumerate the rooms, and every file inside is owner+door only. Isolation
-# rests on those per-file modes, which is why widening the directory is safe
-# and adding members to $DOOR_GROUP would not be — that would hand every
-# member every other member's cookie and socket.
+# The final 1 is execute-for-others, and it is load-bearing: the door is not
+# in $GROUP and reaches each socket by NAME, with per-file ACLs granting it —
+# and only it — access (audit R1: the old design instead ran every room
+# daemon with the door's gid via systemd Group=, which every agent subprocess
+# inherited, handing each member's agent every other room's socket and X
+# cookie; a process cannot drop a gid, so the gid must never be there).
+# Isolation rests on the per-file owner+ACL modes, not on this directory.
 # Browsers for testing, installed ONCE and shared read-only.
 #
 # The point of the room screen is to watch the app you just built actually
@@ -104,16 +103,22 @@ if [ ! -d "$PLAYWRIGHT_PATH/chromium-"* ] 2>/dev/null; then
 fi
 
 echo "==> socket directory '$SOCKET_DIR'"
-install -d -o root -g "$DOOR_GROUP" -m 1771 "$SOCKET_DIR"
-printf 'd %s 1771 root %s -\n' "$SOCKET_DIR" "$DOOR_GROUP" > /etc/tmpfiles.d/blaude.conf
+install -d -o root -g "$GROUP" -m 1731 "$SOCKET_DIR"
+printf 'd %s 1731 root %s -\n' "$SOCKET_DIR" "$GROUP" > /etc/tmpfiles.d/blaude.conf
 
-# The DOOR itself must be in the door group, or it cannot reach any room. The
-# door is whoever owns $DOOR_HOME.
+# The per-file door grants are ACLs, so setfacl must exist.
+command -v setfacl >/dev/null 2>&1 || apt-get install -y -q acl >/dev/null 2>&1 \
+  || { echo "error: setfacl is missing and could not be installed (apt package 'acl')" >&2; exit 1; }
+
+# The door is whoever owns $DOOR_HOME. Every room grants ITS OWN socket and X
+# cookie to this user by ACL, so without a name there is nothing to grant to
+# and every room would be unreachable — better to stop here than to build
+# rooms nobody can enter.
 DOOR_OWNER="$(stat -c %U "$DOOR_HOME" 2>/dev/null || true)"
-if [ -n "$DOOR_OWNER" ]; then
-  usermod -aG "$DOOR_GROUP" "$DOOR_OWNER"
-  echo "==> door '$DOOR_OWNER' added to '$DOOR_GROUP'"
-fi
+[ -n "$DOOR_OWNER" ] || { echo "error: cannot resolve the owner of $DOOR_HOME — pass --door-home" >&2; exit 1; }
+# Door-group membership is still what lets the door read each room's .jcode.
+usermod -aG "$DOOR_GROUP" "$DOOR_OWNER"
+echo "==> door '$DOOR_OWNER' (in '$DOOR_GROUP')"
 
 echo "==> user '$USER_NAME'"
 if id -u "$USER_NAME" >/dev/null 2>&1; then
@@ -221,14 +226,17 @@ After=network-online.target
 Wants=network-online.target
 
 [Service]
+# No Group= here, deliberately (audit R1). A systemd Group= is inherited by
+# every subprocess this daemon spawns — including the agent's own shell — and
+# with the door's gid that handed each member's agent every other room's
+# socket and X cookie. The daemon runs with only $USER_NAME's own groups;
+# files in the shared project still land in '$GROUP' because that directory
+# is setgid, and the door reaches this room's socket via the per-file ACL the
+# daemon sets itself.
 User=$USER_NAME
-# The DOOR's group, so the socket this daemon creates is reachable by the door
-# and by nobody else. Files in the shared project still land in the '$GROUP'
-# group, because that directory is setgid.
-Group=$DOOR_GROUP
 WorkingDirectory=$PROJECT
-# 0007: the socket comes out rw for the user and the door group, and closed to
-# everyone else. 0002 would have left it world-readable.
+# Files this daemon writes stay closed to group and other by default; the
+# daemon opens its socket to exactly the door user after binding.
 UMask=0007
 Environment=HOME=$HOME_DIR
 Environment=JCODE_RUNTIME_DIR=$HOME_DIR/.jcode/runtime
@@ -236,10 +244,10 @@ Environment=JCODE_RUNTIME_DIR=$HOME_DIR/.jcode/runtime
 # rather than both deriving it and hoping they match.
 Environment=JCODE_SOCKET=$SOCKET_DIR/$USER_NAME.sock
 # The daemon restricts its socket to owner-only AFTER binding, so a chmod from
-# here would race it and lose. This tells the daemon to open the socket to the
-# door's group itself — the door can reach every room, members can reach none
-# but their own.
-Environment=JCODE_SOCKET_GROUP=$DOOR_GROUP
+# here would race it and lose. This tells the daemon to grant the door's USER
+# by ACL itself — the door can reach every room, members can reach none
+# but their own, and no shared gid exists for an agent to inherit.
+Environment=JCODE_SOCKET_DOOR_USER=$DOOR_OWNER
 Environment=JCODE_IDLE_TIMEOUT_SECS=0
 Environment=JCODE_DEFERRED_AUTH_BOOTSTRAP=1
 # This process serves exactly one person, but the flag stays on: it also
@@ -290,10 +298,10 @@ UNIT
 # room's localhost. One display per room: two people testing at once must not
 # be looking at, or clicking in, the same browser.
 #
-# The X authority file gets the same treatment as the socket: 0640 owned by the
-# member and group-owned by the door, so the door can capture every room's
-# screen and members can capture none. An `-ac` display would have been simpler
-# and would let any local user screenshot any room.
+# The X authority file gets the same treatment as the socket: 0600 owned by
+# the member with an ACL read grant for the door, so the door can capture
+# every room's screen and members can capture none. An `-ac` display would
+# have been simpler and would let any local user screenshot any room.
 DISPLAY_NUM=$((90 + (UID_NUM % 100)))
 XAUTH="$SOCKET_DIR/$USER_NAME.Xauth"
 
@@ -303,18 +311,19 @@ Description=blaude desktop ($USER_NAME, display :$DISPLAY_NUM)
 After=network-online.target
 
 [Service]
+# No Group= (audit R1) — see the daemon unit. The door reads the cookie via
+# the ACL set below, which the file's owner may set with no group at all.
 User=$USER_NAME
-Group=$DOOR_GROUP
 UMask=0007
 Environment=HOME=$HOME_DIR
 Environment=DISPLAY=:$DISPLAY_NUM
 Environment=XAUTHORITY=$XAUTH
 WorkingDirectory=$PROJECT
 # A fresh cookie per start: a stale one silently denies every capture.
-# chmod AFTER xauth, not before: `xauth add` REWRITES the file and resets it
-# to 0600, silently undoing a chmod that ran first — leaving the door unable
+# setfacl AFTER xauth, not before: `xauth add` REWRITES the file and resets it
+# to 0600, silently dropping an ACL applied first — leaving the door unable
 # to read the cookie, and every capture failing with "unable to open X server".
-ExecStartPre=/bin/sh -c 'rm -f $XAUTH; xauth -f $XAUTH add :$DISPLAY_NUM . $(head -c 16 /dev/urandom | od -An -tx1 | tr -d " \n"); chgrp $DOOR_GROUP $XAUTH; chmod 0640 $XAUTH'
+ExecStartPre=/bin/sh -c 'rm -f $XAUTH; xauth -f $XAUTH add :$DISPLAY_NUM . $(head -c 16 /dev/urandom | od -An -tx1 | tr -d " \n"); setfacl -m u:$DOOR_OWNER:r $XAUTH'
 ExecStart=/usr/bin/Xvfb :$DISPLAY_NUM -screen 0 1920x1080x24 -auth $XAUTH
 Restart=always
 RestartSec=2
@@ -332,8 +341,8 @@ After=blaude-desktop@$USER_NAME.service
 Requires=blaude-desktop@$USER_NAME.service
 
 [Service]
+# No Group= (audit R1) — see the daemon unit.
 User=$USER_NAME
-Group=$DOOR_GROUP
 Environment=HOME=$HOME_DIR
 Environment=DISPLAY=:$DISPLAY_NUM
 Environment=XAUTHORITY=$XAUTH
@@ -641,6 +650,11 @@ systemctl enable --now blaude-provision-room.path >/dev/null 2>&1
 systemctl daemon-reload
 systemctl enable --now "blaude-daemon@$USER_NAME.service"
 systemctl enable --now "blaude-desktop@$USER_NAME.service" "blaude-wm@$USER_NAME.service"
+# Restart as well: `enable --now` leaves an already-running service on its OLD
+# unit file, so a re-provision would report success while every process kept
+# the door gid the rewrite just removed.
+systemctl restart "blaude-daemon@$USER_NAME.service" \
+  "blaude-desktop@$USER_NAME.service" "blaude-wm@$USER_NAME.service" 2>/dev/null || true
 
 # The room's daemon needs to know which display to launch browsers into, and
 # which port to serve on.

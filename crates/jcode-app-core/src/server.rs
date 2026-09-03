@@ -2309,26 +2309,54 @@ impl Server {
         // Opt-in by environment, so the default here and on every laptop stays
         // owner-only. Doing it from systemd instead raced this line and lost:
         // the daemon re-restricts the socket after binding.
-        match std::env::var("JCODE_SOCKET_GROUP")
+        // `JCODE_SOCKET_DOOR_USER` is the successor (audit R1): it grants the
+        // door's USER via an ACL, so the room daemon needs no shared gid at
+        // all — a gid would be inherited by every agent subprocess, handing
+        // each member's agent every other room's socket. The group variant
+        // remains for servers provisioned before the change.
+        let door_user = std::env::var("JCODE_SOCKET_DOOR_USER")
             .ok()
-            .filter(|group| !group.trim().is_empty())
-        {
-            Some(group) => {
-                for path in [&self.socket_path, &self.debug_socket_path] {
-                    if let Err(error) = crate::platform::share_socket_with_group(path, &group) {
+            .filter(|user| !user.trim().is_empty());
+        let group = std::env::var("JCODE_SOCKET_GROUP")
+            .ok()
+            .filter(|group| !group.trim().is_empty());
+        for path in [&self.socket_path, &self.debug_socket_path] {
+            let shared = match &door_user {
+                Some(user) => match crate::platform::share_socket_with_user(path, user) {
+                    Ok(()) => true,
+                    Err(error) => {
                         crate::logging::warn(&format!(
-                            "could not share {} with group {group}: {error}"
-                            , path.display()
+                            "could not share {} with user {user}: {error}",
+                            path.display()
                         ));
-                        // Fall back to owner-only rather than leaving the socket
-                        // at whatever the umask happened to produce.
-                        let _ = crate::platform::set_permissions_owner_only(path);
+                        false
                     }
-                }
-            }
-            None => {
-                let _ = crate::platform::set_permissions_owner_only(&self.socket_path);
-                let _ = crate::platform::set_permissions_owner_only(&self.debug_socket_path);
+                },
+                None => false,
+            };
+            let shared = shared
+                || match (&door_user, &group) {
+                    // The group fallback runs only when no door user was asked
+                    // for: on an R1-provisioned server this process has no
+                    // door gid, so chgrp would fail anyway — better a dead
+                    // socket the door cannot reach than one every member can.
+                    (None, Some(group)) => {
+                        match crate::platform::share_socket_with_group(path, group) {
+                            Ok(()) => true,
+                            Err(error) => {
+                                crate::logging::warn(&format!(
+                                    "could not share {} with group {group}: {error}",
+                                    path.display()
+                                ));
+                                false
+                            }
+                        }
+                    }
+                    _ => false,
+                };
+            if !shared {
+                // Owner-only rather than whatever the umask happened to produce.
+                let _ = crate::platform::set_permissions_owner_only(path);
             }
         }
 

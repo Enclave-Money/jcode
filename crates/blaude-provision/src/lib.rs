@@ -1102,7 +1102,7 @@ sudo apt-get update -q >/dev/null 2>&1 || true
 # the gitnexus indexer blaude-tools drives and for the browser helper; then
 # everything a room's screen is made of — Xvfb to render, ImageMagick to
 # capture, xdotool to click, ffmpeg to stream it.
-sudo apt-get install -y -q gh certbot nodejs npm xvfb x11-utils x11-xserver-utils imagemagick xdotool ffmpeg >/dev/null 2>&1 || true
+sudo apt-get install -y -q gh certbot nodejs npm xvfb x11-utils x11-xserver-utils imagemagick xdotool ffmpeg acl >/dev/null 2>&1 || true
 # A desktop environment, because a cloud image has none: no panel, no file
 # manager, nothing to click. openbox rides along as the fallback the session
 # unit uses if this install fails. Recommends off — xfce4 with them pulls in

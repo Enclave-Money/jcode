@@ -125,20 +125,101 @@ fi
 
 echo
 echo "--- 7. each member has their own daemon socket ---"
+SOCKET_DIR="/run/blaude"
 for m in "${MEMBERS[@]}"; do
   [ -n "$m" ] || continue
-  MHOME="$(getent passwd "$m" | cut -d: -f6)"
-  SOCK="$MHOME/.jcode/runtime/blaude.sock"
+  SOCK="$SOCKET_DIR/$m.sock"
   if [ -S "$SOCK" ]; then
     SMODE="$(stat -c '%a %U' "$SOCK")"
+    # With the door's ACL grant the group bits display the ACL mask, so 660
+    # owned by the member is the healthy shape; anything wider is not.
     case "$SMODE" in
-      6[0-7]0\ *) ok "$m has a private socket ($SMODE)" ;;
-      *) bad "$m socket has permissive mode ($SMODE)" ;;
+      "660 $m"|"600 $m") ok "$m has a private socket ($SMODE)" ;;
+      *) bad "$m socket is not private to $m ($SMODE)" ;;
     esac
   else
-    skip "$m has no running daemon socket"
+    skip "$m has no running daemon socket at $SOCK"
   fi
 done
+
+echo
+echo "--- 8. no room process carries the door's gid (audit R1) ---"
+# A gid on the daemon is inherited by every agent subprocess, so the door's
+# gid anywhere in a room's process is every other room's socket and cookie.
+DOOR_GID="$(getent group blaude-door 2>/dev/null | cut -d: -f3)"
+if [ -n "$DOOR_GID" ]; then
+  CHECKED=0
+  for m in "${MEMBERS[@]}"; do
+    [ -n "$m" ] || continue
+    MAINPID="$(systemctl show -p MainPID --value "blaude-daemon@$m.service" 2>/dev/null)"
+    [ -n "$MAINPID" ] && [ "$MAINPID" != "0" ] || { skip "$m daemon is not running"; continue; }
+    CHECKED=1
+    GIDS="$(awk '/^Gid:|^Groups:/ {for (i=2; i<=NF; i++) print $i}' "/proc/$MAINPID/status" | sort -u)"
+    if echo "$GIDS" | grep -qx "$DOOR_GID"; then
+      bad "$m daemon (pid $MAINPID) HOLDS the door gid $DOOR_GID — its agent reaches every room"
+    else
+      ok "$m daemon (pid $MAINPID) has no door gid"
+    fi
+  done
+  [ "$CHECKED" = "1" ] || skip "no running room daemons to inspect"
+else
+  skip "no blaude-door group on this box"
+fi
+
+echo
+echo "--- 9. cross-room reach: A must not open B's socket or cookie; the door must ---"
+DOOR_OWNER=""
+for u in $(getent group blaude-door 2>/dev/null | cut -d: -f4 | tr ',' ' '); do DOOR_OWNER="$u"; break; done
+try_connect() { # <as-user> <socket>  -> exit 0 if a connection succeeded
+  sudo -u "$1" python3 - "$2" <<'PYEOF'
+import socket, sys
+s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+s.settimeout(2)
+try:
+    s.connect(sys.argv[1])
+except Exception:
+    sys.exit(1)
+sys.exit(0)
+PYEOF
+}
+if [ -n "$A" ] && [ -n "$B" ]; then
+  for target in "$SOCKET_DIR/$B.sock" ; do
+    [ -S "$target" ] || { skip "$B has no socket to probe"; continue; }
+    if try_connect "$A" "$target" 2>/dev/null; then
+      bad "$A CONNECTED to $B's daemon socket"
+    else
+      ok "$A cannot connect to $B's daemon socket"
+    fi
+    # Positive control: the same probe from the door must succeed, or the
+    # denial above proves nothing (a dead socket refuses everyone).
+    if [ -n "$DOOR_OWNER" ]; then
+      if try_connect "$DOOR_OWNER" "$target" 2>/dev/null; then
+        ok "door '$DOOR_OWNER' can connect to $B's socket (probe is live)"
+      else
+        bad "door '$DOOR_OWNER' CANNOT connect to $B's socket — the room is unreachable"
+      fi
+    else
+      skip "no door user found for the positive control"
+    fi
+  done
+  XC="$SOCKET_DIR/$B.Xauth"
+  if [ -f "$XC" ]; then
+    if sudo -u "$A" cat "$XC" >/dev/null 2>&1; then
+      bad "$A CAN read $B's X cookie — their screen is watchable"
+    else
+      ok "$A cannot read $B's X cookie"
+    fi
+    if [ -n "$DOOR_OWNER" ]; then
+      sudo -u "$DOOR_OWNER" cat "$XC" >/dev/null 2>&1 \
+        && ok "door '$DOOR_OWNER' can read $B's X cookie (capture works)" \
+        || bad "door '$DOOR_OWNER' CANNOT read $B's X cookie — capture is broken"
+    fi
+  else
+    skip "$B has no X cookie to probe"
+  fi
+else
+  skip "cross-room reach (need two members)"
+fi
 
 echo
 echo "======================================"

@@ -64,6 +64,54 @@ pub fn share_socket_with_group(_path: &Path, _group: &str) -> std::io::Result<()
     ))
 }
 
+/// Open a socket to exactly ONE other local user, via a POSIX ACL.
+///
+/// The team-server split needs the public door's user to reach each room's
+/// socket. Doing that with a shared gid on the room daemon (systemd `Group=`)
+/// was audit finding R1: a gid is inherited by every subprocess, so each
+/// member's AGENT held the door group — and with it every other room's socket
+/// and X cookie. An unprivileged process cannot drop a gid, but a file's
+/// owner may always set ACLs on it, so this grants the door and nobody else
+/// while the daemon runs with no shared group at all.
+#[cfg(target_os = "linux")]
+pub fn share_socket_with_user(path: &Path, user: &str) -> std::io::Result<()> {
+    use std::os::unix::fs::PermissionsExt;
+    if user.is_empty()
+        || !user
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'_' | b'-'))
+        || user.starts_with('-')
+    {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            format!("not a plausible username: {user:?}"),
+        ));
+    }
+    // Close group/other first. setfacl recomputes the mask from the named
+    // entry it adds, so the door's grant survives while nothing else opens.
+    std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600))?;
+    let status = std::process::Command::new("setfacl")
+        .arg("-m")
+        .arg(format!("u:{user}:rw"))
+        .arg(path)
+        .status()?;
+    if status.success() {
+        Ok(())
+    } else {
+        Err(std::io::Error::other(format!(
+            "setfacl u:{user}:rw exited with {status}"
+        )))
+    }
+}
+
+#[cfg(not(target_os = "linux"))]
+pub fn share_socket_with_user(_path: &Path, _user: &str) -> std::io::Result<()> {
+    Err(std::io::Error::new(
+        std::io::ErrorKind::Unsupported,
+        "per-user socket ACLs are used only on Linux team servers",
+    ))
+}
+
 /// Set directory permissions to owner-only read/write/execute (0o700).
 /// Windows child objects inherit the same current-user-only access rule.
 pub fn set_directory_permissions_owner_only(path: &Path) -> std::io::Result<()> {

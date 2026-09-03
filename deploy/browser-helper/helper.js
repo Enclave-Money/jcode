@@ -22,7 +22,7 @@
 const readline = require('readline');
 const { chromium } = require('playwright');
 const detect = require('./detect');
-const { fillAndSubmit } = require('./fill');
+const { fillAndSubmit, safeOrigin } = require('./fill');
 
 let context = null;
 let idleTimer = null;
@@ -158,9 +158,22 @@ const commands = {
     return { ...(await loginHint(page)) };
   },
   // The privileged action. Its args carry the credential and are never logged.
+  //
+  // The fill happens ONLY in a freshly loaded document (audit V2). The agent
+  // has `eval`, so the page standing at approval time may carry a capture
+  // listener, a rogue form, or a beacon; typing into it hands the password to
+  // whoever scripted it. Navigating here — inside the one helper command,
+  // which the daemon serializes — drops every injected script and DOM change
+  // atomically with the typing: nothing can run between the reload and the
+  // fill, including a batched `eval` waiting on the daemon's mutex.
   async fill_and_submit(args) {
     const page = activePage(await ensureContext());
-    const creds = { username: args.username, password: args.password, totp: args.totp };
+    const target = args.url || page.url();
+    if (args.origin && safeOrigin(target) !== args.origin) {
+      return { outcome: 'origin_changed' };
+    }
+    await page.goto(target, { waitUntil: 'domcontentloaded', timeout: 30000 });
+    const creds = { username: args.username, password: args.password, totp: args.totp, origin: args.origin };
     return await fillAndSubmit(page, creds);
   },
   async close() {

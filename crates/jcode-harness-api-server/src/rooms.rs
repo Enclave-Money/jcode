@@ -64,8 +64,10 @@ impl Room {
 /// because it holds their Claude tokens, so the door could not reach a socket
 /// there; opening that directory up so it could would hand every member read
 /// access to every other member's credentials. The sockets therefore live in
-/// one directory of their own, each owned by its member and group-owned by the
-/// door's group, so the door can connect and other members cannot.
+/// one directory of their own, each owned by its member with an ACL granting
+/// exactly the door's user, so the door can connect and other members cannot.
+/// (A shared gid on the daemon was audit R1: every agent subprocess inherited
+/// it, which handed each member's agent every other room's socket.)
 ///
 /// `provision-member.sh` sets `JCODE_SOCKET` to this exact path, so the daemon
 /// and the door agree by construction rather than by both guessing.
@@ -125,21 +127,37 @@ pub fn daemon_socket(
     home_root: &Path,
     default_socket: &Path,
 ) -> PathBuf {
+    // The safe fallback for a room we cannot seat directly.
+    //
+    // NEVER the door's own daemon on a split server: it runs as the door user,
+    // who holds every room's X cookie, every member and owner bearer, the TLS
+    // key, and every member's OAuth tokens. Routing an unprovisioned member —
+    // or one whose room daemon is briefly down — there hands their agent all
+    // of it. The shared room's daemon runs as an UNPRIVILEGED room user
+    // (blaude-shared), so seat them there instead. The door's daemon is the
+    // fallback ONLY on an un-split server, where no room sockets exist and it
+    // is the single daemon everyone already shares.
+    let shared = room_socket(SHARED_USER);
     let user = match room {
         Room::Shared => SHARED_USER.to_string(),
         Room::Mine => match unix_user_for(identity, home_root) {
             Some(user) => user,
-            // Not provisioned: seat them in the shared room rather than
-            // failing the connection.
-            None => return default_socket.to_path_buf(),
+            // Not provisioned yet: the shared room, never the door.
+            None => return fallback_socket(shared.exists(), &shared, default_socket),
         },
     };
     let socket = room_socket(&user);
-    // A room whose daemon is not running must not black-hole the connection:
-    // fall back to the door's own daemon, which is the shared room in the
-    // un-split deployment.
     if socket.exists() {
         socket
+    } else {
+        fallback_socket(shared.exists(), &shared, default_socket)
+    }
+}
+
+/// Where to seat a connection we cannot route to its own room's daemon.
+fn fallback_socket(shared_exists: bool, shared: &Path, default_socket: &Path) -> PathBuf {
+    if shared_exists {
+        shared.to_path_buf()
     } else {
         default_socket.to_path_buf()
     }
@@ -148,6 +166,18 @@ pub fn daemon_socket(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// R2: on a split server (the shared room socket exists) the fallback is
+    /// the shared room's unprivileged daemon, never the door's own — the door
+    /// user holds every bearer, X cookie, TLS key and OAuth token. Only an
+    /// un-split server (no room sockets) falls back to the door.
+    #[test]
+    fn fallback_prefers_the_shared_room_over_the_door() {
+        let shared = Path::new("/run/blaude/blaude-shared.sock");
+        let door = Path::new("/run/blaude/door-own.sock");
+        assert_eq!(fallback_socket(true, shared, door), shared);
+        assert_eq!(fallback_socket(false, shared, door), door);
+    }
 
     #[test]
     fn an_absent_or_unknown_room_is_the_shared_one() {

@@ -12,7 +12,7 @@ function page(body) {
 }
 
 // origin session store: set once a correct credential posts.
-function makeServer(creds) {
+function makeServer(creds, opts = {}) {
   const received = [];
   const server = http.createServer((req, res) => {
     const url = new URL(req.url, 'http://localhost');
@@ -36,7 +36,10 @@ function makeServer(creds) {
           res.writeHead(302, { Location: '/app' }); return res.end();
         }
         if (url.pathname === '/u') {
-          // username-first step: stash and show password page
+          // username-first step. With opts.hopTo the "password step" lives on
+          // ANOTHER origin — the open-redirect / federated-IdP shape the fill
+          // must refuse to follow with the credential.
+          if (opts.hopTo) { res.writeHead(302, { Location: opts.hopTo }); return res.end(); }
           res.writeHead(200); return res.end(page(passwordForm(params.get('username') || '')));
         }
         if (url.pathname === '/blocked') {

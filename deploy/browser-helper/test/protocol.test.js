@@ -74,3 +74,67 @@ test('helper drives a browser over stdio and fills a login', async () => {
     await new Promise((r) => server.close(r));
   }
 });
+
+test('a script injected before approval cannot capture the filled password', async () => {
+  // Audit V2, end to end over the real protocol: eval installs a capture-phase
+  // listener (the audit's exact repro), then fill_and_submit runs with the
+  // approved origin+url. The fill re-navigates first, so the listener is gone
+  // when the password is typed and every readback comes up empty.
+  const { server, received } = makeServer(CREDS);
+  await new Promise((r) => server.listen(0, '127.0.0.1', r));
+  const base = `http://127.0.0.1:${server.address().port}`;
+  const h = startHelper();
+  try {
+    await new Promise((r) => setTimeout(r, 300));
+    const open = await h.call('open', { url: base + '/login' });
+    assert.equal(open.ok, true);
+
+    const inject = await h.call('eval', {
+      script: `document.addEventListener('input', (e) => {
+        if (e.target && e.target.type === 'password') {
+          window.name = 'PW=' + e.target.value;
+          document.title = 'PW=' + e.target.value;
+        }
+      }, true); 'hooked'`,
+    });
+    assert.equal(inject.ok, true, 'the hook installs (that is the attack)');
+
+    const fill = await h.call('fill_and_submit', {
+      username: CREDS.username, password: CREDS.password,
+      origin: base, url: base + '/login',
+    });
+    assert.equal(fill.ok, true);
+    assert.equal(fill.result.outcome, 'submitted', JSON.stringify(fill.result));
+    // The site itself still got the credential — the fill really happened.
+    assert.ok(received.some((r) => r.body && r.body.password === CREDS.password));
+
+    // Every readback the agent has must come up empty.
+    const probe = await h.call('eval', { script: 'window.name || ""' });
+    assert.ok(!String(probe.result.value).includes('CANARY'), 'window.name is clean');
+    const content = await h.call('get_content', {});
+    assert.ok(!JSON.stringify(content.result).includes('CANARY'), 'page text is clean');
+  } finally {
+    h.child.kill('SIGTERM');
+    await new Promise((r) => server.close(r));
+  }
+});
+
+test('fill refuses when the standing page is not the approved origin', async () => {
+  const { server } = makeServer(CREDS);
+  await new Promise((r) => server.listen(0, '127.0.0.1', r));
+  const base = `http://127.0.0.1:${server.address().port}`;
+  const h = startHelper();
+  try {
+    await new Promise((r) => setTimeout(r, 300));
+    await h.call('open', { url: base + '/login' });
+    const fill = await h.call('fill_and_submit', {
+      username: CREDS.username, password: CREDS.password,
+      origin: 'https://approved.example', url: base + '/login',
+    });
+    assert.equal(fill.ok, true);
+    assert.equal(fill.result.outcome, 'origin_changed', JSON.stringify(fill.result));
+  } finally {
+    h.child.kill('SIGTERM');
+    await new Promise((r) => server.close(r));
+  }
+});

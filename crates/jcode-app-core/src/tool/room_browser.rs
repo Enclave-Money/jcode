@@ -396,14 +396,14 @@ async fn fill_login(input: &Value, ctx: &ToolContext) -> Result<ToolOutput> {
     // whatever the browser did happen to be showing: approve site A, and if
     // the page was site B, site B got the password. Opening it first makes the
     // question and the page the same thing.
-    let origin = match field_str(input, "url") {
+    let (origin, login_url) = match field_str(input, "url") {
         Some(u) => {
             with_helper("open", json!({ "url": u })).await?;
-            live_origin().await.unwrap_or_else(|| {
-                origin_of(u).unwrap_or_else(|| u.to_string())
+            live_page().await.unwrap_or_else(|| {
+                (origin_of(u).unwrap_or_else(|| u.to_string()), u.to_string())
             })
         }
-        None => live_origin().await.unwrap_or_default(),
+        None => live_page().await.unwrap_or_default(),
     };
     if origin.is_empty() {
         return Ok(fill_result("no_item", "No origin to sign in to. Open the login page first."));
@@ -488,7 +488,18 @@ async fn fill_login(input: &Value, ctx: &ToolContext) -> Result<ToolOutput> {
 
     // Hand the credential to the helper for the single atomic fill. This is the
     // only place it exists in this process, and it never leaves this scope.
-    let mut fill_args = json!({ "username": username, "password": password });
+    //
+    // The approved origin and the login URL captured at approval time ride
+    // along: the helper RE-NAVIGATES to that URL inside this one serialized
+    // command before typing (dropping any script the agent injected while the
+    // person decided — audit V2), and the fill machine refuses to type on any
+    // origin but this one, even mid-flow after a redirect (audit V3).
+    let mut fill_args = json!({
+        "username": username,
+        "password": password,
+        "origin": origin,
+        "url": login_url,
+    });
     if let Some(totp) = answer.get("totp").and_then(|v| v.as_str()) {
         fill_args["totp"] = json!(totp);
     }
@@ -503,6 +514,9 @@ async fn fill_login(input: &Value, ctx: &ToolContext) -> Result<ToolOutput> {
             format!("Could not finish automatically ({reason}); the teammate can complete it on the screen.")
         }
         "unsupported_auth" => "This site needs a passkey, which cannot be filled remotely.".to_string(),
+        "origin_changed" => format!(
+            "The page left {origin} before the credential could be typed, so nothing was sent."
+        ),
         other => format!("Sign-in ended: {other}"),
     };
     // The result carries the outcome and reason ONLY — never the credential,
@@ -516,9 +530,16 @@ async fn fill_login(input: &Value, ctx: &ToolContext) -> Result<ToolOutput> {
 /// The origin of the page the room browser is ACTUALLY on, asked of the
 /// browser rather than inferred from what the model passed in.
 async fn live_origin() -> Option<String> {
+    live_page().await.map(|(origin, _)| origin)
+}
+
+/// The live page's (origin, full URL). The URL is what the fill re-opens
+/// after approval, so the credential is typed into a fresh document of the
+/// page the person was actually shown.
+async fn live_page() -> Option<(String, String)> {
     let hint = with_helper("detect_login", json!({})).await.ok()?;
     let url = hint.get("url").and_then(|v| v.as_str())?;
-    origin_of(url)
+    Some((origin_of(url)?, url.to_string()))
 }
 
 fn fill_result(outcome: &str, message: &str) -> ToolOutput {
@@ -556,6 +577,14 @@ mod tests {
         assert!(
             body[ask..fill].contains("origin_changed"),
             "a page that moved after approval must refuse, not redirect the credential"
+        );
+        // Audit V2/V3: the helper must receive the approved origin and login
+        // URL so it can re-navigate before typing and refuse mid-fill hops.
+        // The fill_args json! block sits between the approval and the call.
+        assert!(
+            body[ask..fill].contains(r#""origin": origin"#)
+                && body[ask..fill].contains(r#""url": login_url"#),
+            "fill_and_submit must carry the approved origin and login url"
         );
     }
 
