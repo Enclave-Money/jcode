@@ -12,9 +12,11 @@ Repositories reviewed from these starting points:
 
 The follow-up Rust fixes were committed as `34c1520`; dependency remediation
 and SDK parity fixes followed as `07350c3`, the Clerk JWT interoperability fix
-as `3c154f1`, and the audited crypto-backend selection as `cc919a1`. The native
-release commit is `c1ed337`. Cloud Run was redeployed and the native app was
-packaged as 0.2.98. The exact production and release acceptance evidence is
+as `3c154f1`, and the audited crypto-backend selection as `cc919a1`. A final
+dependency and dead-code cleanup was committed as `9402d89`. The corresponding
+native release commit is `6ed9654`; the website manifest commit is `dc1136d`.
+Cloud Run was redeployed from that final jcode state and the native app was
+packaged as 0.2.99. The exact production and release acceptance evidence is
 recorded at the end of this report.
 
 ## Architecture established before changing code
@@ -178,16 +180,17 @@ copied to a team VM or required on an end user's Mac.
    `anyhow` and `event-listener` to fixed releases. The six remaining paths
    require upstream ecosystem migrations and are tracked with their
    remediation order in `docs/SECURITY_DEPENDENCIES.md`.
-6. Release 0.2.98 is ad-hoc signed because this Mac has no Developer ID
+6. Release 0.2.99 is ad-hoc signed because this Mac has no Developer ID
    Application certificate or notarization identity. Its bytes and embedded
    signatures were verified, but users will still receive the macOS Gatekeeper
    warning until Developer ID signing is configured.
 
-## Final production verification
+## Production verification
 
 - Revision `blaude-provision-api-00011-r8s`, image digest
   `sha256:d5aaec6e5d55303ee119f1f7fa7c2646ec080d94f8e7efe3a402f583c04c2991`,
-  is serving 100% of Cloud Run traffic.
+  was the first fully accepted hardened revision. It was subsequently
+  superseded by the post-cleanup deployment below.
 - `/v1/health` returned HTTP 200 with the expected service response.
 - An unauthenticated, structurally valid create returned HTTP 401 with
   `no sign-in was presented`.
@@ -200,24 +203,41 @@ copied to a team VM or required on an end user's Mac.
   The shared `blaude-team-web` firewall rule created during the test was
   deleted and its absence was confirmed.
 
+### Post-cleanup revision 00012
+
+- Revision `blaude-provision-api-00012-hh7`, image digest
+  `sha256:25119a89fd4e963fca48e8e721c73002c12974ec816303f115b320171f7cc813`,
+  was built from jcode commit `9402d89` and serves 100% of Cloud Run traffic.
+- `/v1/health` returned HTTP 200. A structurally valid unauthenticated create
+  returned the expected HTTP 401 with `no sign-in was presented`.
+- The full application path passed on this exact revision: the signed-in local
+  runtime started and polled a disposable create job through the provisioning
+  API, the job reached ready, public TLS and authenticated websocket hello
+  succeeded, and a real 64,754-byte desktop frame arrived.
+- Delete through the same local-runtime/API path completed successfully.
+  Independent post-delete scans found no managed instance, disk, reserved
+  address, or acceptance IP, and the shared firewall rule was removed.
+- Revision 00012 had no severity-ERROR Cloud Run log entries after the full
+  lifecycle acceptance test.
+
 ## Final source and native release verification
 
-- `Enclave-Money/jcode`: production code commit `cc919a1`; both `master` and
-  `feat/api-ws-realtime` contain it and are advanced together with this
-  docs-only evidence update. The embedded native runtime was built from clean
-  dependency-remediation commit `07350c3` (the later commits change only the
-  separately deployed provisioning API, tests, and documentation).
-- `Enclave-Money/blaude-native`: release commit `c1ed337`.
-- `Enclave-Money/blaude-website`: release manifest commit `21633d8`.
+- `Enclave-Money/jcode`: production and embedded-runtime code commit `9402d89`;
+  both `master` and `feat/api-ws-realtime` contain it and are advanced together
+  with this docs-only evidence update.
+- `Enclave-Money/blaude-native`: release commit `6ed9654`.
+- `Enclave-Money/blaude-website`: release manifest commit `dc1136d`.
 - Public artifact:
-  `https://b3ujehubdmouneya.public.blob.vercel-storage.com/dmg/blaude-0.2.98-arm64.dmg`.
-- Artifact length: 57,664,766 bytes; SHA-256:
-  `00720b50d9ebe0d4df0f030d99fe9414a25c8623ff97c441de61bed198888010`.
+  `https://b3ujehubdmouneya.public.blob.vercel-storage.com/dmg/blaude-0.2.99-arm64.dmg`.
+- Artifact length: 57,674,304 bytes; SHA-256:
+  `89fd34043527428cd72199442932e15a4cb9a37b0cb38fd615751147abe2b43a`.
 - The public artifact was downloaded again and compared byte-for-byte with the
   locally accepted DMG.
-- The downloaded DMG mounted successfully, reported bundle version 0.2.98,
-  passed deep signature verification, and contained the clean-provenance
-  runtime `blaude v0.77.1-dev (07350c3)`.
-- The native executable was launched directly from a fresh download of the
-  public `/download` route, remained healthy for the ten-second acceptance
-  window, and was then closed and its temporary mount removed.
+- The accepted DMG mounted successfully, reported bundle version 0.2.99,
+  passed deep signature verification, contained a universal x86_64/arm64 app
+  executable with arm64 helpers, and embedded the clean-provenance runtime
+  `blaude v0.77.1-dev (9402d89)`.
+- The production release API reports 0.2.99 with the exact URL, byte length,
+  and digest above; `/download` redirects to that artifact. The explicit
+  production deployment is ready and aliased at
+  `https://blaude-website.vercel.app`.
