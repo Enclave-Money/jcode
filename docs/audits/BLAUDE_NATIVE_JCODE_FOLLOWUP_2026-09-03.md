@@ -241,3 +241,35 @@ copied to a team VM or required on an end user's Mac.
   and digest above; `/download` redirects to that artifact. The explicit
   production deployment is ready and aliased at
   `https://blaude-website.vercel.app`.
+
+## Post-audit stale-team UX follow-up
+
+On 2026-09-04, a GCE-deleted Banubear server exposed a native cleanup gap. The
+VM was absent, but its URL remained in the app's `BlaudeSavedTeamsJSON`, and
+the Environments sheet hid both recovery actions while that row was active.
+Reinstalling the bundle correctly preserved those preferences, so it could not
+clear the dead entry by itself.
+
+- `Enclave-Money/blaude-native` commit `14be75e` makes Forget and Delete
+  available on the active team row. Forget safely switches to This Mac, removes
+  URL-scoped and legacy credentials, clears the legacy fallback URL, and marks
+  the exact claimed invitation ticket declined so stale Clerk metadata cannot
+  attach the same dead server again. A genuinely new ticket remains eligible.
+- Delete continues to use the authenticated provisioning API. Its existing
+  idempotent `already_gone` result now provides a reachable reconciliation path
+  for servers removed outside the app, after which the same local cleanup runs.
+- The full macOS target built successfully and all 48 BlaudeKit tests passed.
+  A debug-only QA command reproduced Banubear as the active saved team, invoked
+  the exact Forget store path, and confirmed `runtimeLabel = Local`, team mode
+  false, an empty saved-team list, and absence of both current and legacy team
+  URL keys.
+- Release 0.2.100 was mounted and verified: deep signature validation passed,
+  the app executable is universal x86_64/arm64, helpers are arm64, and the
+  embedded runtime reports `blaude v0.77.1-dev (9402d89)`.
+- `Enclave-Money/blaude-website` commit `33071cc` publishes the 57,677,124-byte
+  artifact with SHA-256
+  `df06a10195bfef582c789f6f2713525f98d6a74bda58bf2635f37f6672ddcecf`.
+  Production deployment `dpl_Ec3JqM7AS1gHnYTVd5WWWKcDttKL` is ready;
+  `/api/releases/latest` and `/download` both resolve to 0.2.100.
+- The production 0.2.100 bundle is installed and running locally. Banubear is
+  absent from the saved environment list and the app is back on This Mac.
