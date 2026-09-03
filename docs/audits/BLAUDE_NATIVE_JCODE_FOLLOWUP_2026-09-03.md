@@ -180,3 +180,6 @@ copied to a team VM or required on an end user's Mac.
 - The downloaded DMG mounted successfully, reported bundle version 0.2.97,
   passed deep signature verification, and contained the clean-provenance
   runtime `blaude v0.77.1-dev (34c1520)`.
+- The native executable was launched directly from a fresh download of the
+  public `/download` route, remained healthy for the ten-second acceptance
+  window, and was then closed and its temporary mount removed.
