@@ -89,44 +89,6 @@ export type ApiRequest =
   | { req: "list_team_members" }
   | { req: "revoke_member"; email: string }
   | { req: "list_accounts"; provider: string }
-  /**
-   * One still frame of the workspace's screen. `max_width` asks the display
-   * box to downscale before sending, so a thumbnail never pulls the full
-   * render across the link.
-   */
-  | { req: "screen_frame"; max_width?: number }
-  | { req: "screen_stream_start" }
-  | { req: "screen_stream_stop" }
-  /** Sync the teammate's login index (no secrets) into their room. */
-  | { req: "vault_index_sync"; entries: unknown[] }
-  /** Answer a fill_approval. fill_credentials carries the secret straight to
-   * the waiting tool and is never logged; the others carry nothing. */
-  | {
-      req: "fill_credentials";
-      request_id: string;
-      username: string;
-      password: string;
-      item_id?: string;
-      totp?: string;
-    }
-  | { req: "fill_deny"; request_id: string }
-  | { req: "fill_needs_human"; request_id: string }
-  /**
-   * A click, key or scroll into the room's desktop. Coordinates are in the
-   * frame the user was looking at; send `frame_width` so a click on a
-   * thumbnail lands where they aimed on the full desktop.
-   */
-  | {
-      req: "screen_input";
-      kind: "click" | "move" | "text" | "key" | "scroll";
-      x?: number;
-      y?: number;
-      frame_width?: number;
-      button?: number;
-      text?: string;
-      key?: string;
-      amount?: number;
-    }
   | { req: "set_active_account"; provider: string; label: string }
   | { req: "archive_session"; session_id: string }
   | { req: "restore_session"; session_id: string }
@@ -393,13 +355,8 @@ export const KNOWN_EVENT_KINDS = [
   "login_run",
   "member_invited",
   "screen_frame",
-  "screen_input",
-  "screen_stream_start",
-  "screen_stream_stop",
-  "vault_index_sync",
-  "fill_credentials",
-  "fill_deny",
-  "fill_needs_human",
+  "screen_video",
+  "fill_approval",
   "team_create_status",
   "github_status",
   "blaude_account",
@@ -478,9 +435,6 @@ export const KNOWN_REQUEST_KINDS = [
   "list_team_members",
   "revoke_member",
   "list_accounts",
-  "screen_frame",
-  "screen_video",
-  "fill_approval",
   "set_active_account",
   "archive_session",
   "restore_session",

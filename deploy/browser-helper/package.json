@@ -4,11 +4,13 @@
   "private": true,
   "description": "Harness-owned Playwright browser for blaude rooms. Speaks JSON-lines over stdio to the room daemon; never opens a listening socket.",
   "type": "commonjs",
-  "bin": { "blaude-browser-helper": "helper.js" },
+  "bin": {
+    "blaude-browser-helper": "helper.js"
+  },
   "scripts": {
     "test": "node --test"
   },
   "dependencies": {
-    "playwright": "1.55.0"
+    "playwright": "1.55.1"
   }
 }

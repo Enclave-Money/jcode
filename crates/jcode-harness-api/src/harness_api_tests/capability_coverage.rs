@@ -28,6 +28,10 @@ enum Disposition {
     ClientInternal,
     /// A real gap. Worth exposing, not yet done. Every entry needs a reason
     /// that says what a client cannot build without it.
+    #[expect(
+        dead_code,
+        reason = "the ledger currently has no gaps, but this is its reviewed-gap state"
+    )]
     Gap(&'static str),
 }
 
