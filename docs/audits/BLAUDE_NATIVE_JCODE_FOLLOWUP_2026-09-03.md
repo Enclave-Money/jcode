@@ -10,10 +10,12 @@ Repositories reviewed from these starting points:
 - `Enclave-Money/blaude-native`, `main` commit
   `f87f5f04afa863b332ef6232764c57597e227080`.
 
-The follow-up Rust fixes were committed as `34c1520`; the native changes and
-version bump were committed as `030ae55`. Cloud Run was redeployed and the
-native app was packaged as 0.2.97. The exact production and release acceptance
-evidence is recorded at the end of this report.
+The follow-up Rust fixes were committed as `34c1520`; dependency remediation
+and SDK parity fixes followed as `07350c3`, the Clerk JWT interoperability fix
+as `3c154f1`, and the audited crypto-backend selection as `cc919a1`. The native
+release commit is `c1ed337`. Cloud Run was redeployed and the native app was
+packaged as 0.2.98. The exact production and release acceptance evidence is
+recorded at the end of this report.
 
 ## Architecture established before changing code
 
@@ -99,6 +101,25 @@ copied to a team VM or required on an end user's Mac.
 - Updated `h2` from 0.4.13 to 0.4.16 to resolve
   `RUSTSEC-2026-0258` (unbounded empty DATA frame handling).
 
+### Dependency and protocol follow-up
+
+- Reconciled all ten open GitHub Dependabot alerts. Patched versions are
+  `jsonwebtoken` 10.4.0, `tar` 0.4.46, `rand` 0.8.6, `cmov` 0.5.4,
+  `fast-uri` 3.1.7, and Playwright 1.55.1. GitHub closed every alert from the
+  updated dependency graph; none was dismissed.
+- Corrected a real TypeScript SDK schema drift found by its parity tests. The
+  stable public SDK no longer advertises private native bridge requests, and
+  its event/request tag lists now exactly match the Rust public API enums.
+- The first post-upgrade production lifecycle test found that jsonwebtoken's
+  generic header parser rejects Clerk's numeric custom JOSE header. The API
+  now parses only the understood `alg`, `kid`, and `crit` fields, ignores
+  unknown non-critical fields, and delegates RS256 verification to
+  jsonwebtoken's explicitly selected AWS-LC backend. It independently enforces
+  issuer, expiry, not-before, session identity, and authorized-party checks. A
+  Clerk-shaped regression test covers the exact numeric-header case. The
+  RustCrypto backend was tested and rejected because its RSA implementation
+  carries the unfixed `RUSTSEC-2023-0071` timing advisory.
+
 ## Verification evidence
 
 - Full Rust workspace run during this pass: 1,349 passed, 29 ignored.
@@ -112,6 +133,9 @@ copied to a team VM or required on an end user's Mac.
 - Security preflight with `cargo-audit` 0.22.2: passed with no untriaged
   vulnerabilities. The remaining maintenance/unsoundness warnings are tracked
   in `docs/SECURITY_DEPENDENCIES.md`.
+- TypeScript SDK: build plus 40 tests passed; browser helper: 19 tests passed.
+  `npm audit --audit-level=low` reports zero vulnerabilities in both trees.
+- GitHub Dependabot: ten open alerts before reconciliation, zero afterward.
 - BlaudeKit: 48 passed, 0 failed, including RFC 6238 TOTP vectors, transport
   lifecycle, wire snapshots, per-team token migration, and workspace state.
 - macOS Debug app build: succeeded. The only output was an SDK metadata
@@ -140,46 +164,49 @@ copied to a team VM or required on an end user's Mac.
 4. This pass did not repeat a live interrupt during an AI turn or the realtime
    flow with two separately signed-in humans. Those are release-level manual
    checks, not claims established by the automated suite.
-5. RustSec still reports ten non-failing maintenance, unsoundness, or yanked
+5. RustSec still reports nine non-failing maintenance, unsoundness, or yanked
    dependency warnings. Their dependency paths and remediation order are in
    `docs/SECURITY_DEPENDENCIES.md`.
-6. Release 0.2.97 is ad-hoc signed because this Mac has no Developer ID
+6. Release 0.2.98 is ad-hoc signed because this Mac has no Developer ID
    Application certificate or notarization identity. Its bytes and embedded
    signatures were verified, but users will still receive the macOS Gatekeeper
    warning until Developer ID signing is configured.
 
 ## Final production verification
 
-- Revision `blaude-provision-api-00008-zzj`, image
-  `asia-south1-docker.pkg.dev/enclave-money/blaude/blaude-provision-api:20260903-182650`,
+- Revision `blaude-provision-api-00011-r8s`, image digest
+  `sha256:d5aaec6e5d55303ee119f1f7fa7c2646ec080d94f8e7efe3a402f583c04c2991`,
   is serving 100% of Cloud Run traffic.
 - `/v1/health` returned HTTP 200 with the expected service response.
 - An unauthenticated, structurally valid create returned HTTP 401 with
   `no sign-in was presented`.
-- The full disposable lifecycle passed again on this exact revision:
-  authenticated create, two session-token renewals during provisioning,
-  TLS/websocket authentication, protocol hello, a real 64,795-byte desktop
-  JPEG, authenticated delete, and delete confirmation.
-- Revision 00008 had no severity-ERROR Cloud Run log entries after the test.
+- The full disposable lifecycle passed on this exact revision: authenticated
+  create, two session-token renewals during provisioning, TLS/websocket
+  authentication, protocol hello, a real 64,779-byte desktop JPEG,
+  authenticated delete, and delete confirmation.
+- Revision 00011 had no severity-ERROR Cloud Run log entries after the test.
 - Independent GCE scans found no blaude instance, disk, or reserved address.
   The shared `blaude-team-web` firewall rule created during the test was
   deleted and its absence was confirmed.
 
 ## Final source and native release verification
 
-- `Enclave-Money/jcode`: code commit `34c1520`; the audit report is committed
-  immediately after it so the exact evidence ships with the source.
-- `Enclave-Money/blaude-native`: release commit `030ae55`.
-- `Enclave-Money/blaude-website`: release manifest commit `4fbaefa`.
+- `Enclave-Money/jcode`: production code commit `cc919a1`; both `master` and
+  `feat/api-ws-realtime` contain it and are advanced together with this
+  docs-only evidence update. The embedded native runtime was built from clean
+  dependency-remediation commit `07350c3` (the later commits change only the
+  separately deployed provisioning API, tests, and documentation).
+- `Enclave-Money/blaude-native`: release commit `c1ed337`.
+- `Enclave-Money/blaude-website`: release manifest commit `21633d8`.
 - Public artifact:
-  `https://b3ujehubdmouneya.public.blob.vercel-storage.com/dmg/blaude-0.2.97-arm64.dmg`.
-- Artifact length: 57,668,670 bytes; SHA-256:
-  `9e277adf2cc3fff1c07152339c21701aff3fcea295b0f4b13e0652cf368a5ab7`.
+  `https://b3ujehubdmouneya.public.blob.vercel-storage.com/dmg/blaude-0.2.98-arm64.dmg`.
+- Artifact length: 57,664,766 bytes; SHA-256:
+  `00720b50d9ebe0d4df0f030d99fe9414a25c8623ff97c441de61bed198888010`.
 - The public artifact was downloaded again and compared byte-for-byte with the
   locally accepted DMG.
-- The downloaded DMG mounted successfully, reported bundle version 0.2.97,
+- The downloaded DMG mounted successfully, reported bundle version 0.2.98,
   passed deep signature verification, and contained the clean-provenance
-  runtime `blaude v0.77.1-dev (34c1520)`.
+  runtime `blaude v0.77.1-dev (07350c3)`.
 - The native executable was launched directly from a fresh download of the
   public `/download` route, remained healthy for the ten-second acceptance
   window, and was then closed and its temporary mount removed.
