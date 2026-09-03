@@ -91,13 +91,16 @@ async function looksPasskeyOnly(page) {
   } catch { return false; }
 }
 
-// Clear any password field on every path that is not a submit, so a captured
-// frame or a lingering DOM never contains typed characters (they are masked,
-// but the value is in the DOM). ALL frames, not just approved ones — the scrub
+// Clear any password OR one-time-code field on every path that is not a
+// submit, so a captured frame or a lingering DOM never contains typed
+// characters. Password inputs are masked but hold their value in the DOM; an
+// OTP input is not even masked, so its digits sit in plain view on the room's
+// streamed screen (audit V5). ALL frames, not just approved ones — the scrub
 // must reach a field wherever it is. Best-effort.
 async function scrubPasswords(page) {
+  const selector = `${PASSWORD_SELECTOR}, ${TOTP_SELECTORS.join(', ')}`;
   for (const frame of page.frames()) {
-    try { await frame.locator(PASSWORD_SELECTOR).evaluateAll((els) => els.forEach((e) => { e.value = ''; })); }
+    try { await frame.locator(selector).evaluateAll((els) => els.forEach((e) => { e.value = ''; })); }
     catch { /* ignore */ }
   }
 }
