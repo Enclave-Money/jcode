@@ -385,7 +385,7 @@ fn ensure_allowed_email(allowed: Option<&[String]>, caller: &Caller) -> Result<(
 mod tests {
     use base64::Engine as _;
     use base64::engine::general_purpose::URL_SAFE_NO_PAD;
-    use jsonwebtoken::Algorithm;
+    use jsonwebtoken::{Algorithm, DecodingKey, crypto};
 
     use super::{
         Caller, Claims, ensure_allowed_email, issuer_for_jwks, parse_token,
@@ -413,6 +413,17 @@ mod tests {
         let parsed = parse_token(&raw).expect("Clerk-shaped header should parse");
         assert_eq!(parsed.header.alg, Algorithm::RS256);
         assert_eq!(parsed.header.kid.as_deref(), Some("clerk-key"));
+    }
+
+    #[test]
+    fn rs256_crypto_provider_is_installed() {
+        // The 10.x crate has no default crypto backend. Calling the verifier
+        // used to panic only in production because parser-only tests never
+        // initialized it. The deliberately invalid key/signature may return
+        // an error, but reaching that error must not panic.
+        let key = DecodingKey::from_rsa_components("AQAB", "AQAB")
+            .expect("syntactically valid RSA components");
+        assert!(crypto::verify("not-base64", b"header.payload", &key, Algorithm::RS256).is_err());
     }
 
     #[test]

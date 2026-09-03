@@ -21,8 +21,9 @@ base64 = "0.22"
 # client token: presenting that one twice makes Clerk revoke the session.
 # Version 10.3 is the first patched line for GHSA-h395-gr6q-cpjc. Clerk's
 # numeric custom JOSE header is handled by our narrow parser in auth.rs before
-# this crate performs RS256 verification.
-jsonwebtoken = "10.3"
+# this crate performs RS256 verification. AWS-LC is selected explicitly;
+# RustCrypto currently pulls the unfixed RUSTSEC-2023-0071 `rsa` crate.
+jsonwebtoken = { version = "10.3", default-features = false, features = ["aws_lc_rs"] }
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "rustls-tls-native-roots"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }

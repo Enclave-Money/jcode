@@ -50,8 +50,10 @@ It is not an allowlist. It is a triage record so advisories are visible and acti
   custom header, while the crate assumes every unknown value is a string. The
   provisioning API now parses only `alg`, `kid`, and `crit`, ignores unknown
   non-critical headers as JOSE specifies, and still delegates RS256 signature
-  verification to jsonwebtoken. A Clerk-shaped numeric-header regression test
-  protects the production path.
+  verification to jsonwebtoken with its AWS-LC backend selected explicitly.
+  The RustCrypto backend was rejected because it introduces the unfixed
+  `RUSTSEC-2023-0071` RSA timing advisory. Clerk-shaped numeric-header and
+  live-verifier regression tests protect the production path.
 - `RUSTSEC-2023-0086` (`lexical-core`) is no longer present in the lockfile as
   of the 2026-09-03 audit.
 - The provider/auth hardening work should continue independently of these dependency upgrades.
