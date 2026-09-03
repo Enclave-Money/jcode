@@ -162,16 +162,19 @@ pub fn load_tls_acceptor(cert_path: &str, key_path: &str) -> Result<tokio_rustls
     // tree, so rustls cannot pick a provider implicitly. First caller wins;
     // an Err means one is already installed — fine either way.
     let _ = tokio_rustls::rustls::crypto::aws_lc_rs::default_provider().install_default();
-    let certs: Vec<_> = rustls_pemfile::certs(&mut std::io::BufReader::new(
-        std::fs::File::open(cert_path).with_context(|| format!("open {cert_path}"))?,
-    ))
-    .collect::<std::io::Result<_>>()
-    .with_context(|| format!("parse certs in {cert_path}"))?;
-    let key = rustls_pemfile::private_key(&mut std::io::BufReader::new(
-        std::fs::File::open(key_path).with_context(|| format!("open {key_path}"))?,
-    ))
-    .with_context(|| format!("parse key in {key_path}"))?
-    .ok_or_else(|| anyhow::anyhow!("no private key in {key_path}"))?;
+    use tokio_rustls::rustls::pki_types::{CertificateDer, PrivateKeyDer, pem::PemObject};
+
+    let cert_pem = std::fs::read(cert_path).with_context(|| format!("open {cert_path}"))?;
+    let certs: Vec<_> = CertificateDer::pem_slice_iter(&cert_pem)
+        .collect::<std::result::Result<_, _>>()
+        .with_context(|| format!("parse certs in {cert_path}"))?;
+    if certs.is_empty() {
+        anyhow::bail!("no certificates in {cert_path}");
+    }
+
+    let key_pem = std::fs::read(key_path).with_context(|| format!("open {key_path}"))?;
+    let key = PrivateKeyDer::from_pem_slice(&key_pem)
+        .with_context(|| format!("parse private key in {key_path}"))?;
     let config = tokio_rustls::rustls::ServerConfig::builder()
         .with_no_client_auth()
         .with_single_cert(certs, key)

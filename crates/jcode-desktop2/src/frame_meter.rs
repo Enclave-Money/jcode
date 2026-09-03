@@ -30,7 +30,7 @@
 //! span the hand actually feels: a 16ms interval on a 120Hz display is a
 //! dropped frame no matter how fast the three spans above were.
 
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
 /// Frames accumulated before a line is printed. About a quarter second of a
 /// 120Hz scroll, so a gesture produces a handful of lines rather than a wall.
@@ -171,11 +171,6 @@ impl FrameMeter {
         self.frames.clear();
     }
 }
-
-/// A 120Hz frame's budget. Exposed so callers can compare an interval against
-/// it without restating the constant.
-#[cfg_attr(not(test), allow(dead_code))]
-pub const FRAME_120HZ: Duration = Duration::from_micros(8_333);
 
 #[cfg(test)]
 mod tests {

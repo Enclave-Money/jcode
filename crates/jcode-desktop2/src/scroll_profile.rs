@@ -280,15 +280,15 @@ pub fn report(costs: &[PhaseCost]) -> bool {
     }
 
     let worst = costs.iter().max_by_key(|cost| cost.frame_us);
-    if let Some(worst) = worst {
-        if worst.frame_us > FRAME_BUDGET_US {
-            println!(
-                "  SLOW worst frame {:.2}ms over the {:.2}ms 120Hz budget at {} turns",
-                worst.frame_us as f64 / 1000.0,
-                FRAME_BUDGET_US as f64 / 1000.0,
-                worst.turns,
-            );
-        }
+    if let Some(worst) = worst
+        && worst.frame_us > FRAME_BUDGET_US
+    {
+        println!(
+            "  SLOW worst frame {:.2}ms over the {:.2}ms 120Hz budget at {} turns",
+            worst.frame_us as f64 / 1000.0,
+            FRAME_BUDGET_US as f64 / 1000.0,
+            worst.turns,
+        );
     }
     println!(
         "\n  measure: composer layout + cached transcript height, run twice per real frame.\n  \

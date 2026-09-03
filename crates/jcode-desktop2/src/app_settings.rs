@@ -129,13 +129,4 @@ impl App {
             .next_theme(crate::theme::system_prefers_dark());
         self.set_theme(next);
     }
-
-    /// Keep the two ways of changing the thinking display in step: the
-    /// Ctrl+Shift+R chord writes through the settings so the panel never shows
-    /// a stale value, and the choice survives a restart like any other.
-    pub(crate) fn set_reasoning_from_keyboard(&mut self, mode: crate::reasoning::ReasoningMode) {
-        self.model.settings.reasoning = mode;
-        self.model.transcript.set_reasoning_mode(mode);
-        self.model.settings.save();
-    }
 }

@@ -107,12 +107,6 @@ pub const DONUT_MIN_SIDE: f64 = 100.0;
 pub const GEAR_SIZE: f64 = 18.0;
 /// Sessions button size.
 pub const SESSIONS_SIZE: f64 = GEAR_SIZE;
-/// Radius of the gear's body, as a fraction of its box. The teeth and the hub
-/// are drawn around this, so the whole mark scales from one number.
-pub const GEAR_RADIUS: f64 = 0.30;
-/// Number of teeth. Six reads as a gear at 18 logical pixels; more turns into
-/// a blurred ring at this size.
-pub const GEAR_TEETH: usize = 6;
 /// The settings panel the gear opens: one row per setting, hanging under the
 /// gear and aligned to its trailing edge like any menu.
 pub const PANEL_WIDTH: f64 = 230.0;
@@ -613,16 +607,6 @@ impl Frame {
         vello::kurbo::Rect::new(panel.x0, top, panel.x1, top + PANEL_ROW_HEIGHT)
     }
 
-    /// The resume overlay's card: the whole floating surface, inset from the
-    /// window on all four sides so the conversation stays visible around it.
-    ///
-    /// An overlay rather than a page: the point of the picker is to choose the
-    /// next session *while still seeing the one you are in*, which is what a
-    /// full-screen list takes away.
-    pub fn resume_card(&self) -> vello::kurbo::Rect {
-        self.resume_card_for(usize::MAX)
-    }
-
     /// The card sized for a list of `rows`.
     ///
     /// A card taller than its content is furniture: it hides page for nothing
@@ -655,11 +639,6 @@ impl Frame {
         )
     }
 
-    /// The left panel: the search field and the list of projects and sessions.
-    pub fn resume_panel(&self) -> vello::kurbo::Rect {
-        self.resume_panel_for(usize::MAX)
-    }
-
     /// The left panel of a card sized for `rows`.
     pub fn resume_panel_for(&self, rows: usize) -> vello::kurbo::Rect {
         let card = self.resume_card_for(rows);
@@ -672,11 +651,6 @@ impl Frame {
         vello::kurbo::Rect::new(card.x0, card.y0, card.x0 + width, card.y1)
     }
 
-    /// The search field at the top of the panel.
-    pub fn resume_search(&self) -> vello::kurbo::Rect {
-        self.resume_search_for(usize::MAX)
-    }
-
     /// The search field of a card sized for `rows`.
     pub fn resume_search_for(&self, rows: usize) -> vello::kurbo::Rect {
         let panel = self.resume_panel_for(rows);
@@ -686,11 +660,6 @@ impl Frame {
             panel.x1 - RESUME_PAD,
             panel.y0 + RESUME_PAD + RESUME_SEARCH_HEIGHT,
         )
-    }
-
-    /// The list region under the search field.
-    pub fn resume_list(&self) -> vello::kurbo::Rect {
-        self.resume_list_for(usize::MAX)
     }
 
     /// The list region of a card sized for `rows`.
@@ -705,21 +674,10 @@ impl Frame {
         )
     }
 
-    /// How many rows the list can show at once. At least one, so a tiny window
-    /// still shows the row the highlight is on.
-    pub fn resume_visible_rows(&self) -> usize {
-        self.resume_visible_rows_for(usize::MAX)
-    }
-
     /// How many rows a card sized for `rows` can show.
     pub fn resume_visible_rows_for(&self, rows: usize) -> usize {
         let list = self.resume_list_for(rows);
         ((list.height() / RESUME_ROW_HEIGHT) as usize).max(1)
-    }
-
-    /// The band of the `index`th *visible* row, for its highlight and text.
-    pub fn resume_row(&self, index: usize) -> vello::kurbo::Rect {
-        self.resume_row_for(usize::MAX, index)
     }
 
     /// The band of one visible row of a card sized for `rows`.
@@ -741,12 +699,6 @@ impl Frame {
         }
         let index = ((y - list.y0) / RESUME_ROW_HEIGHT) as usize;
         (index < self.resume_visible_rows_for(rows)).then_some(index)
-    }
-
-    /// The preview column, to the right of the panel, or `None` when the
-    /// window is too narrow to hold both.
-    pub fn resume_preview(&self) -> Option<vello::kurbo::Rect> {
-        self.resume_preview_for(usize::MAX)
     }
 
     /// The preview column of a card sized for `rows`.

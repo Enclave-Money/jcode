@@ -75,6 +75,10 @@ fn test_prompt_entry_bg_color_pulses_then_fades() {
 
 #[test]
 fn test_prompt_entry_shimmer_color_moves_across_positions() {
+    // The animation is continuous truecolor. In a 256-color test environment,
+    // nearby highlights can legitimately quantize to the same palette entry,
+    // making this movement assertion depend on whichever terminal ran tests.
+    jcode_tui_style::color::pin_truecolor_for_tests();
     let base = user_text();
     let left_early = prompt_entry_shimmer_color(base, 0.1, 0.1);
     let right_early = prompt_entry_shimmer_color(base, 0.9, 0.1);

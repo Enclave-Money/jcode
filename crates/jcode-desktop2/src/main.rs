@@ -107,6 +107,8 @@ fn main() -> Result<()> {
     Ok(())
 }
 
+type ResumeScanChannel = (Sender<Vec<resume::Record>>, Receiver<Vec<resume::Record>>);
+
 struct App {
     /// Reloadable Scene/Model/App callback generation. The allocation around
     /// this dispatcher is the stable host and survives every activation.
@@ -146,7 +148,7 @@ struct App {
     /// Its own channel rather than the harness one: a scan is local disk work
     /// with no daemon involved, and routing it through the connection would
     /// mean a disconnected window could not list its own history.
-    resume_scans: Option<(Sender<Vec<resume::Record>>, Receiver<Vec<resume::Record>>)>,
+    resume_scans: Option<ResumeScanChannel>,
     clipboard: clipboard::Clipboard,
     /// Images pasted into the composer, waiting for the next submission.
     ///
@@ -1790,16 +1792,6 @@ impl App {
                 self.toggle_theme();
                 let label = self.model.settings.value(crate::settings::Row::Theme);
                 self.model.set_notice(format!("theme: {label}"));
-            }
-
-            // A view choice, applied live: the notice is the only feedback the
-            // user gets when the mode change has no immediate visible effect
-            // (nothing is thinking right now).
-            Action::CycleReasoningDisplay => {
-                let next = self.model.transcript.reasoning_mode().cycle();
-                self.set_reasoning_from_keyboard(next);
-                self.model
-                    .set_notice(format!("reasoning display: {}", next.label()));
             }
 
             Action::ManualReload => selfdev_reload::request(),

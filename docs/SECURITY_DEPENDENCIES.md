@@ -10,33 +10,39 @@ It is not an allowlist. It is a triage record so advisories are visible and acti
 | Advisory | Crate | Dependency path | Affected area in blaude | Triage | Planned action |
 |---|---|---|---|---|---|
 | `RUSTSEC-2025-0141` | `bincode` | `syntect -> bincode` | Markdown/code highlighting in the TUI | Unmaintained transitive dependency. No direct exposure in the provider/auth flow. | Track `syntect` upgrades or replace `syntect` if upstream does not move off `bincode` soon. |
-| `RUSTSEC-2024-0436` | `paste` | `ratatui -> paste`, `tokenizers -> paste`, `tract-* -> paste` | TUI rendering, tokenizers, embedding/model support | Widely transitive. Not isolated to one module. | Prefer upstream dependency upgrades before any local workaround. Re-evaluate after bumping `ratatui`, `tokenizers`, and `tract-*`. |
-| `RUSTSEC-2026-0253` | `lru` | `ratatui -> lru` | TUI rendering/cache internals | Potential use-after-free when `LruCache::pop()` panics. Not in auth/provider logic, but still ships in-process. | Upgrade `ratatui` / `ratatui-image` together once compatible. |
+| `RUSTSEC-2024-0436` | `paste` | `tokenizers -> macro_rules_attribute -> paste` | Embedding/tokenizer support | Unmaintained transitive proc macro. | Upgrade or replace `tokenizers` when its dependency graph moves off `paste`. |
+| `RUSTSEC-2026-0253` | `lru` 0.16.4 | `ratatui 0.30 -> ratatui-core 0.1 -> lru` | TUI rendering/cache internals | Potential use-after-free when `LruCache::pop()` panics. Not in auth/provider logic, but still ships in-process. The fixed `lru >=0.18.2` is outside `ratatui-core`'s current `^0.16` constraint. | Upgrade `ratatui` / `ratatui-image` together when the upstream graph permits `lru >=0.18.2`. |
 | `RUSTSEC-2026-0141` | `lettre` | `jcode-notify-email -> lettre` | Notification email sending | Vulnerability applies to the Boring TLS backend hostname verification path. blaude's `lettre` dependency uses rustls/native-tls features, not `boring-tls`, so this is not believed exploitable in the current build. | Keep ignored in `scripts/security_preflight.sh`; remove ignore after `lettre` ships a patched release or if feature use changes. |
 | `RUSTSEC-2026-0098` | `rustls-webpki` | `rustls` dependency stack | TLS certificate validation in rustls consumers | Name constraints for URI names incorrectly accepted. Transitive via TLS libraries. | Upgrade rustls/webpki stack when compatible releases are available. |
 | `RUSTSEC-2026-0099` | `rustls-webpki` | `rustls` dependency stack | TLS certificate validation in rustls consumers | Name constraints accepted for wildcard certificates. Transitive via TLS libraries. | Upgrade rustls/webpki stack when compatible releases are available. |
 | `RUSTSEC-2026-0104` | `rustls-webpki` | `rustls` dependency stack | TLS certificate revocation list parsing | Reachable panic in CRL parsing. Transitive via TLS libraries. | Upgrade rustls/webpki stack when compatible releases are available. |
 | `RUSTSEC-2026-0049` | `rustls-webpki` | `rustls` dependency stack (`aws-smithy` rustls 0.21, `imap`/`rustls-connector` rustls 0.22) | TLS certificate revocation list handling | CRLs not considered authoritative by Distribution Point due to faulty matching logic. Transitive via the older rustls stacks; fix needs rustls-webpki >=0.103.10, which requires major bumps of the `aws-sdk`/`imap` stacks. | Upgrade rustls/webpki stack when compatible releases are available. |
-| `RUSTSEC-2026-0187` | `lopdf` | `jcode-pdf -> pdf-extract 0.8.2 -> lopdf 0.34` | PDF text extraction (`/pdf`, image/PDF reads) | Stack overflow parsing deeply nested PDF objects. Only reached when extracting text from a (potentially malicious) PDF the user opens; not in the auth/provider/network path. `pdf-extract 0.8.2` pins `lopdf 0.34`, so it cannot be bumped to the fixed `>=0.42` without an upstream `pdf-extract` release. | Upgrade once `pdf-extract` ships a release depending on `lopdf >=0.42`; remove the ignore then. |
-| `RUSTSEC-2025-0134` | `rustls-pemfile` | TLS dependency stack | PEM parsing at TLS setup boundaries | Unmaintained warning, not a reported vulnerability. | Move to `rustls-pki-types` PEM APIs as direct dependants permit. |
 | `RUSTSEC-2026-0206` | `rustybuzz` | `resvg` / TUI image stack | SVG/text rendering | Unmaintained warning in presentation code. | Upgrade the SVG rendering stack together. |
-| `RUSTSEC-2026-0192` | `ttf-parser` | font and SVG rendering stack | Font parsing/rendering | Unmaintained warning in presentation code. | Upgrade the font/rendering stack together. |
-| `RUSTSEC-2026-0190` | `anyhow` 1.0.100 | broad direct dependency | Error downcasting | Unsound `Error::downcast_mut()` warning. The affected API is not intentionally used, but the crate is pervasive. | Upgrade `anyhow` after verifying the workspace's MSRV and full test matrix. |
-| `RUSTSEC-2026-0221` | `event-listener` 5.4.1 | async dependency stack | async synchronization | Unsoundness warning involving custom `!Send` tags. | Upgrade the async dependency stack when a compatible fixed release resolves in the lockfile. |
-| yanked | `chacha20` 0.10.0 | transitive cryptography dependency | cryptographic primitive dependency | The locked release is yanked; RustSec does not classify this as a vulnerability. | Follow the upstream dependency that selects it and move to a non-yanked release. |
+| `RUSTSEC-2026-0192` | `ttf-parser` | `fontdb`, `usvg` / `rustybuzz`, and `lopdf` | Font parsing/rendering and PDF extraction | Unmaintained warning across the rendering stack. | Upgrade or replace the font, SVG, and PDF rendering stack together. |
+| yanked | `chacha20` 0.10.0 | `rand 0.10.2`, selected by `lopdf`, `tract`, and Azure SDK dependencies | cryptographic primitive dependency | The locked release is yanked; RustSec does not classify this as a vulnerability. The latest compatible `rand` still selects it. | Follow the upstream `rand` dependency and move as soon as it selects a non-yanked release. |
 
 ## Priority order
 
 1. `rustls-webpki` TLS advisories via rustls stack
-2. `anyhow` and `event-listener` unsoundness warnings because they are broad in the graph
-3. `lettre` if blaude ever enables `boring-tls`
-4. `lru` via `ratatui`
-5. `bincode`, `rustls-pemfile`, `rustybuzz`, and `ttf-parser` maintenance migrations
-6. `paste` and the yanked `chacha20` via multiple transitive dependencies
+2. `lettre` if blaude ever enables `boring-tls`
+3. `lru` via `ratatui`
+4. `bincode`, `rustybuzz`, and `ttf-parser` maintenance migrations
+5. `paste` and the yanked `chacha20` via transitive dependencies
 
 ## Notes
 
 - None of the advisories above were introduced by the provider-auth refactor.
+- `RUSTSEC-2025-0134` (`rustls-pemfile`) was removed from the TLS setup path on
+  2026-09-03. The harness now uses rustls' maintained `rustls-pki-types` PEM
+  APIs directly, with the existing end-to-end WSS test covering certificate
+  and private-key loading.
+- `RUSTSEC-2026-0190` (`anyhow`) and `RUSTSEC-2026-0221`
+  (`event-listener`) were resolved by updating to 1.0.104 and 5.4.2
+  respectively. The compatible lockfile refresh also moved `rand` to 0.10.2;
+  that release still selects the yanked `chacha20` 0.10.0.
+- `RUSTSEC-2026-0187` (`lopdf`) was resolved by the earlier move to
+  `pdf-extract` 0.12.0 / `lopdf` 0.42.0; the stale open row was removed during
+  this reconciliation.
 - `RUSTSEC-2026-0258` (`h2` unbounded empty DATA frames) was found by the
   2026-09-03 audit and resolved by updating `h2` from 0.4.13 to 0.4.16.
 - GitHub Dependabot reconciliation on 2026-09-03 updated `jsonwebtoken` to

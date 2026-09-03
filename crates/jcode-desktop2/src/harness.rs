@@ -698,6 +698,36 @@ fn run(
     Ok(())
 }
 
+/// A session-list entry, sized for the overview.
+fn to_entry(session: jcode_sdk::SessionInfo) -> crate::strip::Panel {
+    crate::strip::Panel {
+        session_id: session.session_id,
+        title: session.title,
+        working_dir: session.working_dir,
+        busy: session.status == "busy",
+        // The overview sizes a blob by how much conversation the session
+        // holds; a session the server could not measure is drawn at the floor
+        // rather than dropped.
+        weight: session.transcript_bytes.unwrap_or(0) as f64,
+    }
+}
+
+/// Stored history as a transcript the overview can preview.
+fn to_transcript(messages: Vec<jcode_sdk::HistoryMessage>) -> crate::transcript::Transcript {
+    let mut transcript = crate::transcript::Transcript::default();
+    for message in messages {
+        let text = message.content.trim();
+        if text.is_empty() {
+            continue;
+        }
+        transcript.push(match message.role.as_str() {
+            "user" => crate::transcript::Message::user(text),
+            _ => crate::transcript::Message::assistant(text),
+        });
+    }
+    transcript
+}
+
 #[cfg(test)]
 mod command_sender_tests {
     use super::*;
@@ -747,34 +777,4 @@ mod command_sender_tests {
             "New must not wait in the FIFO queue"
         );
     }
-}
-
-/// A session-list entry, sized for the overview.
-fn to_entry(session: jcode_sdk::SessionInfo) -> crate::strip::Panel {
-    crate::strip::Panel {
-        session_id: session.session_id,
-        title: session.title,
-        working_dir: session.working_dir,
-        busy: session.status == "busy",
-        // The overview sizes a blob by how much conversation the session
-        // holds; a session the server could not measure is drawn at the floor
-        // rather than dropped.
-        weight: session.transcript_bytes.unwrap_or(0) as f64,
-    }
-}
-
-/// Stored history as a transcript the overview can preview.
-fn to_transcript(messages: Vec<jcode_sdk::HistoryMessage>) -> crate::transcript::Transcript {
-    let mut transcript = crate::transcript::Transcript::default();
-    for message in messages {
-        let text = message.content.trim();
-        if text.is_empty() {
-            continue;
-        }
-        transcript.push(match message.role.as_str() {
-            "user" => crate::transcript::Message::user(text),
-            _ => crate::transcript::Message::assistant(text),
-        });
-    }
-    transcript
 }

@@ -10,10 +10,18 @@
 use ratatui::backend::{Backend, CrosstermBackend};
 use ratatui::buffer::Cell;
 use ratatui::style::Color;
+use std::sync::Once;
+
+static ENABLE_ANSI: Once = Once::new();
 
 /// Drive the backend to draw a single cell with the given fg color and return
 /// the raw bytes it emitted to the writer.
 fn emitted_bytes_for(fg: Color) -> Vec<u8> {
+    // This test inspects color escape sequences, so its result must not depend
+    // on the developer/CI process setting NO_COLOR. The integration-test
+    // binary contains only these two color-wire tests; enabling ANSI once is
+    // therefore deterministic and cannot leak into unrelated test binaries.
+    ENABLE_ANSI.call_once(|| crossterm::style::force_color_output(true));
     let mut out: Vec<u8> = Vec::new();
     {
         let mut backend = CrosstermBackend::new(&mut out);

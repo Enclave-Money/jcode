@@ -50,8 +50,8 @@ pub fn area(frame: &crate::layout::Frame) -> (f64, f64, f64, f64) {
     // away from it. Caps keep the panel readable on a large monitor, while the
     // fractions make it gracefully fill a small window without touching its
     // edges.
-    let width = (frame.width * 0.84).min(960.0).max(1.0);
-    let height = (frame.height * 0.68).min(620.0).max(1.0);
+    let width = (frame.width * 0.84).clamp(1.0, 960.0);
+    let height = (frame.height * 0.68).clamp(1.0, 620.0);
     let left = (frame.width - width) / 2.0;
     let top = (frame.height - height) / 2.0;
     (left, top, left + width, top + height)

@@ -45,9 +45,7 @@ const IMAGE_TYPES: [&str; 4] = ["image/png", "image/jpeg", "image/webp", "image/
 /// cheap call instead of a failed transfer, and so the type we report is the one
 /// the source actually published rather than something we inferred.
 pub fn from_wayland() -> Option<Image> {
-    if std::env::var_os("WAYLAND_DISPLAY").is_none() {
-        return None;
-    }
+    std::env::var_os("WAYLAND_DISPLAY")?;
     let listed = std::process::Command::new("wl-paste")
         .arg("--list-types")
         .output()
@@ -56,11 +54,7 @@ pub fn from_wayland() -> Option<Image> {
         return None;
     }
     let offered = String::from_utf8_lossy(&listed.stdout);
-    let media_type = IMAGE_TYPES.into_iter().find(|wanted| {
-        offered
-            .lines()
-            .any(|offered| offered.trim().eq_ignore_ascii_case(wanted))
-    })?;
+    let media_type = preferred_type(offered.lines())?;
     // `--no-newline` matters: wl-paste appends one by default, and a trailing
     // byte past IEND is corruption for some decoders.
     let read = std::process::Command::new("wl-paste")

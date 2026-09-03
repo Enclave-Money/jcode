@@ -168,10 +168,6 @@ pub enum Action {
     /// action rather than a pointer-only control.
     ToggleModelPicker,
 
-    /// Cycle how much of the model's thinking the transcript keeps (`current`
-    /// -> `full` -> `off`). This remains available from the settings panel.
-    CycleReasoningDisplay,
-
     /// Ctrl+Shift+R: activate changed application code inside the stable native host.
     /// Deliberately global, so it works even while an overlay owns the keyboard.
     ManualReload,

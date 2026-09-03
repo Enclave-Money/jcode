@@ -632,9 +632,9 @@ fn list_councils(app: &mut App) {
 /// row carries a single benign option (so the picker's option navigation is
 /// happy) and a `Council` action that turns council mode on when selected.
 #[cfg(test)]
-pub(crate) fn non_council_entries<'a>(
-    picker: &'a crate::tui::InlineInteractiveState,
-) -> Vec<&'a crate::tui::PickerEntry> {
+pub(crate) fn non_council_entries(
+    picker: &crate::tui::InlineInteractiveState,
+) -> Vec<&crate::tui::PickerEntry> {
     picker
         .entries
         .iter()
@@ -5126,7 +5126,7 @@ mod picker_order_tests {
 
     #[test]
     fn models_browse_newest_first_after_current_and_favorite_pins() {
-        let mut entries = vec![
+        let mut entries = [
             entry("old-plain", false, false, Some(1_600_000_000)),
             entry("undated", false, false, None),
             entry("new-plain", false, false, Some(1_780_000_000)),

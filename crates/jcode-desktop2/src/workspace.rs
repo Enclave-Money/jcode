@@ -15,7 +15,6 @@
 /// Focused columns occupy most, but not all, of the viewport. The remaining
 /// strip is split between the adjacent sessions so they are always
 /// discoverable.
-const COLUMN_FRACTION: f64 = 0.76;
 const COLUMN_FRACTION_UNITS: u16 = 760;
 const MIN_COLUMN_FRACTION_UNITS: u16 = 400;
 const MAX_COLUMN_FRACTION_UNITS: u16 = 1000;
@@ -315,16 +314,6 @@ fn row_columns(
         .collect()
 }
 
-/// Native pixel width used to build a session page. A row of one session
-/// keeps the legacy full-window layout; a wider row reserves enough edge
-/// space for both neighboring columns.
-pub fn column_width(viewport_width: u32, session_count: usize) -> u32 {
-    if session_count <= 1 {
-        return viewport_width;
-    }
-    ((f64::from(viewport_width) * COLUMN_FRACTION).round() as u32).clamp(1, viewport_width.max(1))
-}
-
 /// Resolve the strip into camera columns: the focused working-dir group as
 /// the current row, plus the departing group while a vertical slide runs.
 ///
@@ -442,9 +431,10 @@ mod tests {
 
     #[test]
     fn a_single_session_keeps_the_legacy_full_width() {
-        assert_eq!(column_width(1000, 0), 1000);
-        assert_eq!(column_width(1000, 1), 1000);
-        assert_eq!(column_width(1000, 3), 760);
+        let workspace = Workspace::default();
+        assert_eq!(workspace.column_width(1000, 0), 1000);
+        assert_eq!(workspace.column_width(1000, 1), 1000);
+        assert_eq!(workspace.column_width(1000, 3), 760);
     }
 
     #[test]

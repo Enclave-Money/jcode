@@ -59,18 +59,6 @@ fn compact_version_label(version: &str) -> String {
     }
 }
 
-/// Version label for a `server:`/`client:` header line. Normally compact
-/// (semver only); keeps the git-hash suffix when the two sides share a semver
-/// but differ by build, so the mismatch is still visible at a glance.
-#[cfg(test)]
-fn header_version_label(version: &str, include_hash: bool) -> String {
-    if include_hash {
-        version.trim().to_string()
-    } else {
-        compact_version_label(version)
-    }
-}
-
 fn format_model_name(short: &str, provider_name: &str) -> String {
     if short.contains('/') {
         // Slashed model ids (e.g. `nvidia/nemotron-...`) are served by the

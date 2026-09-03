@@ -34,6 +34,7 @@ const DEFAULT_DISCOVERY_ENDPOINT: &str = "https://api.jcode.sh/v1/discovery";
 static TELEMETRY_PERMANENTLY_REJECTED: AtomicBool = AtomicBool::new(false);
 static TELEMETRY_QUEUE_OVERFLOW_WARNED: AtomicBool = AtomicBool::new(false);
 static TELEMETRY_BACKGROUND_SENDER: OnceLock<SyncSender<Value>> = OnceLock::new();
+#[cfg(not(test))]
 static TRANSCRIPT_BACKGROUND_SENDER: OnceLock<SyncSender<Value>> = OnceLock::new();
 static TELEMETRY_HTTP_CLIENT: OnceLock<reqwest::blocking::Client> = OnceLock::new();
 #[cfg(test)]
@@ -1289,6 +1290,7 @@ fn post_payload(payload: serde_json::Value, timeout: Duration) -> bool {
     }
 }
 
+#[cfg(not(test))]
 fn post_transcript_payload(payload: serde_json::Value, timeout: Duration) -> bool {
     let client = TELEMETRY_HTTP_CLIENT.get_or_init(|| {
         reqwest::blocking::Client::builder()
@@ -1345,6 +1347,7 @@ fn background_sender() -> &'static SyncSender<Value> {
     })
 }
 
+#[cfg(not(test))]
 fn transcript_background_sender() -> &'static SyncSender<Value> {
     TRANSCRIPT_BACKGROUND_SENDER.get_or_init(|| {
         spawn_background_worker(64, |payload| {
@@ -1360,7 +1363,7 @@ fn send_transcript_payload(payload: Value) -> bool {
         if let Ok(mut emitted) = TEST_EMITTED_PAYLOADS.lock() {
             emitted.push(payload);
         }
-        return true;
+        true
     }
     #[cfg(not(test))]
     match transcript_background_sender().try_send(payload) {

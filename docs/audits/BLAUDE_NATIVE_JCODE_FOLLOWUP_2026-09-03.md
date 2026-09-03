@@ -53,7 +53,7 @@ copied to a team VM or required on an end user's Mac.
 | Escape/interrupt | The one-request-per-keypress and cancellation path is covered by code/tests. A live AI turn was not available for a fresh manual interrupt retest because no disposable team was given a user AI account. |
 | Thinking collapsed by default | Confirmed in the native state/rendering changes and successful app build. |
 | Screen/vault/1Password audit | Confirmed the previously remediated critical paths and completed additional fixes listed below. TOTP stays on the Mac and passes RFC 6238 SHA-1 vectors. |
-| Concision/dead code | Removed one compiler-confirmed unused implementation (`brief::refresh_index`) and resolved strict Clippy findings. The repository's graph-pruning wrapper truncated its own JSON output, while a direct bounded graph query produced false positives, so no speculative bulk deletion was performed. |
+| Concision/dead code | Removed `brief::refresh_index` plus compiler-confirmed stale desktop actions, settings glue, layout wrappers, constants, and duplicate workspace helpers. Reused the tested Wayland MIME selector in production and removed test-only helpers with no callers. The intentional binary/cdylib module duplication is documented at its include boundary; no speculative graph-based bulk deletion was performed. |
 | Claude Code version drift | The 2.1.259 claim and drift tests are present. |
 
 ## Additional defects found and fixed
@@ -100,6 +100,9 @@ copied to a team VM or required on an end user's Mac.
   per-team tokens currently use `UserDefaults`, not Keychain.
 - Updated `h2` from 0.4.13 to 0.4.16 to resolve
   `RUSTSEC-2026-0258` (unbounded empty DATA frame handling).
+- Removed the unmaintained `rustls-pemfile` dependency in favor of rustls'
+  maintained `rustls-pki-types` PEM API, and updated `anyhow` and
+  `event-listener` to releases that resolve their RustSec unsoundness warnings.
 
 ### Dependency and protocol follow-up
 
@@ -123,11 +126,17 @@ copied to a team VM or required on an end user's Mac.
 ## Verification evidence
 
 - Full Rust workspace run during this pass: 1,349 passed, 29 ignored.
+- Post-cleanup affected-package matrix: 4,129 passed, 124 ignored across
+  desktop (library and binary targets), TUI, setup hints, telemetry, transport,
+  provider runtime, harness, and provisioning. This includes a redirected
+  ANSI wire test with `NO_COLOR=1`, so its color assertions no longer depend
+  on the invoking shell.
 - Focused post-hardening Rust run: 156 passed, 1 ignored across
   `blaude-provision`, `blaude-provision-api`, and the harness.
 - Fast Rust suite: 238 passed.
-- Strict all-target Clippy on the app core, harness, provisioning library, and
-  provisioning API: passed.
+- Strict all-target Clippy with warnings denied across desktop, TUI, SDK,
+  math, setup hints, telemetry, transport, provider runtime, harness, and both
+  provisioning crates: passed.
 - `cargo fmt --all -- --check`, `git diff --check`, and deployment/preflight
   shell syntax checks: passed.
 - Security preflight with `cargo-audit` 0.22.2: passed with no untriaged
@@ -164,9 +173,11 @@ copied to a team VM or required on an end user's Mac.
 4. This pass did not repeat a live interrupt during an AI turn or the realtime
    flow with two separately signed-in humans. Those are release-level manual
    checks, not claims established by the automated suite.
-5. RustSec still reports nine non-failing maintenance, unsoundness, or yanked
-   dependency warnings. Their dependency paths and remediation order are in
-   `docs/SECURITY_DEPENDENCIES.md`.
+5. RustSec reports six non-failing maintenance, unsoundness, or yanked
+   dependency warnings after this pass removed `rustls-pemfile` and updated
+   `anyhow` and `event-listener` to fixed releases. The six remaining paths
+   require upstream ecosystem migrations and are tracked with their
+   remediation order in `docs/SECURITY_DEPENDENCIES.md`.
 6. Release 0.2.98 is ad-hoc signed because this Mac has no Developer ID
    Application certificate or notarization identity. Its bytes and embedded
    signatures were verified, but users will still receive the macOS Gatekeeper

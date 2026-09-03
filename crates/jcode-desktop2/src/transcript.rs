@@ -1241,11 +1241,13 @@ pub fn lay_out_message_reusing(
             text,
             layout_source,
             layout_spans,
-            (width - inset * 2.0).max(1.0),
-            style,
-            Palette { theme, tint },
-            scale,
-            &inline_math,
+            RichLayoutOptions {
+                width: (width - inset * 2.0).max(1.0),
+                style,
+                palette: Palette { theme, tint },
+                scale,
+                inline_math: &inline_math,
+            },
         );
         fresh += 1;
         let mut height = if let Some(formula) = math.as_ref() {
@@ -2213,16 +2215,27 @@ impl Palette<'_> {
     }
 }
 
-pub fn layout_rich(
+struct RichLayoutOptions<'a> {
+    width: f64,
+    style: ParagraphStyle,
+    palette: Palette<'a>,
+    scale: f64,
+    inline_math: &'a [crate::math::Formula],
+}
+
+fn layout_rich(
     text: &mut TextSystem,
     source: &str,
     spans: &[SpanStyle],
-    width: f64,
-    style: ParagraphStyle,
-    palette: Palette<'_>,
-    scale: f64,
-    inline_math: &[crate::math::Formula],
+    options: RichLayoutOptions<'_>,
 ) -> Layout<Brush> {
+    let RichLayoutOptions {
+        width,
+        style,
+        palette,
+        scale,
+        inline_math,
+    } = options;
     text.layout_rich(source, width as f32, style, scale, &mut |builder| {
         let mut math_id = 0usize;
         for span in spans {

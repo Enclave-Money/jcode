@@ -429,27 +429,27 @@ impl<'a> MathLayoutEngine<'a> {
         // A big operator is set larger in display style, and centred on the
         // math axis rather than sitting on the baseline: that vertical centring
         // is what makes a displayed sum look right next to its limits.
-        if class == AtomClass::Op && context.style.is_display() {
-            if let Some(ch) = text.chars().next() {
-                if let Some(glyph) = self.face.display_variant(ch) {
-                    let size = context.size(&self.constants);
-                    let axis = self.constants.axis_height * size;
-                    let half = (glyph.ascent - glyph.descent) / 2.0 * size;
-                    let shift = half - axis;
-                    let boxed = LayoutBox {
-                        width: glyph.advance * size,
-                        ascent: glyph.ascent * size - shift,
-                        descent: glyph.descent * size + shift,
-                        items: vec![Item::Glyph(PlacedGlyph {
-                            id: glyph.id,
-                            x: 0.0,
-                            y: shift,
-                            size,
-                        })],
-                    };
-                    return Atom { class, boxed };
-                }
-            }
+        if class == AtomClass::Op
+            && context.style.is_display()
+            && let Some(ch) = text.chars().next()
+            && let Some(glyph) = self.face.display_variant(ch)
+        {
+            let size = context.size(&self.constants);
+            let axis = self.constants.axis_height * size;
+            let half = (glyph.ascent - glyph.descent) / 2.0 * size;
+            let shift = half - axis;
+            let boxed = LayoutBox {
+                width: glyph.advance * size,
+                ascent: glyph.ascent * size - shift,
+                descent: glyph.descent * size + shift,
+                items: vec![Item::Glyph(PlacedGlyph {
+                    id: glyph.id,
+                    x: 0.0,
+                    y: shift,
+                    size,
+                })],
+            };
+            return Atom { class, boxed };
         }
         Atom {
             class,

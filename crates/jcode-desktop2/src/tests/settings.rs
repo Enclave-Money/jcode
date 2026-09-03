@@ -223,19 +223,6 @@ fn escape_shuts_the_panel_before_touching_anything_else() {
 }
 
 #[test]
-fn the_thinking_chord_and_the_panel_agree() {
-    // Two ways to change one setting must not disagree, or the panel would
-    // show a value the transcript is not using.
-    let mut app = app();
-    app.apply(Action::CycleReasoningDisplay, None);
-    assert_eq!(
-        app.model.settings.reasoning,
-        app.model.transcript.reasoning_mode(),
-        "the chord changed the transcript behind the panel's back"
-    );
-}
-
-#[test]
 fn hovering_walks_the_rows_and_stops_at_the_edge() {
     let mut app = app();
     app.model.panel.open();
