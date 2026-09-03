@@ -74,6 +74,13 @@ fn anthropic_auth_token_selects_bearer_without_affecting_explicit_profile_auth()
 #[test]
 fn named_profile_runtime_captures_transport_and_credential_immutably() {
     let _lock = jcode_base::storage::lock_test_env();
+    // A fresh JCODE_HOME: this test reads its credential from the ambient
+    // environment, which the explicit-accounts-only policy refuses — and that
+    // policy is a persisted marker in the REAL config dir, so without
+    // isolation the test's outcome depends on whether the person running it
+    // has opted in on this machine.
+    let _home = tempfile::TempDir::new().expect("temp home");
+    let _home_guard = EnvVarGuard::set("JCODE_HOME", _home.path());
     let _base = EnvVarGuard::set("JCODE_ANTHROPIC_API_BASE", "https://one.example/v1");
     let _auth = EnvVarGuard::set("JCODE_ANTHROPIC_AUTH", "bearer");
     let _key_name = EnvVarGuard::set("JCODE_ANTHROPIC_API_KEY_NAME", "PROFILE_ONE_KEY");
@@ -2221,4 +2228,28 @@ fn an_expired_token_is_a_miss_even_for_its_own_member() {
         member: Some("alice@example.com".to_string()),
     };
     assert!(!stale.usable_by(&Some("alice@example.com".to_string()), now));
+}
+
+/// The claimed Claude Code version must agree everywhere it is embedded.
+///
+/// It lives as a literal in three crates (user-agent, billing header, OAuth
+/// preflight app_version), and when they drifted the API rejected every turn
+/// on newer models with claude_code_version_too_old while the other two
+/// strings still looked plausible. Extract the version from each string and
+/// require one answer.
+#[test]
+fn claimed_claude_code_version_is_the_same_everywhere() {
+    let ua = jcode_base::provider::anthropic::CLAUDE_CLI_USER_AGENT;
+    let ua_version = ua
+        .strip_prefix("claude-cli/")
+        .and_then(|rest| rest.split_whitespace().next())
+        .expect("user agent shaped like claude-cli/<version> …");
+    let billing = jcode_provider_anthropic::OAUTH_BILLING_HEADER;
+    let billing_version = billing
+        .split("cc_version=")
+        .nth(1)
+        .and_then(|rest| rest.split(';').next())
+        .expect("billing header carries cc_version=<version>;");
+    assert_eq!(ua_version, super::CLAUDE_CODE_APP_VERSION);
+    assert_eq!(billing_version, super::CLAUDE_CODE_APP_VERSION);
 }

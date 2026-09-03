@@ -231,6 +231,16 @@ struct OAuthEvalRequest {
     url: String,
 }
 
+/// The Claude Code version this client claims to be.
+///
+/// The API enforces a minimum client version per model ("Claude Code 2.1.123
+/// does not support this model; version 2.1.251 or newer is required", error
+/// code claude_code_version_too_old, seen 3 Sep 2026) — a stale claim bricks
+/// every turn on newer models. Must agree with the versions embedded in
+/// `jcode_base`'s `CLAUDE_CLI_USER_AGENT` and `jcode_provider_anthropic`'s
+/// `OAUTH_BILLING_HEADER`; a test below fails if the three drift.
+const CLAUDE_CODE_APP_VERSION: &str = "2.1.259";
+
 #[derive(Serialize)]
 struct OAuthEvalAttributes {
     id: String,
@@ -415,7 +425,7 @@ async fn ensure_oauth_preflight(
             rate_limit_tier: "default_claude_ai".to_string(),
             first_token_time: 1_740_976_801_491,
             email: email_address,
-            app_version: "2.1.123".to_string(),
+            app_version: CLAUDE_CODE_APP_VERSION.to_string(),
         },
         forced_variations: Default::default(),
         forced_features: Vec::new(),
