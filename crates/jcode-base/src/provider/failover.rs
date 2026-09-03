@@ -62,7 +62,36 @@ impl MultiProvider {
     }
 
     pub(super) fn no_provider_available_error(&self, notes: &[String]) -> anyhow::Error {
-        let mut msg = "No tokens/providers left: no usable provider right now. Anthropic/OpenAI usage may be exhausted and GitHub Copilot is not authenticated or currently unavailable.".to_string();
+        // Two very different situations used to share one message.
+        //
+        // "Nothing is signed in anywhere" was reported as "usage may be
+        // exhausted", followed by seven providers each saying "not
+        // configured" and an instruction to run `/usage` and
+        // `/login <provider>` — terminal commands a teammate on someone
+        // else's team server does not have. A member sent "Hi" three times,
+        // read that, and reasonably concluded the app was stuck.
+        //
+        // So say which one it is, and give advice the reader can act on
+        // from where they are.
+        let nothing_configured =
+            !notes.is_empty() && notes.iter().all(|note| note.ends_with(": not configured"));
+        let on_a_team_server = !jcode_provider_core::env_credential_fallback_allowed();
+
+        if nothing_configured {
+            let msg = if on_a_team_server {
+                "No AI account on this team yet, so there is nothing to answer with. \
+                 Add your Claude account in Settings, Accounts — or ask whoever set \
+                 the team up to add theirs."
+            } else {
+                "No AI account is signed in, so there is nothing to answer with. \
+                 Add your Claude account in Settings, Accounts."
+            };
+            return anyhow::anyhow!(msg);
+        }
+
+        let mut msg = "Every AI account is out of reach right now — usage may be used up, \
+                       or a sign-in may have expired."
+            .to_string();
         if !notes.is_empty() {
             msg.push_str(" Details: ");
             msg.push_str(&notes.join(" | "));
@@ -72,7 +101,11 @@ impl MultiProvider {
             msg.push(' ');
             msg.push_str(&extra_guidance.join(" "));
         }
-        msg.push_str(" Use `/usage` to check limits and `/login <provider>` to re-authenticate.");
+        msg.push_str(if on_a_team_server {
+            " Check the accounts on this team in Settings, Accounts."
+        } else {
+            " Use `/usage` to check limits and `/login <provider>` to re-authenticate."
+        });
         anyhow::anyhow!(msg)
     }
 }

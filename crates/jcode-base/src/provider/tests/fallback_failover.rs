@@ -314,9 +314,74 @@ fn test_no_provider_error_mentions_tokens_and_details() {
         "GitHub Copilot: not configured".to_string(),
     ]);
     let text = err.to_string();
-    assert!(text.contains("No tokens/providers left"));
+    // A mixed picture (something rate-limited, something absent) is the
+    // "out of reach" case and keeps its per-provider detail.
+    assert!(text.contains("usage may be used up"), "{text}");
     assert!(text.contains("OpenAI: rate limited"));
     assert!(text.contains("GitHub Copilot: not configured"));
+}
+
+/// When NOTHING is signed in, say that — do not report it as exhausted usage.
+///
+/// A teammate on a team server with no AI account sent three messages and got
+/// "No tokens/providers left ... usage may be exhausted ... Use `/usage` and
+/// `/login <provider>`": jargon, a wrong cause, and two terminal commands she
+/// had no way to run. The message must name the real situation and point at
+/// the place she can actually fix it.
+#[test]
+fn test_no_account_anywhere_says_so_without_terminal_commands() {
+    let provider = MultiProvider {
+        claude: RwLock::new(None),
+        anthropic: RwLock::new(None),
+        openai: RwLock::new(None),
+        copilot_api: RwLock::new(None),
+        antigravity: RwLock::new(None),
+        gemini: RwLock::new(None),
+        cursor: RwLock::new(None),
+        bedrock: RwLock::new(None),
+        openrouter: RwLock::new(None),
+        openai_compatible_profiles: RwLock::new(std::collections::HashMap::new()),
+        active_openai_compatible_profile: RwLock::new(None),
+        active: RwLock::new(ActiveProvider::Claude),
+        use_claude_cli: false,
+        startup_notices: RwLock::new(Vec::new()),
+        initial_provider: None,
+        routes_memo: std::sync::Mutex::new(None),
+        post_auth_refreshes_pending: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
+    };
+    let err = provider.no_provider_available_error(&[
+        "Anthropic: not configured".to_string(),
+        "OpenAI: not configured".to_string(),
+        "Gemini: not configured".to_string(),
+    ]);
+    let text = err.to_string();
+    assert!(text.contains("No AI account"), "{text}");
+    assert!(
+        !text.contains("exhausted") && !text.contains("used up"),
+        "must not blame usage when nothing was ever signed in: {text}"
+    );
+    assert!(
+        !text.contains("/login") && !text.contains("/usage"),
+        "must not tell an app user to run terminal commands: {text}"
+    );
+    // The seven-way "not configured" litany is noise once the headline says
+    // there is no account at all.
+    assert!(!text.contains("Details:"), "{text}");
+
+    // On a TEAM SERVER (the case that produced the report) the reader may not
+    // be the person who can add an account, so name the other way out.
+    let _lock = crate::storage::lock_test_env();
+    let had = std::env::var_os("JCODE_SERVER_MODE");
+    unsafe { std::env::set_var("JCODE_SERVER_MODE", "1") };
+    let team_text = provider
+        .no_provider_available_error(&["Anthropic: not configured".to_string()])
+        .to_string();
+    match had {
+        Some(value) => unsafe { std::env::set_var("JCODE_SERVER_MODE", value) },
+        None => unsafe { std::env::remove_var("JCODE_SERVER_MODE") },
+    }
+    assert!(team_text.contains("team"), "{team_text}");
+    assert!(!team_text.contains("/login"), "{team_text}");
 }
 
 /// Regression for issue #358: after switching to a direct OpenAI-compatible
