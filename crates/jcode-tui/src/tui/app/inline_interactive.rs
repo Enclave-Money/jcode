@@ -853,10 +853,15 @@ impl App {
         picker: &mut InlineInteractiveState,
         configured: Option<&str>,
     ) {
+        // The subagent picker reuses the `/model` entries, which blaude heads
+        // with saved councils and the "New council…" row. A subagent runs one
+        // model, so those rows must not be relabelled as model choices.
         picker.entries.retain(|entry| {
             !matches!(
                 entry.action,
                 PickerAction::SubagentModelChoice { inherit: true }
+                    | PickerAction::Council { .. }
+                    | PickerAction::CouncilCreate
             )
         });
         for entry in &mut picker.entries {

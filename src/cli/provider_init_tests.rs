@@ -1035,8 +1035,11 @@ async fn auto_provider_noninteractive_skips_untrusted_external_auth_instead_of_b
         Ok(_) => panic!("model work must not succeed without credentials"),
         Err(err) => err.to_string(),
     };
-    assert!(request_error.contains("not configured"), "{request_error}");
-    assert!(request_error.contains("/login"), "{request_error}");
+    // blaude says this in the app's words (see the no-account wording in
+    // jcode-base): name the situation and where to fix it, no terminal commands.
+    assert!(request_error.contains("No AI account"), "{request_error}");
+    assert!(request_error.contains("Settings"), "{request_error}");
+    assert!(!request_error.contains("/login"), "{request_error}");
 
     // Serve opts in locally, rather than leaking a process-wide exemption.
     assert!(std::env::var_os("JCODE_DEFERRED_AUTH_BOOTSTRAP").is_none());

@@ -1168,6 +1168,14 @@ fn test_real_draw_click_on_body_anchored_image_label_cycles_level() {
         "image should start at Fit before any click"
     );
 
+    // A click also copies the image when its base64 payload is still staged
+    // (upstream's click-to-copy). Whether it is staged depends on process-wide
+    // render-cache state: an image already materialized in the render cache
+    // (e.g. restored from the on-disk cache by an earlier run) has no staged
+    // payload. Read that state now so the notice check is exact either way.
+    let payload_staged =
+        crate::tui::ui::inline_image_ui::payload_for_copy(image_id).is_some();
+
     // REAL click on the rendered label cell. A terminal delivers a *pair* of
     // events for one physical click: `Down` then `Up`. We must replay both, just
     // like the live event loop, or we silently skip the copy-selection state the
@@ -1191,7 +1199,17 @@ fn test_real_draw_click_on_body_anchored_image_label_cycles_level() {
         "clicking the rendered image label must cycle Fit -> Large \
          (this is the exact path the user reported as broken)"
     );
-    assert_eq!(app.status_notice(), Some("Image size: large".to_string()));
+    let notice = app.status_notice().expect("click must set a status notice");
+    if payload_staged {
+        // The clipboard may or may not be reachable from the test process.
+        assert!(
+            notice == "Image size: large · Image copied"
+                || notice == "Image size: large · Could not copy image",
+            "a staged image must report the resize and the copy: {notice}"
+        );
+    } else {
+        assert_eq!(notice, "Image size: large");
+    }
 }
 
 /// The inline-image placeholder marker row must never reach the terminal as

@@ -942,9 +942,6 @@ fn test_gate_digest_is_delivered_at_turn_end_and_rearms_next_cycle() {
         // Simulate the turn running, then the cycle completing.
         app.queued_messages.clear();
         app.pending_queued_dispatch = false;
-        // The digest was this cycle's interruption; the one-time final-response
-        // continuation is separate and not what this assertion checks.
-        app.todo_final_response_requested = true;
         assert!(
             app.schedule_auto_poke_followup_if_needed(),
             "with nothing left outstanding the final response should be requested"

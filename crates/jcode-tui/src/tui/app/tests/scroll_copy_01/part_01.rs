@@ -1313,26 +1313,47 @@ fn retained_frame_row_matches_the_rendered_screen() {
     let scroll = crate::tui::ui::last_resolved_chat_scroll();
     assert!(scroll > 0, "fixture must be scrolled into history");
     let frame = crate::tui::ui::last_chat_frame().expect("frame published after a render");
-    let top_row = frame
-        .wrapped_plain_line(scroll)
-        .expect("resolved row is in range")
-        .trim()
-        .to_string();
-
     let area = crate::tui::ui::last_layout_snapshot()
         .expect("layout snapshot")
         .messages_area;
-    let first_chat_line = buffer_to_text(&terminal)
+
+    // blaude's quiet welcome header is shorter than upstream's, so in this
+    // fixture the resolved top row can be the blank spacer under the header.
+    // Match every viewport row, not just the first non-blank screen line (which
+    // would then be compared against the wrong frame row): row `k` of the
+    // viewport must be frame row `scroll + k`. The scrollbar track drawn at the
+    // right edge is chrome, not transcript text, so strip it before comparing.
+    let screen = buffer_to_text(&terminal);
+    let screen_rows: Vec<&str> = screen
         .lines()
         .skip(area.y as usize)
-        .find(|line| !line.trim().is_empty())
-        .unwrap_or("")
-        .trim()
-        .to_string();
-
-    assert!(!top_row.is_empty(), "frame row must carry text");
-    assert_eq!(
-        first_chat_line, top_row,
-        "the retained frame's row must be the line rendered at the top of the viewport"
+        .take(area.height as usize)
+        .collect();
+    let strip = |line: &str| {
+        line.trim()
+            .trim_end_matches(['│', '╷', '╵', '┃', '╻', '╹'])
+            .trim()
+            .to_string()
+    };
+    let mut compared_text_rows = 0;
+    for (k, screen_row) in screen_rows.iter().enumerate() {
+        let Some(frame_row) = frame.wrapped_plain_line(scroll + k) else {
+            break;
+        };
+        let frame_row = frame_row.trim().to_string();
+        if !frame_row.is_empty() {
+            compared_text_rows += 1;
+        }
+        assert_eq!(
+            strip(screen_row),
+            frame_row,
+            "the retained frame's row {} must be the line rendered at viewport row {k}",
+            scroll + k
+        );
+    }
+    assert!(
+        frame.wrapped_plain_line(scroll).is_some(),
+        "resolved row is in range"
     );
+    assert!(compared_text_rows > 0, "frame rows must carry text");
 }

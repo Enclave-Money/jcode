@@ -235,7 +235,15 @@ fn ssh_remote_header_guides_remote_login_and_hides_local_scheduler() {
         );
         assert_eq!(crate::tui::TuiState::provider_model(&app), "remote-model");
         assert_eq!(crate::tui::TuiState::provider_name(&app), "remote-provider");
-        assert!(text.contains("/remote-only-skill"), "{text}");
+        // blaude's quiet welcome header lists no skills (the skills line was
+        // dropped with the pinned-header redesign), so check the skill source
+        // the header and slash completion read from: over SSH it must be the
+        // remote host's skills, never this laptop's.
+        assert_eq!(
+            crate::tui::TuiState::available_skills(&app),
+            vec!["remote-only-skill".to_string()]
+        );
+        assert!(!text.contains("skills:"), "{text}");
         app.remote_skills.clear();
         assert!(crate::tui::TuiState::available_skills(&app).is_empty());
         assert!(super::helpers::gather_ambient_info(false).is_none());

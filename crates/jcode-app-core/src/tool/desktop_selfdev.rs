@@ -43,7 +43,7 @@ impl Tool for DesktopSelfDevTool {
     fn parameters_schema(&self) -> Value {
         json!({"type":"object", "required":["action"], "properties": {
             "intent": super::intent_schema_property(),
-            "action": {"type":"string", "enum":["status","build","reload","build-reload","reload-bridge","test","screenshot","inspect"], "description":"reload-bridge restarts the harness API bridge onto this checkout's newest target/*/jcode-harness-api-bridge as a daemon task that survives this connection dropping. Never kill or restart the bridge by hand from bash: this session talks through it."},
+            "action": {"type":"string", "enum":["status","build","reload","build-reload","reload-bridge","test","screenshot","inspect"], "description":"reload-bridge moves the API bridge to this checkout's newest build. Never restart the bridge from bash."},
             "instance": {"type":"string", "enum":["main","no-sidebar"], "description":"Required when both Desktop instances exist. No arbitrary socket paths."},
             "command": {"type":"string", "description":"Optional test shell command, run with the Desktop repository as cwd. Default cargo test."},
             "output": {"type":"string", "description":"Screenshot path under target/. Default desktop-selfdev.png. Uses private Xvfb."},

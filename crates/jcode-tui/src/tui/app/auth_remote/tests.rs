@@ -581,7 +581,24 @@ fn ssh_inline_picker_filter_and_escape_match_local_navigation() {
         }
         let picker = app.inline_interactive_state.as_ref().unwrap();
         assert_eq!(picker.filter, "claude");
-        assert_eq!(picker.filtered.len(), 2);
+        // The filter is typo tolerant (one substitution for a six-letter word),
+        // and the rebranded rows mention "blaude", one letter away from
+        // "claude", so those rows stay listed as weak matches. What must hold:
+        // exactly two rows match "claude" literally, and those two rank first.
+        let literal: Vec<usize> = (0..picker.entries.len())
+            .filter(|&i| {
+                picker
+                    .kind
+                    .filter_text(&picker.entries[i])
+                    .to_lowercase()
+                    .contains("claude")
+            })
+            .collect();
+        assert_eq!(literal.len(), 2, "two Claude rows match literally");
+        let mut top_two = picker.filtered[..2].to_vec();
+        top_two.sort_unstable();
+        assert_eq!(top_two, literal, "literal Claude rows must rank first");
+        assert!(picker.filtered.len() < picker.entries.len(), "filter narrows");
         app.handle_ssh_login_key(KeyCode::Esc, KeyModifiers::NONE, None);
         assert!(
             app.inline_interactive_state
