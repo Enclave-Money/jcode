@@ -4347,17 +4347,14 @@ pub(crate) fn render_tool_message(
                 tc.input
                     .get("patch_text")
                     .and_then(|v| v.as_str())
-                    .and_then(|patch_text| match tools_ui::canonical_tool_name(&tc.name) {
-                        "apply_patch" => tools_ui::extract_apply_patch_primary_file(patch_text),
-                        "patch" => tools_ui::extract_unified_patch_primary_file(patch_text),
-                        _ => None,
-                    })
+                    .and_then(
+                        |patch_text| match tools_ui::edit_render_name(&tc.name, &tc.input) {
+                            "apply_patch" => tools_ui::extract_apply_patch_primary_file(patch_text),
+                            "patch" => tools_ui::extract_unified_patch_primary_file(patch_text),
+                            _ => None,
+                        },
+                    )
             });
-        let file_ext = file_path_for_ext
-            .as_deref()
-            .and_then(|p| std::path::Path::new(p).extension())
-            .and_then(|e| e.to_str());
-
         const MAX_DIFF_LINES: usize = MAX_INLINE_DIFF_LINES;
         let total_changes = change_lines.len();
         let additions = change_lines
@@ -4381,15 +4378,24 @@ pub(crate) fn render_tool_message(
 
         let pad_str = "";
 
+        let diff_file_path =
+            |line: &ParsedDiffLine| line.file_path.clone().or_else(|| file_path_for_ext.clone());
+        let first_file_path = display_lines.first().and_then(|line| diff_file_path(line));
+        let diff_header = |prefix: &str, file_path: Option<&str>| match file_path {
+            Some(path) => format!("{pad_str}{prefix} diff · {path}"),
+            None => format!("{pad_str}{prefix} diff"),
+        };
+
         lines.push(
             Line::from(Span::styled(
-                format!("{}┌─ diff", pad_str),
+                diff_header("┌─", first_file_path.as_deref()),
                 Style::default().fg(dim_color()),
             ))
             .alignment(ratatui::layout::Alignment::Left),
         );
 
         let mut shown_truncation = false;
+        let mut previous_file_path = first_file_path;
 
         for (i, line) in display_lines.iter().enumerate() {
             if truncated && !shown_truncation && i >= half_point {
@@ -4403,6 +4409,18 @@ pub(crate) fn render_tool_message(
                 );
                 shown_truncation = true;
             }
+
+            let current_file_path = diff_file_path(line);
+            if i > 0 && current_file_path != previous_file_path {
+                lines.push(
+                    Line::from(Span::styled(
+                        diff_header("├─", current_file_path.as_deref()),
+                        Style::default().fg(dim_color()),
+                    ))
+                    .alignment(ratatui::layout::Alignment::Left),
+                );
+            }
+            previous_file_path = current_file_path.clone();
 
             let base_color = if line.kind == DiffLineKind::Add {
                 diff_add_color()
@@ -4422,6 +4440,10 @@ pub(crate) fn render_tool_message(
 
             if !line.content.is_empty() {
                 let content = &line.content;
+                let file_ext = current_file_path
+                    .as_deref()
+                    .and_then(|p| std::path::Path::new(p).extension())
+                    .and_then(|e| e.to_str());
                 let content_vis_width = unicode_width::UnicodeWidthStr::width(content.as_str());
                 if !full_inline && max_content_width > 1 && content_vis_width > max_content_width {
                     let mut end = 0;

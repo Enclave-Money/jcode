@@ -439,16 +439,16 @@ fn background_task_rows_render_without_todos_or_transcript_cards() {
     let rendered = render_and_snap(&app, &mut terminal);
 
     assert!(
-        rendered.contains("◌ bg cargo test  ━━━╺── 42%"),
-        "missing running task row:\n{rendered}"
-    );
-    assert!(
         rendered.contains("✓ bg release build  ━━━━━━ 100%"),
         "missing completed task row:\n{rendered}"
     );
     assert!(
         rendered.contains("× bg integration tests  ────── failed"),
         "missing failed task row:\n{rendered}"
+    );
+    assert!(
+        !rendered.contains("◌ bg cargo test"),
+        "only the two most recent task rows should render:\n{rendered}"
     );
     assert!(!rendered.contains("Background tasks"));
     assert!(!rendered.contains("Background task started"));
@@ -457,9 +457,98 @@ fn background_task_rows_render_without_todos_or_transcript_cards() {
 }
 
 #[test]
+fn background_task_rows_retain_the_two_most_recently_active_tasks() {
+    let mut app = create_test_app();
+    app.upsert_running_background_task("first".to_string(), "first task".to_string(), None);
+    app.upsert_running_background_task("second".to_string(), "second task".to_string(), None);
+    app.upsert_running_background_task(
+        "first".to_string(),
+        "first task updated".to_string(),
+        Some(50.0),
+    );
+    app.upsert_running_background_task("third".to_string(), "third task".to_string(), None);
+
+    assert_eq!(
+        app.background_task_rows_ref()
+            .iter()
+            .map(|row| row.task_id.as_str())
+            .collect::<Vec<_>>(),
+        vec!["first", "third"]
+    );
+}
+
+#[test]
+fn indeterminate_background_update_preserves_last_known_percent() {
+    let _env_lock = crate::storage::lock_test_env();
+    let _render_lock = crate::tui::ui::render_state_test_lock();
+    let mut app = create_test_app();
+    app.session.short_name = Some("test".to_string());
+    app.push_display_message(DisplayMessage::assistant("ordinary transcript content"));
+    app.upsert_running_background_task(
+        "build".to_string(),
+        "cargo build".to_string(),
+        Some(42.0),
+    );
+
+    // A later phase-only parser update carries no percentage. It should update
+    // activity/label state without resetting the visible bar to zero.
+    app.upsert_running_background_task("build".to_string(), "Compiling jcode".to_string(), None);
+
+    let row = app
+        .background_task_rows_ref()
+        .iter()
+        .find(|row| row.task_id == "build")
+        .expect("background row should remain present");
+    assert_eq!(row.percent, Some(42.0));
+    assert_eq!(row.label, "Compiling jcode");
+
+    let backend = ratatui::backend::TestBackend::new(80, 20);
+    let mut terminal = ratatui::Terminal::new(backend).expect("failed to create test terminal");
+    let rendered = render_and_snap(&app, &mut terminal);
+    assert!(
+        rendered.contains("Compiling jcode") && rendered.contains("42%"),
+        "phase-only update reset or hid the visible percentage:\n{rendered}"
+    );
+}
+
+#[test]
+fn completed_background_tasks_clear_after_they_stop_being_relevant() {
+    let mut app = create_test_app();
+    app.finish_background_task(
+        "failed".to_string(),
+        "integration tests".to_string(),
+        crate::tui::BackgroundTaskRowStatus::Failed,
+    );
+    app.upsert_running_background_task("running".to_string(), "cargo test".to_string(), None);
+    app.finish_background_task(
+        "done".to_string(),
+        "release build".to_string(),
+        crate::tui::BackgroundTaskRowStatus::Completed,
+    );
+
+    app.background_task_rows
+        .iter_mut()
+        .find(|row| row.task_id == "done")
+        .unwrap()
+        .completed_at = Some(std::time::Instant::now() - std::time::Duration::from_secs(13));
+
+    assert!(app.prune_irrelevant_background_tasks());
+    assert_eq!(
+        app.background_task_rows_ref()
+            .iter()
+            .map(|row| row.task_id.as_str())
+            .collect::<Vec<_>>(),
+        vec!["running"]
+    );
+    assert!(!app.prune_irrelevant_background_tasks());
+}
+
+#[test]
 fn clicking_pinned_todo_more_row_expands_the_band() {
     use crossterm::event::{KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
 
+    let _env_lock = crate::storage::lock_test_env();
+    let _render_lock = crate::tui::ui::render_state_test_lock();
     let mut app = create_test_app();
     app.pinned_todos_expanded = false;
     crate::tui::ui::viewport::set_pinned_todo_more_area_for_test(Some(ratatui::layout::Rect {
@@ -477,4 +566,35 @@ fn clicking_pinned_todo_more_row_expands_the_band() {
     });
 
     assert!(app.pinned_todos_expanded);
+    crate::tui::ui::viewport::set_pinned_todo_more_area_for_test(None);
+}
+
+#[test]
+fn pinned_todo_card_shows_tasks_without_expanding() {
+    let _env_lock = crate::storage::lock_test_env();
+    let _render_lock = crate::tui::ui::render_state_test_lock();
+    let _pin = PinTodosEnvGuard::enable();
+    let mut app = create_test_app();
+    app.session.short_name = Some("test".to_string());
+    let todos = vec![
+        pinned_band_todo("done", "Finished task", "completed"),
+        pinned_band_todo("active", "Current task", "in_progress"),
+        pinned_band_todo("next", "Queued task", "pending"),
+    ];
+    app.pinned_todos_payload = Some(serde_json::json!({"todos": todos}).to_string());
+    app.push_display_message(DisplayMessage::assistant("ordinary transcript content"));
+    for width in [40, 80, 120] {
+        let mut terminal =
+            ratatui::Terminal::new(ratatui::backend::TestBackend::new(width, 40)).unwrap();
+        let rendered = render_and_snap(&app, &mut terminal);
+        for label in ["Finished task", "Current task", "Queued task"] {
+            assert!(rendered.contains(label), "missing {label}:\n{rendered}");
+        }
+        assert!(!rendered.contains("▸ todo"), "{rendered}");
+        assert!(!rendered.contains("▾ todo"), "{rendered}");
+        assert!(crate::tui::ui::viewport::pinned_todo_more_area().is_none());
+        println!(
+            "{width}x40: all 3 todo states visible on first render, no expansion required or summary toggle"
+        );
+    }
 }

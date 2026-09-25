@@ -10,7 +10,7 @@ use super::client_comm::{
     handle_comm_read, handle_comm_share, handle_comm_subscribe_channel,
     handle_comm_unsubscribe_channel,
 };
-use super::client_disconnect_cleanup::cleanup_client_connection;
+use super::client_disconnect_cleanup::{cleanup_client_connection, detach_client_attachment};
 use super::client_lifecycle_logging::{
     ServerRequestLifecycleFields, interrupt_request_log_fields, request_payload_summary,
     request_type_from_line, request_type_is_read_only, server_request_lifecycle_fields,
@@ -39,11 +39,11 @@ use super::comm_sync::{
     handle_comm_resync_plan, handle_comm_status, handle_comm_summary,
 };
 use super::provider_control::{
-    handle_cycle_model, handle_notify_auth_changed, handle_refresh_models,
-    handle_set_compaction_mode, handle_set_model, handle_set_premium_mode,
-    handle_set_reasoning_effort, handle_set_route, handle_set_service_tier, handle_set_transport,
-    handle_switch_anthropic_account, handle_switch_openai_account,
-    try_available_models_updated_event,
+    handle_cycle_model, handle_invalidate_anthropic_usage, handle_invalidate_openai_usage,
+    handle_notify_auth_changed, handle_refresh_models, handle_set_compaction_mode,
+    handle_set_model, handle_set_premium_mode, handle_set_reasoning_effort, handle_set_route,
+    handle_set_service_tier, handle_set_transport, handle_switch_anthropic_account,
+    handle_switch_openai_account, try_available_models_updated_event,
 };
 use super::{
     AwaitMembersRuntime, ClientConnectionInfo, ClientDebugState, FileTouchService,
@@ -100,12 +100,88 @@ fn required_subscribe_working_dir(working_dir: Option<&str>) -> std::result::Res
 
 fn initial_subscribe_working_dir(request: &Request) -> std::result::Result<String, String> {
     match request {
-        Request::Subscribe { working_dir, .. } => {
-            required_subscribe_working_dir(working_dir.as_deref()).map(str::to_string)
-        }
+        Request::Subscribe {
+            working_dir,
+            continue_on_disconnect,
+            ..
+        } => validated_subscribe_working_dir(working_dir.as_deref(), *continue_on_disconnect)
+            .map(str::to_string),
         _ => Err(
             "Client must Subscribe with a working_dir before sending stateful requests".to_string(),
         ),
+    }
+}
+
+/// A reattachment names an existing session, not a new client working directory.
+/// Resolve an omitted cwd before provisional initialization, never from the
+/// daemon/bridge process cwd. Idle empty sessions may exist only in memory.
+async fn resolve_target_subscribe_working_dir(
+    request: &mut Request,
+    sessions: &SessionAgents,
+    members: &Arc<RwLock<HashMap<String, SwarmMember>>>,
+) -> std::result::Result<(), String> {
+    let Request::Subscribe {
+        working_dir,
+        target_session_id: Some(target),
+        ..
+    } = request
+    else {
+        return Ok(());
+    };
+    if working_dir.is_some() {
+        return Ok(());
+    }
+    let live = sessions.read().await.get(target).cloned();
+    let resolved = if let Some(live) = live {
+        let idle_cwd = live
+            .try_lock()
+            .ok()
+            .and_then(|agent| agent.working_dir().map(str::to_string));
+        if idle_cwd.is_some() {
+            idle_cwd
+        } else {
+            // A generating Agent owns its mutex. The member records the same
+            // session root, so attaching must not wait for the model turn.
+            members
+                .read()
+                .await
+                .get(target)
+                .and_then(|member| member.working_dir.as_ref())
+                .map(|path| path.to_string_lossy().into_owned())
+        }
+    } else {
+        crate::session::Session::load_startup_stub(target)
+            .ok()
+            .and_then(|session| session.working_dir)
+    };
+    *working_dir = Some(resolved.ok_or_else(|| {
+        format!("Unknown session '{target}' or session has no working directory")
+    })?);
+    Ok(())
+}
+
+fn validated_subscribe_working_dir(
+    working_dir: Option<&str>,
+    remote_continuation: bool,
+) -> std::result::Result<&str, String> {
+    let working_dir = required_subscribe_working_dir(working_dir)?;
+    if remote_continuation && !Path::new(working_dir).is_dir() {
+        return Err(format!(
+            "Remote working directory must exist and be a directory on the server: {working_dir}"
+        ));
+    }
+    Ok(working_dir)
+}
+
+fn new_session_system_prompt<'a>(
+    provisional_session: bool,
+    target_session_id: Option<&str>,
+    system_prompt: Option<&'a str>,
+) -> Option<&'a str> {
+    if provisional_session && target_session_id.is_none() {
+        system_prompt
+    } else {
+        None
     }
 }
 
@@ -139,6 +215,14 @@ struct SwarmStatusRefs<'a> {
     event_history: &'a Arc<RwLock<std::collections::VecDeque<SwarmEvent>>>,
     event_counter: &'a Arc<std::sync::atomic::AtomicU64>,
     event_tx: &'a broadcast::Sender<SwarmEvent>,
+}
+
+fn should_start_idle_soft_interrupt(
+    client_is_processing: bool,
+    active_turn_registered: bool,
+    session_connection_busy: bool,
+) -> bool {
+    !client_is_processing && !active_turn_registered && !session_connection_busy
 }
 
 struct RequestHandlerWatchdog {
@@ -407,7 +491,7 @@ pub(super) async fn handle_client(
     let writer = Arc::new(Mutex::new(writer));
     let mut line = String::new();
 
-    let initial_request = loop {
+    let mut initial_request = loop {
         line.clear();
         let n = match reader.read_line(&mut line).await {
             Ok(n) => n,
@@ -429,6 +513,7 @@ pub(super) async fn handle_client(
         match decode_request(&line) {
             Ok(request) => {
                 if request.is_lightweight_control_request() {
+                    let keep_connection_open = matches!(request, Request::Ping { .. });
                     handle_lightweight_control_request(
                         request,
                         Arc::clone(&writer),
@@ -455,6 +540,12 @@ pub(super) async fn handle_client(
                         },
                     )
                     .await?;
+                    // Native SSH probes daemon capability before sending its
+                    // Subscribe on this same stream. Ping must not consume the
+                    // connection, unlike the other one-shot control requests.
+                    if keep_connection_open {
+                        continue;
+                    }
                     return Ok(());
                 }
                 break request;
@@ -509,7 +600,18 @@ pub(super) async fn handle_client(
                     write_direct_event(&writer, &ServerEvent::SessionList { id, sessions }).await?;
                 }
                 Request::Ping { id } => {
-                    write_direct_event(&writer, &ServerEvent::Pong { id }).await?;
+                    // Same answer as a subscribed connection's ping, so a
+                    // capability probe on this path is not misread as an old
+                    // daemon.
+                    write_direct_event(
+                        &writer,
+                        &ServerEvent::Pong {
+                            id,
+                            native_ssh_protocol: Some(1),
+                            capabilities: vec!["session_tools".into()],
+                        },
+                    )
+                    .await?;
                 }
                 // Anything stateful belongs on a subscribed connection.
                 _ => break,
@@ -536,21 +638,25 @@ pub(super) async fn handle_client(
         return Ok(());
     }
 
-    let initial_working_dir = match initial_subscribe_working_dir(&initial_request) {
-        Ok(working_dir) => working_dir,
-        Err(message) => {
-            write_direct_event(
-                &writer,
-                &ServerEvent::Error {
-                    id: initial_request.id(),
-                    message,
-                    retry_after_secs: None,
-                },
-            )
-            .await?;
-            return Ok(());
-        }
-    };
+    let initial_working_dir =
+        match resolve_target_subscribe_working_dir(&mut initial_request, &sessions, &swarm_members)
+            .await
+            .and_then(|()| initial_subscribe_working_dir(&initial_request))
+        {
+            Ok(working_dir) => working_dir,
+            Err(message) => {
+                write_direct_event(
+                    &writer,
+                    &ServerEvent::Error {
+                        id: initial_request.id(),
+                        message,
+                        retry_after_secs: None,
+                    },
+                )
+                .await?;
+                return Ok(());
+            }
+        };
     let mut active_terminal_env = initial_subscribe_terminal_env(&initial_request);
 
     // Per-client state
@@ -564,12 +670,16 @@ pub(super) async fn handle_client(
     let mut processing_message_id: Option<u64> = None;
     let mut processing_session_id: Option<String> = None;
     let mut current_client_instance_id: Option<String> = None;
+    let mut continue_on_disconnect = false;
+    let mut model_usage_updates_enabled = false;
+    let mut supports_pdf_panels = false;
     // Client selfdev status is determined by Subscribe request, not server's env
     let mut client_selfdev = false;
 
     let client_start = std::time::Instant::now();
 
     let provider = provider_template.fork_for_new_session();
+    let provider_fork_ms = client_start.elapsed().as_millis();
     let t0 = std::time::Instant::now();
     let registry = Registry::new(provider.clone()).await;
     let registry_ms = t0.elapsed().as_millis();
@@ -582,7 +692,7 @@ pub(super) async fn handle_client(
     let t0 = std::time::Instant::now();
     let mut new_agent =
         crate::hooks::with_client_terminal_env(active_terminal_env.clone(), async {
-            Agent::new_with_initial_working_dir(
+            Agent::new_provisional_with_initial_working_dir(
                 Arc::clone(&provider),
                 registry.clone(),
                 Some(&initial_working_dir),
@@ -592,9 +702,12 @@ pub(super) async fn handle_client(
     let agent_new_ms = t0.elapsed().as_millis();
 
     new_agent.set_memory_enabled(crate::config::config().features.memory);
+    let prewarm_start = std::time::Instant::now();
+    new_agent.prewarm_provider_idle().await;
+    let prewarm_ms = prewarm_start.elapsed().as_millis();
 
     crate::logging::info(&format!(
-        "[TIMING] handle_client setup: registry={registry_ms}ms, agent_new={agent_new_ms}ms, total={}ms",
+        "[TIMING] handle_client setup: provider_fork={provider_fork_ms}ms, registry={registry_ms}ms, agent_new={agent_new_ms}ms, prewarm={prewarm_ms}ms, total={}ms",
         client_start.elapsed().as_millis()
     ));
     let mut client_session_id = new_agent.session_id().to_string();
@@ -670,6 +783,7 @@ pub(super) async fn handle_client(
     );
 
     // Per-client event channel (not shared with other clients)
+    let _sdk_connection_guard = crate::tool::sdk::ConnectionGuard(client_connection_id.clone());
     let (client_event_tx, mut client_event_rx) =
         tokio::sync::mpsc::unbounded_channel::<ServerEvent>();
 
@@ -753,9 +867,9 @@ pub(super) async fn handle_client(
         tokio::sync::mpsc::unbounded_channel::<crate::tool::StdinInputRequest>();
     {
         let mut agent_guard = agent.lock().await;
-        agent_guard.set_stdin_request_tx(stdin_req_tx);
+        agent_guard.set_stdin_request_tx(stdin_req_tx.clone());
     }
-    let _stdin_forwarder = {
+    let stdin_forwarder = {
         let client_event_tx = client_event_tx.clone();
         let stdin_responses = stdin_responses.clone();
         let tool_call_id = String::new();
@@ -780,10 +894,12 @@ pub(super) async fn handle_client(
     // subscribe. Under heavy swarm file-activity load, ignored bus frames can
     // otherwise monopolize the select loop before the initial subscribe/read.
     let mut client_subscribed = false;
+    let mut provisional_session = true;
     let mut pending_request = Some(initial_request);
 
+    let connection_result: Result<()> = async {
     loop {
-        let request = if let Some(request) = pending_request.take() {
+        let mut request = if let Some(request) = pending_request.take() {
             request
         } else {
             line.clear();
@@ -833,58 +949,16 @@ pub(super) async fn handle_client(
                     }
 
                     let done_session = processing_session_id.take();
-                    match result {
-                        Ok(()) => {
-                            if let Some(session_id) = done_session.as_deref() {
-                                update_member_status_with_report(
-                                    session_id,
-                                    "ready",
-                                    None,
-                                    completion_report,
-                                    &swarm_members,
-                                    &swarms_by_id,
-                                    Some(&event_history),
-                                    Some(&event_counter),
-                                    Some(&swarm_event_tx),
-                                )
-                                .await;
-                            }
-                        }
-                        Err(e) => {
-                            if let Some(session_id) = done_session.as_deref() {
-                                update_member_status(
-                                    session_id,
-                                    "failed",
-                                    Some(truncate_detail(&e.to_string(), 120)),
-                                    &swarm_members,
-                                    &swarms_by_id,
-                                    Some(&event_history),
-                                    Some(&event_counter),
-                                    Some(&swarm_event_tx),
-                                )
-                                .await;
-                            }
-                            let retry_after_secs = e.downcast_ref::<StreamError>().and_then(|se| se.retry_after_secs);
-                            if retry_after_secs.is_some() {
-                                crate::telemetry::record_error(crate::telemetry::ErrorCategory::RateLimited);
-                            } else {
-                                let msg = e.to_string();
-                                let lower = msg.to_lowercase();
-                                if lower.contains("timeout") {
-                                    crate::telemetry::record_error(crate::telemetry::ErrorCategory::ProviderTimeout);
-                                } else if crate::provider::error_looks_like_credential_failure(&msg)
-                                    || lower.contains("403 forbidden")
-                                {
-                                    // Use the shared credential-failure classifier instead of a
-                                    // bare `contains("auth")`: that substring also matched
-                                    // unrelated errors (e.g. any message mentioning "author" or
-                                    // OAuth flow noise) and inflated the auth_failed telemetry
-                                    // counter.
-                                    crate::telemetry::record_error(crate::telemetry::ErrorCategory::AuthFailed);
-                                }
-                            }
-                        }
-                    }
+                    record_processing_completion(
+                        done_session.as_deref(), result, completion_report,
+                        &SwarmStatusRefs {
+                            members: &swarm_members,
+                            swarms_by_id: &swarms_by_id,
+                            event_history: &event_history,
+                            event_counter: &event_counter,
+                            event_tx: &swarm_event_tx,
+                        },
+                    ).await;
                 } else {
                     break;
                 }
@@ -913,6 +987,11 @@ pub(super) async fn handle_client(
                             holder: queued.holder.clone(),
                             depth: queued.depth as u32,
                         });
+                    }
+                    Ok(BusEvent::ModelUsageUpdated(route)) => {
+                        if model_usage_updates_enabled {
+                            let _ = client_event_tx.send(ServerEvent::ModelUsageUpdated { route });
+                        }
                     }
                     Ok(BusEvent::ModelsUpdated) => {
                         let Some(event) = try_available_models_updated_event(&agent) else {
@@ -974,7 +1053,9 @@ pub(super) async fn handle_client(
                     Ok(BusEvent::SidePanelUpdated(update)) => {
                         if update.session_id == client_session_id {
                             let _ = client_event_tx.send(ServerEvent::SidePanelState {
-                                snapshot: update.snapshot,
+                                snapshot: super::client_writer::side_panel_for_client(
+                                    update.snapshot, supports_pdf_panels,
+                                ),
                             });
                         }
                     }
@@ -1142,6 +1223,41 @@ pub(super) async fn handle_client(
             continue;
         }
 
+        // SDK controls reply only after validation. Callback results must never
+        // wait for the Agent mutex held by the turn awaiting that callback.
+        if matches!(&request, Request::ConfigureTools { .. } | Request::ListTools { .. } | Request::ToolResult { .. }) {
+            let id = request.id();
+            let response: anyhow::Result<ServerEvent> = match request {
+                Request::ToolResult { call_id, output, error, .. } => {
+                    crate::tool::sdk::complete(&client_connection_id, &client_session_id, &call_id, output, error)
+                        .map(|()| ServerEvent::Ack { id })
+                }
+                Request::ConfigureTools { tools, .. } => {
+                    if client_is_processing || crate::turn_cancel_registry::has_active_turn(&client_session_id) { Err(anyhow::anyhow!("Session is busy")) }
+                    else if let Ok(mut locked) = agent.try_lock() {
+                        let result = crate::tool::sdk::configure(locked.session_id(), &client_connection_id, tools, client_event_tx.clone());
+                        if result.is_ok() {
+                            locked.invalidate_sdk_tools();
+                            // Queue the acknowledgment before releasing the session lock,
+                            // so a second client cannot start a new-policy call first.
+                            let _ = client_event_tx.send(ServerEvent::Ack { id });
+                            continue;
+                        }
+                        result.map(|()| ServerEvent::Ack { id })
+                    } else { Err(anyhow::anyhow!("Session is busy")) }
+                }
+                Request::ListTools { .. } => {
+                    if let Ok(locked) = agent.try_lock() {
+                        Ok(ServerEvent::Tools { id, tools: crate::tool::sdk::wire_definitions(locked.tool_definitions_for_debug().await) })
+                    } else { Err(anyhow::anyhow!("Session is busy")) }
+                }
+                _ => unreachable!(),
+            };
+            let event = response.unwrap_or_else(|error| ServerEvent::Error { id, message: error.to_string(), retry_after_secs: None });
+            let _ = client_event_tx.send(event);
+            continue;
+        }
+
         // Send ack
         let ack = ServerEvent::Ack { id: request.id() };
         let json = encode_event(&ack);
@@ -1196,7 +1312,31 @@ pub(super) async fn handle_client(
             }
         }
 
+        // Legacy/direct clients can send a prompt without Subscribe. Their
+        // first session action commits ownership, but inspection/attach does not.
+        if provisional_session
+            && matches!(
+                &request,
+                Request::Message { .. }
+                    | Request::SoftInterrupt { .. }
+                    | Request::RunSubagent { .. }
+            )
+        {
+            agent.lock().await.activate_concurrency_tracking();
+            provisional_session = false;
+        }
+
+        if let Err(message) = resolve_target_subscribe_working_dir(
+            &mut request, &sessions, &swarm_members,
+        ).await {
+            let _ = client_event_tx.send(ServerEvent::Error {
+                id: request.id(), message, retry_after_secs: None,
+            });
+            continue;
+        }
+        let sdk_session_before_request = client_session_id.clone();
         match request {
+            Request::ConfigureTools { .. } | Request::ListTools { .. } | Request::ToolResult { .. } => unreachable!("SDK controls dispatched before acknowledgment"),
             Request::Message {
                 id,
                 content,
@@ -1243,6 +1383,12 @@ pub(super) async fn handle_client(
                     continue;
                 }
                 if !client_is_processing {
+                    // A live resume cannot replace stdin routing while the old
+                    // turn owns the agent. Restore it when this client starts a
+                    // later turn, without reviving any disconnected prompt.
+                    if continue_on_disconnect && let Ok(mut agent) = agent.try_lock() {
+                        agent.set_stdin_request_tx(stdin_req_tx.clone());
+                    }
                     let mut connections = client_connections.write().await;
                     if let Some(info) = connections.get_mut(&client_connection_id) {
                         info.is_processing = true;
@@ -1390,16 +1536,79 @@ pub(super) async fn handle_client(
                 // "never received" it. This is what lands on every connected
                 // client, which then refreshes and badges the chat.
                 super::state::broadcast_sessions_changed(&swarm_members, &client_session_id).await;
-                queue_soft_interrupt(
-                    id,
-                    content,
-                    images,
-                    urgent,
-                    SoftInterruptSource::User,
-                    connection_user.clone(),
-                    &session_control,
-                    &client_event_tx,
-                );
+                // A soft interrupt has somewhere to go only while a turn is
+                // active. When the session is idle, queueing it would strand
+                // the user's prompt until an unrelated future message starts
+                // a turn. Claim the idle session and process it as the next
+                // user message instead. The connection-map claim is atomic
+                // with the cross-client busy check, so two attachments cannot
+                // both decide that the same session is idle.
+                let start_idle_turn = {
+                    let mut connections = client_connections.write().await;
+                    let active_turn_registered =
+                        !crate::turn_cancel_registry::active_turn_signals(&client_session_id)
+                            .is_empty();
+                    let session_connection_busy = connections
+                        .values()
+                        .any(|info| info.session_id == client_session_id && info.is_processing);
+                    let start = should_start_idle_soft_interrupt(
+                        client_is_processing,
+                        active_turn_registered,
+                        session_connection_busy,
+                    );
+                    if start && let Some(info) = connections.get_mut(&client_connection_id) {
+                        info.is_processing = true;
+                    }
+                    start
+                };
+                if start_idle_turn {
+                    start_processing_message(
+                        ProcessingMessage {
+                            id,
+                            content,
+                            images,
+                            system_reminder: None,
+                            active_skill: None,
+                            by_user: connection_user.clone(),
+                        },
+                        &client_session_id,
+                        &mut ProcessingState {
+                            client_is_processing: &mut client_is_processing,
+                            message_id: &mut processing_message_id,
+                            session_id: &mut processing_session_id,
+                            task: &mut processing_task,
+                        },
+                        &agent,
+                        &client_event_tx,
+                        &processing_done_tx,
+                        active_terminal_env.clone(),
+                        &SwarmStatusRefs {
+                            members: &swarm_members,
+                            swarms_by_id: &swarms_by_id,
+                            event_history: &event_history,
+                            event_counter: &event_counter,
+                            event_tx: &swarm_event_tx,
+                        },
+                    )
+                    .await;
+                    if !client_is_processing {
+                        let mut connections = client_connections.write().await;
+                        if let Some(info) = connections.get_mut(&client_connection_id) {
+                            info.is_processing = false;
+                        }
+                    }
+                } else {
+                    queue_soft_interrupt(
+                        id,
+                        content,
+                        images,
+                        urgent,
+                        SoftInterruptSource::User,
+                        connection_user.clone(),
+                        &session_control,
+                        &client_event_tx,
+                    );
+                }
             }
 
             Request::CancelSoftInterrupts { id } => {
@@ -1491,6 +1700,7 @@ pub(super) async fn handle_client(
                             &server_name,
                             &server_icon,
                             None,
+                            supports_pdf_panels,
                         )
                         .await
                         .is_err()
@@ -1551,6 +1761,7 @@ pub(super) async fn handle_client(
                             &server_name,
                             &server_icon,
                             None,
+                            supports_pdf_panels,
                         )
                         .await
                         .is_err()
@@ -1577,7 +1788,16 @@ pub(super) async fn handle_client(
             }
 
             Request::Ping { id } => {
-                let json = encode_event(&ServerEvent::Pong { id });
+                let json = encode_event(&ServerEvent::Pong { id, native_ssh_protocol: Some(1), capabilities: vec!["session_tools".into()] });
+                let mut w = writer.lock().await;
+                if w.write_all(json.as_bytes()).await.is_err() {
+                    break;
+                }
+            }
+
+            Request::PrepareDisconnect { id } => {
+                drop(crate::tool::sdk::ConnectionGuard(client_connection_id.clone()));
+                let json = encode_event(&ServerEvent::Done { id });
                 let mut w = writer.lock().await;
                 if w.write_all(json.as_bytes()).await.is_err() {
                     break;
@@ -1601,12 +1821,16 @@ pub(super) async fn handle_client(
 
             Request::Subscribe {
                 id,
+                system_prompt,
+                supports_pdf_panels: requested_pdf_panels,
                 working_dir: subscribe_working_dir,
                 selfdev,
                 target_session_id,
                 client_instance_id,
                 client_has_local_history,
                 allow_session_takeover,
+                crash_on_disconnect: _,
+                continue_on_disconnect: requested_continuation,
                 terminal_env,
                 user,
             } => {
@@ -1614,7 +1838,9 @@ pub(super) async fn handle_client(
                     connection_user = user.clone();
                 }
                 if let Err(message) =
-                    required_subscribe_working_dir(subscribe_working_dir.as_deref())
+                    validated_subscribe_working_dir(
+                        subscribe_working_dir.as_deref(), requested_continuation,
+                    )
                 {
                     let _ = client_event_tx.send(ServerEvent::Error {
                         id,
@@ -1623,9 +1849,20 @@ pub(super) async fn handle_client(
                     });
                     continue;
                 }
+                // Overrides are creation-only. In particular, never apply one to
+                // a target attachment or a repeated Subscribe on this connection.
+                if let Some(prompt) = new_session_system_prompt(
+                    provisional_session,
+                    target_session_id.as_deref(),
+                    system_prompt.as_deref(),
+                ) {
+                    agent.lock().await.set_system_prompt(prompt);
+                }
                 // Every Subscribe carries an authoritative snapshot. An empty
                 // snapshot must clear terminal vars inherited by the daemon
                 // rather than retaining a prior pane's values.
+                continue_on_disconnect = requested_continuation;
+                supports_pdf_panels = requested_pdf_panels;
                 active_terminal_env = terminal_env;
                 current_client_instance_id = client_instance_id.clone();
                 {
@@ -1638,7 +1875,16 @@ pub(super) async fn handle_client(
                 }
                 let presence_before_session = client_session_id.clone();
                 if let Some(target_session_id) = target_session_id {
-                    if crate::session::session_exists(&target_session_id) {
+                    // A brand-new desktop panel has no transcript on disk until
+                    // its first prompt. Its creator connection can detach before
+                    // the panel connection arrives, while the live agent is
+                    // already registered in memory. Treat that as an existing
+                    // session or the target-aware subscribe silently creates a
+                    // different session and every subsequent command reports a
+                    // wrong-session attachment.
+                    if crate::session::session_exists(&target_session_id)
+                        || sessions.read().await.contains_key(&target_session_id)
+                    {
                         let pre_resume_session_id = client_session_id.clone();
                         agent = crate::hooks::with_client_terminal_env(
                             active_terminal_env.clone(),
@@ -1676,6 +1922,7 @@ pub(super) async fn handle_client(
                                 &event_history,
                                 &event_counter,
                                 &swarm_event_tx,
+                                supports_pdf_panels,
                             ),
                         )
                         .await?;
@@ -1727,33 +1974,26 @@ pub(super) async fn handle_client(
                             break;
                         }
                     } else {
-                        handle_subscribe(
+                        // The client asked for THAT session and it is gone
+                        // (pruned, expired, daemon restarted). Binding this
+                        // connection's placeholder instead would hand the client
+                        // an empty session rooted somewhere else, and a bridge
+                        // that correctly ignores a mismatched `state` would then
+                        // never answer the attach at all. Say so; the connection
+                        // stays open for the client's next create or attach.
+                        let _ = client_event_tx.send(ServerEvent::Error {
                             id,
-                            subscribe_working_dir,
-                            selfdev,
-                            true,
-                            &mut client_selfdev,
-                            &client_session_id,
-                            &client_connection_id,
-                            &friendly_name,
-                            &agent,
-                            &registry,
-                            swarm_enabled,
-                            &swarm_members,
-                            &swarms_by_id,
-                            &channel_subscriptions,
-                            &channel_subscriptions_by_session,
-                            &swarm_plans,
-                            &swarm_coordinators,
-                            &client_event_tx,
-                            &mcp_pool,
-                            &event_history,
-                            &event_counter,
-                            &swarm_event_tx,
-                        )
-                        .await;
+                            message: format!(
+                                "session `{target_session_id}` no longer exists (pruned, or the daemon restarted); create a new session instead"
+                            ),
+                            retry_after_secs: None,
+                        });
+                        continue;
                     }
                 } else {
+                    if provisional_session {
+                        agent.lock().await.activate_concurrency_tracking();
+                    }
                     handle_subscribe(
                         id,
                         subscribe_working_dir,
@@ -1800,6 +2040,7 @@ pub(super) async fn handle_client(
                     )
                     .await;
                 }
+                provisional_session = false;
             }
 
             Request::GetHistory { id } => {
@@ -1816,6 +2057,7 @@ pub(super) async fn handle_client(
                     &server_name,
                     &server_icon,
                     None,
+                    supports_pdf_panels,
                 )
                 .await
                 .is_err()
@@ -1833,7 +2075,8 @@ pub(super) async fn handle_client(
                 }
             }
 
-            Request::GetModelCatalog { id } => {
+            Request::GetModelCatalog { id, subscribe_usage_updates } => {
+                model_usage_updates_enabled = subscribe_usage_updates;
                 if handle_get_model_catalog(id, &client_session_id, &agent, &provider, &writer)
                     .await
                     .is_err()
@@ -1941,9 +2184,13 @@ pub(super) async fn handle_client(
                         &event_history,
                         &event_counter,
                         &swarm_event_tx,
+                        supports_pdf_panels,
                     ),
                 )
                 .await?;
+                if client_session_id != pre_resume_session_id {
+                    provisional_session = false;
+                }
                 session_control = refresh_session_control_handle(
                     &client_session_id,
                     &agent,
@@ -2092,6 +2339,34 @@ pub(super) async fn handle_client(
                 // the START of each turn, so the change applies next turn.
                 handle_set_work_mode(id, mode, &agent, &client_event_tx).await;
             }
+
+            Request::SetSessionSaved { id, saved, label } => {
+                if reject_if_agent_busy_for_request(
+                    id,
+                    "set_session_saved",
+                    &client_session_id,
+                    client_is_processing,
+                    &agent,
+                    &client_event_tx,
+                ) {
+                    continue;
+                }
+                let result = agent.lock().await.set_session_saved(saved, label);
+                match result {
+                    Ok(_) => {
+                        crate::session_list_cache::invalidate();
+                        let _ = client_event_tx.send(ServerEvent::Done { id });
+                    }
+                    Err(error) => {
+                        let _ = client_event_tx.send(ServerEvent::Error {
+                            id,
+                            message: crate::util::format_error_chain(&error),
+                            retry_after_secs: None,
+                        });
+                    }
+                }
+            }
+
             Request::RenameSession { id, title } => {
                 // A rename racing a running turn used to be REJECTED — and the
                 // app pushes its generated title seconds after send, which is
@@ -2145,6 +2420,14 @@ pub(super) async fn handle_client(
                 handle_switch_openai_account(id, label, &agent, &client_event_tx).await;
             }
 
+            Request::InvalidateOpenAiUsage { id, account_label } => {
+                handle_invalidate_openai_usage(id, account_label, &client_event_tx).await;
+            }
+
+            Request::InvalidateAnthropicUsage { id, account_label } => {
+                handle_invalidate_anthropic_usage(id, account_label, &client_event_tx).await;
+            }
+
             Request::SetFeature {
                 id,
                 feature,
@@ -2180,7 +2463,7 @@ pub(super) async fn handle_client(
             }
 
             Request::Split { id } => {
-                handle_split(id, &client_session_id, &client_event_tx).await;
+                handle_split(id, &client_session_id, &agent, &client_event_tx).await;
             }
 
             Request::Transfer { id } => {
@@ -3029,6 +3312,9 @@ pub(super) async fn handle_client(
                 handle_client_debug_response(id, output, &client_debug_response_tx);
             }
         }
+        if sdk_session_before_request != client_session_id {
+            drop(crate::tool::sdk::ConnectionGuard(client_connection_id.clone()));
+        }
         if request_lifecycle_logged {
             log_request_lifecycle_handled(
                 ServerRequestLifecycleFields {
@@ -3046,6 +3332,113 @@ pub(super) async fn handle_client(
                 request_lifecycle_start,
                 request_decoded_at,
             );
+        }
+    }
+
+    Ok(())
+    }.await;
+
+    drop(_sdk_connection_guard);
+
+    // Cleanup serializes the successor decision against live attachment claims.
+    // A successor must inherit the active owner, including its completion receiver,
+    // rather than just an Agent whose processing task was already aborted.
+    let event_handle = if !continue_on_disconnect {
+        let retained = crate::hooks::with_client_terminal_env(
+            active_terminal_env.clone(),
+            cleanup_client_connection(
+                &sessions,
+                &client_session_id,
+                client_is_processing,
+                &mut processing_task,
+                event_handle,
+                &swarm_members,
+                &swarms_by_id,
+                &swarm_coordinators,
+                &swarm_plans,
+                &file_touch,
+                &channel_subscriptions,
+                &channel_subscriptions_by_session,
+                &client_debug_state,
+                &client_debug_id,
+                &client_connections,
+                &client_connection_id,
+                &shutdown_signals,
+                &soft_interrupt_queues,
+                &event_history,
+                &event_counter,
+                &swarm_event_tx,
+                &client_event_tx,
+                super::client_disconnect_cleanup::IDLE_RECONNECT_GRACE,
+            ),
+        )
+        .await?;
+        match retained {
+            Some(handle) => handle,
+            None => return connection_result,
+        }
+    } else {
+        event_handle
+    };
+
+    {
+        // Retain the existing turn owner, not the socket. Its JoinHandle and
+        // completion receiver stay alive so normal finalization still runs and
+        // the daemon cannot idle-shutdown midway through remote work. New
+        // attachments receive future events through the existing session fanout.
+        detach_client_attachment(
+            &client_session_id,
+            &client_connection_id,
+            &client_debug_id,
+            &client_connections,
+            &client_debug_state,
+            &swarm_members,
+        )
+        .await;
+        super::state::broadcast_presence(&swarm_members, &client_connections, &client_session_id)
+            .await;
+        event_handle.abort();
+        drop(reader);
+        drop(writer);
+        // Input prompts belong to this transport and cannot safely be replayed
+        // to a new client. Close response channels instead of waiting forever.
+        stdin_forwarder.abort();
+        let _ = stdin_forwarder.await;
+        stdin_responses.lock().await.clear();
+        if let Some(handle) = processing_task.take() {
+            crate::logging::info(&format!(
+                "Retaining disconnected turn for session {}",
+                client_session_id
+            ));
+            let _ = handle.await;
+            while let Ok((done_id, result, report)) = processing_done_rx.try_recv() {
+                if Some(done_id) == processing_message_id {
+                    record_processing_completion(
+                        processing_session_id.as_deref(),
+                        result,
+                        report,
+                        &SwarmStatusRefs {
+                            members: &swarm_members,
+                            swarms_by_id: &swarms_by_id,
+                            event_history: &event_history,
+                            event_counter: &event_counter,
+                            event_tx: &swarm_event_tx,
+                        },
+                    )
+                    .await;
+                }
+            }
+            client_is_processing = false;
+        } else {
+            // A reattached remote connection may disconnect again while the
+            // original lifecycle owns the task. Wait for its active-turn lease
+            // before attempting cleanup. Returning early here would leak the
+            // session if the original owner had just skipped cleanup for this
+            // successor. All finishers serialize cleanup against live attach.
+            while crate::turn_cancel_registry::has_active_turn(&client_session_id) {
+                tokio::time::sleep(Duration::from_millis(25)).await;
+            }
+            client_is_processing = false;
         }
     }
 
@@ -3073,10 +3466,76 @@ pub(super) async fn handle_client(
             &event_history,
             &event_counter,
             &swarm_event_tx,
+            &client_event_tx,
+            super::client_disconnect_cleanup::IDLE_RECONNECT_GRACE,
         ),
     )
     .await?;
-    Ok(())
+    connection_result
+}
+
+async fn record_processing_completion(
+    done_session: Option<&str>,
+    result: Result<()>,
+    completion_report: Option<String>,
+    swarm: &SwarmStatusRefs<'_>,
+) {
+    match result {
+        Ok(()) => {
+            if let Some(session_id) = done_session {
+                update_member_status_with_report(
+                    session_id,
+                    "ready",
+                    None,
+                    completion_report,
+                    swarm.members,
+                    swarm.swarms_by_id,
+                    Some(swarm.event_history),
+                    Some(swarm.event_counter),
+                    Some(swarm.event_tx),
+                )
+                .await;
+            }
+        }
+        Err(e) => {
+            if let Some(session_id) = done_session {
+                update_member_status(
+                    session_id,
+                    "failed",
+                    Some(truncate_detail(&e.to_string(), 120)),
+                    swarm.members,
+                    swarm.swarms_by_id,
+                    Some(swarm.event_history),
+                    Some(swarm.event_counter),
+                    Some(swarm.event_tx),
+                )
+                .await;
+            }
+            let retry_after_secs = e
+                .downcast_ref::<StreamError>()
+                .and_then(|se| se.retry_after_secs);
+            if retry_after_secs.is_some() {
+                crate::telemetry::record_error(crate::telemetry::ErrorCategory::RateLimited);
+            } else {
+                let msg = e.to_string();
+                let lower = msg.to_lowercase();
+                if lower.contains("timeout") {
+                    crate::telemetry::record_error(
+                        crate::telemetry::ErrorCategory::ProviderTimeout,
+                    );
+                } else if crate::provider::error_looks_like_credential_failure(&msg)
+                    || lower.contains("403 forbidden")
+                {
+                    // Use the shared credential-failure classifier instead of a
+                    // bare `contains("auth")`: that substring also matched
+                    // unrelated errors (e.g. any message mentioning "author" or
+                    // OAuth flow noise) and inflated the auth_failed telemetry
+                    // counter.
+                    crate::telemetry::record_error(crate::telemetry::ErrorCategory::AuthFailed);
+                }
+            }
+        }
+    }
 }
 
 #[allow(clippy::too_many_arguments)] // Mirrors the wire event plus its two delivery handles.
@@ -3208,6 +3667,7 @@ async fn start_processing_message(
     crate::logging::info(&format!("Processing message id={} spawning task", id));
     *state.task = Some(tokio::spawn(async move {
         let event_tx = tx.clone();
+        let mut stop_reason = crate::protocol::TurnStopReason::Failure;
         let result = match std::panic::AssertUnwindSafe(crate::hooks::with_client_terminal_env(
             client_terminal_env,
             process_message_streaming_mpsc(
@@ -3224,6 +3684,7 @@ async fn start_processing_message(
         {
             Ok(result) => result,
             Err(panic_payload) => {
+                stop_reason = crate::protocol::TurnStopReason::Crash;
                 let msg = if let Some(text) = panic_payload.downcast_ref::<&str>() {
                     text.to_string()
                 } else if let Some(text) = panic_payload.downcast_ref::<String>() {
@@ -3257,6 +3718,13 @@ async fn start_processing_message(
         // Keep the terminal event on the same ordered fanout channel as the
         // stream. Sending it later from the owning client's event loop could
         // race ahead of the final MessageEnd for newly attached clients.
+        if let Err(error) = &result {
+            let _ = tx.send(ServerEvent::TurnStopped {
+                reason: stop_reason,
+                message: crate::util::format_error_chain(error),
+                provider_stop_reason: None,
+            });
+        }
         let terminal_event = match &result {
             Ok(()) => ServerEvent::Done { id },
             Err(error) => ServerEvent::Error {
@@ -3307,6 +3775,18 @@ async fn cancel_processing_message(
             ));
             *state.task = Some(handle);
             return;
+        }
+        let stopped = ServerEvent::TurnStopped {
+            reason: crate::protocol::TurnStopReason::Interrupted,
+            message: "The turn was interrupted by a cancellation request.".into(),
+            provider_stop_reason: None,
+        };
+        // Publish before signalling: the worker can finish cooperatively and
+        // emit Done immediately after request_cancel.
+        if super::state::fanout_session_event(swarm.members, &session_label, stopped.clone()).await
+            == 0
+        {
+            let _ = client_event_tx.send(stopped);
         }
         let cancel_epoch = session_control.request_cancel();
         crate::logging::info(&format!(
@@ -3405,6 +3885,18 @@ async fn cancel_processing_message(
                 let _ = client_event_tx.send(ServerEvent::Done { id: message_id });
             }
             return;
+        }
+        let stopped = ServerEvent::TurnStopped {
+            reason: crate::protocol::TurnStopReason::Interrupted,
+            message: "The turn was interrupted by a cancellation request.".into(),
+            provider_stop_reason: None,
+        };
+        // Publish before signalling: the worker can finish cooperatively and
+        // emit Done immediately after request_cancel.
+        if super::state::fanout_session_event(swarm.members, &session_label, stopped.clone()).await
+            == 0
+        {
+            let _ = client_event_tx.send(stopped);
         }
         let cancel_epoch = session_control.request_cancel();
         let reset_control = session_control.clone();
@@ -3561,6 +4053,28 @@ pub(super) async fn process_message_streaming_mpsc(
     event_tx: tokio::sync::mpsc::UnboundedSender<ServerEvent>,
 ) -> Result<()> {
     let mut agent = agent.lock().await;
+    process_locked_message_streaming_mpsc(
+        &mut agent,
+        content,
+        images,
+        system_reminder,
+        by_user,
+        event_tx,
+    )
+    .await
+}
+
+/// Same as [`process_message_streaming_mpsc`] for a caller that already holds
+/// the agent lock (e.g. a wake turn that reserved the idle agent up front, see
+/// #1152).
+pub(super) async fn process_locked_message_streaming_mpsc(
+    agent: &mut Agent,
+    content: &str,
+    images: Vec<(String, String)>,
+    system_reminder: Option<String>,
+    by_user: Option<String>,
+    event_tx: tokio::sync::mpsc::UnboundedSender<ServerEvent>,
+) -> Result<()> {
     // set_turn_author is consumed by the message append, so keep a copy: the
     // credential layer needs it for the whole turn, not just the append.
     let member = by_user.clone();
@@ -3631,3 +4145,6 @@ fn remove_abandoned_placeholder_session(placeholder_id: &str, resumed_id: &str) 
         let _ = std::fs::remove_file(journal);
     }
 }
+#[cfg(test)]
+#[path = "client_target_attach_tests.rs"]
+mod target_attach_tests;

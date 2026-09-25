@@ -701,6 +701,7 @@ fn reconstruct_side_panel_snapshot_from_session(session: &Session) -> SidePanelS
                             title: title.clone(),
                             file_path: format!("session://{}/{}.md", session.id, page_id),
                             format: SidePanelPageFormat::Markdown,
+                            pdf_data: None,
                             source: SidePanelPageSource::Managed,
                             content: String::new(),
                             updated_at_ms: revision,
@@ -762,6 +763,7 @@ fn reconstruct_side_panel_snapshot_from_session(session: &Session) -> SidePanelS
                             title,
                             file_path: file_path.to_string(),
                             format: SidePanelPageFormat::Markdown,
+                            pdf_data: None,
                             source: SidePanelPageSource::LinkedFile,
                             content,
                             updated_at_ms: revision,
@@ -805,6 +807,7 @@ fn reconstruct_side_panel_snapshot_from_session(session: &Session) -> SidePanelS
     }
 
     SidePanelSnapshot {
+        focus_revision: 0,
         focused_page_id,
         pages,
     }
@@ -1128,9 +1131,6 @@ impl TuiState for BenchState {
         jcode::config::config().display.native_scrollbars.side_panel
     }
 
-    fn diff_line_wrap(&self) -> bool {
-        true
-    }
     fn inline_interactive_state(&self) -> Option<&jcode::tui::InlineInteractiveState> {
         None
     }

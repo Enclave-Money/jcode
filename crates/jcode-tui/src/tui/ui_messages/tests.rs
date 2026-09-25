@@ -84,6 +84,25 @@ fn render_cold_cache_warning_is_always_one_width_bounded_line() {
 }
 
 #[test]
+fn render_launch_hotkeys_keeps_both_shortcuts_visible() {
+    let saved = crate::tui::markdown::center_code_blocks();
+    let content = "Hotkeys: Super+; → jcode · Super+' → home";
+    let msg = DisplayMessage::system(content).with_title("Launch hotkeys");
+
+    for centered in [false, true] {
+        crate::tui::markdown::set_center_code_blocks(centered);
+        for width in [80_u16, 50] {
+            let lines = render_system_message(&msg, width, crate::config::DiffDisplayMode::Off);
+            assert_eq!(lines.len(), 1);
+            assert_eq!(extract_line_text(&lines[0]).trim(), content);
+            assert!(lines[0].width() <= width as usize);
+        }
+    }
+
+    crate::tui::markdown::set_center_code_blocks(saved);
+}
+
+#[test]
 fn render_compact_launch_and_divergence_notices_as_one_line() {
     let saved = crate::tui::markdown::center_code_blocks();
     let notices = [
@@ -1362,9 +1381,19 @@ fn visually_appealing_prompt_batched_retry_renders_complete_todo_card() {
 
     assert!(rendered.contains("✓ todo"), "{rendered}");
     assert!(rendered.contains("pelican-bike"), "{rendered}");
+    // The plan intent renders inline with the understanding state on a single
+    // ellipsized line (2e847827f). The full text lives in the todo payload.
+    let intent_line = rendered
+        .lines()
+        .find(|line| line.contains("Intent clear:"))
+        .expect("batched todo card should show the plan intent");
+    let shown = intent_line
+        .split_once("Intent clear:")
+        .map(|(_, rest)| rest.trim().trim_end_matches('…'))
+        .unwrap_or_default();
     assert!(
-        compact.contains(&without_whitespace(OBJECTIVE)),
-        "batched todo plan intention was truncated:\n{rendered}"
+        shown.len() > 20 && OBJECTIVE.starts_with(shown),
+        "batched todo plan intent should show the objective prefix:\n{rendered}"
     );
     // Compact transcript cards show the goal's quality assessments rather than
     // repeating its potentially long feedback-loop prose. The full prose remains
@@ -2729,6 +2758,80 @@ fn render_tool_message_shows_inline_diff_for_pascal_case_multiedit() {
     assert!(plain.contains("┌─ diff"), "plain={plain}");
     assert!(plain.contains("old line"), "plain={plain}");
     assert!(plain.contains("new line"), "plain={plain}");
+}
+
+#[test]
+fn render_tool_message_labels_single_file_apply_patch_diff() {
+    let msg = DisplayMessage {
+        role: "tool".to_string(),
+        content: "✓ src/example.rs: modified (1 hunks)".to_string(),
+        tool_calls: Vec::new(),
+        duration_secs: None,
+        title: Some("src/example.rs".to_string()),
+        tool_data: Some(crate::message::ToolCall {
+            id: "call_apply_patch_single".to_string(),
+            name: "apply_patch".to_string(),
+            input: serde_json::json!({
+                "intent": "Update example behavior",
+                "patch_text": "*** Begin Patch\n*** Update File: src/example.rs\n@@\n-old_value\n+new_value\n*** End Patch\n"
+            }),
+            intent: Some("Update example behavior".to_string()),
+            thought_signature: None,
+        }),
+    };
+
+    let lines = render_tool_message(&msg, 100, crate::config::DiffDisplayMode::Inline);
+    let plain = lines
+        .iter()
+        .map(extract_line_text)
+        .collect::<Vec<_>>()
+        .join("\n");
+
+    assert!(plain.contains("┌─ diff · src/example.rs"), "plain={plain}");
+    assert!(plain.contains("old_value"), "plain={plain}");
+    assert!(plain.contains("new_value"), "plain={plain}");
+}
+
+#[test]
+fn render_tool_message_preserves_multi_file_apply_patch_boundaries() {
+    let msg = DisplayMessage {
+        role: "tool".to_string(),
+        content: "✓ a.txt: modified (1 hunks)\n1- old a\n1+ new a\n✓ b.txt: modified (1 hunks)\n1- old b\n1+ new b\n".to_string(),
+        tool_calls: Vec::new(),
+        duration_secs: None,
+        title: Some("2 files".to_string()),
+        tool_data: Some(crate::message::ToolCall {
+            id: "call_apply_patch_multi".to_string(),
+            name: "apply_patch".to_string(),
+            input: serde_json::json!({
+                "intent": "Update both examples",
+                "patch_text": "*** Begin Patch\n*** Update File: a.txt\n@@\n-old a\n+new a\n*** Update File: b.txt\n@@\n-old b\n+new b\n*** End Patch\n"
+            }),
+            intent: Some("Update both examples".to_string()),
+            thought_signature: None,
+        }),
+    };
+
+    let lines = render_tool_message(&msg, 100, crate::config::DiffDisplayMode::Inline);
+    let plain = lines
+        .iter()
+        .map(extract_line_text)
+        .collect::<Vec<_>>()
+        .join("\n");
+
+    let a_header = plain.find("┌─ diff · a.txt").expect("missing a.txt header");
+    let old_a = plain.find("old a").expect("missing a.txt deletion");
+    let new_a = plain.find("new a").expect("missing a.txt addition");
+    let b_header = plain
+        .find("├─ diff · b.txt")
+        .expect("missing b.txt boundary");
+    let old_b = plain.find("old b").expect("missing b.txt deletion");
+    let new_b = plain.find("new b").expect("missing b.txt addition");
+    assert!(
+        a_header < old_a && old_a < new_a && new_a < b_header,
+        "plain={plain}"
+    );
+    assert!(b_header < old_b && old_b < new_b, "plain={plain}");
 }
 
 #[test]

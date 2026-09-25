@@ -110,6 +110,20 @@ pub(super) type SessionAgents = Arc<RwLock<HashMap<String, Arc<Mutex<Agent>>>>>;
 pub(super) type ChannelSubscriptions =
     Arc<RwLock<HashMap<String, HashMap<String, HashSet<String>>>>>;
 
+fn idle_monitor_should_start(client_count: usize, has_live_headless_worker: bool) -> bool {
+    client_count == 0 && !has_live_headless_worker
+}
+
+async fn has_live_headless_worker(sessions: &SessionAgents, swarm_state: &SwarmState) -> bool {
+    let live_sessions: HashSet<String> = sessions.read().await.keys().cloned().collect();
+    swarm_state
+        .members
+        .read()
+        .await
+        .values()
+        .any(|member| member.is_headless && live_sessions.contains(&member.session_id))
+}
+
 /// Remove a live server session and its process-presence marker as one
 /// lifecycle operation. Server-owned sessions all share the long-running
 /// server PID, so leaving the marker behind makes presence UIs count the
@@ -640,6 +654,27 @@ const IDLE_TIMEOUT_SECS: u64 = 300;
 /// comfortably below the default idle threshold so reclamation is prompt and
 /// predictable rather than delayed by another full sampling interval.
 const EMBEDDING_IDLE_CHECK_SECS: u64 = 10;
+
+#[cfg(test)]
+mod idle_monitor_tests {
+    use super::idle_monitor_should_start;
+
+    #[test]
+    fn shared_idle_monitor_preserves_live_headless_worker() {
+        assert!(!idle_monitor_should_start(0, true));
+    }
+
+    #[test]
+    fn temporary_idle_monitor_preserves_live_headless_worker() {
+        assert!(!idle_monitor_should_start(0, true));
+    }
+
+    #[test]
+    fn idle_monitor_starts_only_without_clients_or_headless_workers() {
+        assert!(idle_monitor_should_start(0, false));
+        assert!(!idle_monitor_should_start(1, false));
+    }
+}
 
 /// How often the retained-heap watchdog samples allocator retention.
 const HEAP_RETENTION_CHECK_SECS: u64 = 120;
@@ -1223,33 +1258,8 @@ impl Server {
         server_start_time: Instant,
         temporary_server_policy: Option<lifecycle::TemporaryServerPolicy>,
     ) {
-        // Preload the embedding model in background so warm startups get fast
-        // memory recall. On a cold install, skip eager preload because the
-        // first-time model download can make the first spawned client look hung
-        // while the daemon finishes bootstrapping.
-        if crate::embedding::is_model_available() {
-            tokio::task::spawn_blocking(|| {
-                let start = std::time::Instant::now();
-                match crate::embedding::get_embedder() {
-                    Ok(_) => {
-                        crate::logging::info(&format!(
-                            "Embedding model preloaded in {}ms",
-                            start.elapsed().as_millis()
-                        ));
-                    }
-                    Err(e) => {
-                        crate::logging::info(&format!(
-                            "Embedding model preload failed (non-fatal): {}",
-                            e
-                        ));
-                    }
-                }
-            });
-        } else {
-            crate::logging::info(
-                "Embedding model not installed yet; skipping eager preload during server startup",
-            );
-        }
+        // Jev memory recall does not need a local embedding model. Optional
+        // embedding consumers (such as semantic compaction) load it on demand.
 
         // Warm the lightweight session-search index after daemon startup. This
         // keeps the first agent `session_search` call from paying the cold
@@ -1769,6 +1779,8 @@ impl Server {
         if let Some(policy) = temporary_server_policy {
             lifecycle::spawn_temporary_lifecycle_monitor(
                 Arc::clone(&self.client_count),
+                Arc::clone(&self.sessions),
+                self.swarm_state.clone(),
                 self.socket_path.clone(),
                 self.debug_socket_path.clone(),
                 self.identity.name.clone(),
@@ -1778,6 +1790,8 @@ impl Server {
             crate::logging::info("Debug control enabled; idle timeout monitor disabled.");
         } else {
             let idle_client_count = Arc::clone(&self.client_count);
+            let idle_sessions = Arc::clone(&self.sessions);
+            let idle_swarm_state = self.swarm_state.clone();
             let idle_server_name = self.identity.name.clone();
             // A TEAM server must survive quiet nights: JCODE_IDLE_TIMEOUT_SECS
             // overrides the default, and 0 disables idle shutdown entirely.
@@ -1797,8 +1811,10 @@ impl Server {
                     }
 
                     let count = *idle_client_count.read().await;
+                    let has_live_headless_worker =
+                        has_live_headless_worker(&idle_sessions, &idle_swarm_state).await;
 
-                    if count == 0 {
+                    if idle_monitor_should_start(count, has_live_headless_worker) {
                         // No clients connected
                         if idle_since.is_none() {
                             idle_since = Some(std::time::Instant::now());
@@ -2296,6 +2312,14 @@ impl Server {
             Err(error) => crate::logging::warn(&format!(
                 "Reload recovery GC failed during startup: {error}"
             )),
+        }
+
+        let (pruned_active_pids, failed_active_pids) =
+            crate::storage::prune_active_pids_owned_by(std::process::id());
+        if pruned_active_pids + failed_active_pids > 0 {
+            crate::logging::info(&format!(
+                "Pruned {pruned_active_pids} stale active-pid marker(s); {failed_active_pids} could not be removed"
+            ));
         }
 
         // Restrict socket files to owner-only so other local users cannot connect.

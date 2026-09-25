@@ -461,6 +461,7 @@ pub async fn login_claude(no_browser: bool) -> Result<OAuthTokens> {
             &manual_auth_url,
             "No browser on this machine? Scan this QR on another device, finish login there, then paste the full callback URL back here:",
             "    ",
+            crate::auth::browser_suppressed(no_browser),
         ) {
             eprintln!("{qr}\n");
         }
@@ -543,6 +544,7 @@ callback on {}\n",
         &auth_url,
         "Scan this QR on another device if this machine has no browser:",
         "    ",
+        crate::auth::browser_suppressed(no_browser),
     ) {
         eprintln!("{qr}\n");
     }
@@ -867,6 +869,7 @@ pub async fn login_openai(no_browser: bool) -> Result<OAuthTokens> {
         &auth_url,
         "Scan this QR on another device if this machine has no browser:",
         "    ",
+        crate::auth::browser_suppressed(no_browser),
     ) {
         eprintln!("{qr}\n");
     }
@@ -997,7 +1000,10 @@ async fn fetch_claude_profile_email_at_url(
     let resp = client
         .get(profile_url)
         .header("Accept", "application/json")
-        .header("User-Agent", "claude-cli/1.0.0")
+        .header(
+            "User-Agent",
+            crate::provider::anthropic::CLAUDE_CLI_USER_AGENT,
+        )
         .header("anthropic-beta", "oauth-2025-04-20,claude-code-20250219")
         .bearer_auth(access_token)
         .send()

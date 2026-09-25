@@ -2,6 +2,30 @@
 
 use serde::{Deserialize, Serialize};
 
+/// A session-local tool executed by the client, or an effective tool description.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct SessionToolDefinition {
+    pub name: String,
+    pub description: String,
+    /// JSON Schema for the input. Must be a JSON object.
+    pub parameters: serde_json::Map<String, serde_json::Value>,
+}
+
+/// Replacement tool configuration for a live session, not a patch.
+/// Reconfigure after daemon restart or loading a persisted session. Custom
+/// tools execute on the configuring client's connection.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+pub struct ToolConfiguration {
+    /// Omitted/null inherits defaults. Empty disables all built-in/MCP tools.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub enabled: Option<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub disabled: Vec<String>,
+    /// Additive custom tools, overriding a built-in/MCP tool with the same name.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub custom: Vec<SessionToolDefinition>,
+}
+
 /// Curated request surface. Internally-tagged on `"req"`.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(tag = "req", rename_all = "snake_case")]
@@ -10,7 +34,7 @@ pub enum ApiRequest {
     Hello {
         min_version: u32,
         max_version: u32,
-        /// Client name and version, e.g. "jcode-desktop2/0.1.0".
+        /// Client name and version, e.g. "external-client/0.1.0".
         client: String,
     },
 
@@ -19,6 +43,9 @@ pub enum ApiRequest {
         /// Include sessions the user archived through this API.
         #[serde(default, skip_serializing_if = "std::ops::Not::not")]
         include_archived: bool,
+        /// Return at most this many most-recently modified persisted sessions.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        limit: Option<u32>,
     },
 
     /// List saved councils (cross-model panels) and their member model ids.
@@ -206,10 +233,17 @@ pub enum ApiRequest {
     CreateSession {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         working_dir: Option<String>,
+        /// Replace the complete assembled system prompt for this session.
+        /// An empty string is an explicit empty override.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        system_prompt: Option<String>,
     },
 
     /// Attach to an existing session and subscribe to its event stream.
     AttachSession { session_id: String },
+
+    /// Clone an attached session's transcript into a new, idle session.
+    ForkSession { session_id: String },
 
     /// Detach from the currently attached session.
     DetachSession { session_id: String },
@@ -218,6 +252,11 @@ pub enum ApiRequest {
     SendMessage {
         session_id: String,
         content: String,
+        /// Hidden recovery/context instruction, not a user transcript message.
+        /// Also carries the client-side working-mode reminder for this turn
+        /// (the Shift+Tab plan/ask/manual texts) — same slot the TUI uses.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        system_reminder: Option<String>,
         /// (media_type, base64_data) pairs.
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         images: Vec<(String, String)>,
@@ -228,10 +267,24 @@ pub enum ApiRequest {
         /// the daemon's skill registry (names arrive via the `skills` event).
         #[serde(default, skip_serializing_if = "Option::is_none")]
         active_skill: Option<String>,
-        /// Client-side working-mode reminder injected for this turn (the
-        /// Shift+Tab plan/ask/manual texts) — same slot the TUI uses.
+    },
+
+    /// Replace the attached session's tool configuration.
+    ConfigureTools {
+        session_id: String,
+        tools: ToolConfiguration,
+    },
+
+    /// List the effective tools available to the attached session.
+    ListTools { session_id: String },
+
+    /// Complete a client-executed custom tool call. Acknowledged with `Ok`.
+    ToolResult {
+        session_id: String,
+        call_id: String,
+        output: String,
         #[serde(default, skip_serializing_if = "Option::is_none")]
-        system_reminder: Option<String>,
+        error: Option<String>,
     },
 
     /// Cancel the in-flight generation.
@@ -304,6 +357,20 @@ pub enum ApiRequest {
 
     /// Remove a previously persisted API-key credential.
     ClearApiKey { provider: String },
+
+    /// Reload provider credentials already saved outside the harness (e.g. OAuth).
+    /// No tokens or callback input travel in this request.
+    NotifyAuthChanged { provider: String },
+
+    /// Drop the daemon's cached quota and quota cooldown for one subscription
+    /// login after the client redeemed a banked usage reset out of band.
+    /// `provider` is `claude` or `openai`. `account_label: None` is the default
+    /// login. This never redeems a reset and carries no credentials.
+    InvalidateUsage {
+        provider: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        account_label: Option<String>,
+    },
 
     /// Read one UTF-8 file under the session working directory.
     ReadFile {

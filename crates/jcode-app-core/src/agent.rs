@@ -6,6 +6,8 @@ mod gitnexus_watch;
 mod inline_tail;
 mod interrupts;
 mod messages;
+#[cfg(test)]
+mod model_usage_tests;
 mod prompting;
 mod provider;
 mod response_recovery;
@@ -53,7 +55,7 @@ pub use jcode_agent_runtime::{
     SoftInterruptQueue, SoftInterruptSource, StreamError,
 };
 
-const JCODE_NATIVE_TOOLS: &[&str] = &["selfdev", "communicate"];
+const JCODE_NATIVE_TOOLS: &[&str] = &["selfdev", "desktop_selfdev", "communicate"];
 static RECOVERED_TEXT_WRAPPED_TOOL_CALLS: std::sync::atomic::AtomicU64 =
     std::sync::atomic::AtomicU64::new(0);
 static JCODE_REPO_SOURCE_STATE: LazyLock<(Option<String>, Option<bool>)> = LazyLock::new(|| {
@@ -187,6 +189,12 @@ pub struct Agent {
     active_skill: Option<String>,
     allowed_tools: Option<HashSet<String>>,
     disabled_tools: HashSet<String>,
+    /// Generation-scoped ownership of this Agent's global tool-policy entry.
+    _tool_policy_registration: crate::tool::SessionToolPolicyRegistration,
+    /// MCP top-level definition exposure policy captured when the session starts.
+    mcp_tools_mode: crate::config::McpToolsMode,
+    /// Auto-mode token estimate above which MCP definitions are deferred.
+    mcp_tools_token_threshold: usize,
     /// Provider-specific session ID for conversation resume (e.g., Claude Code CLI session)
     provider_session_id: Option<String>,
     /// Last upstream provider (OpenRouter) observed for this session
@@ -236,8 +244,6 @@ pub struct Agent {
     /// MCP tools to wait for), this is set so the per-turn registry scan stops.
     /// Reset whenever the tool list is intentionally unlocked.
     mcp_late_register_resolved: bool,
-    /// Override system prompt (used by ambient mode to inject a custom prompt)
-    system_prompt_override: Option<String>,
     /// AGENTS.md is session bootstrap input. Keep the captured text stable so
     /// tool writes do not mutate the provider's cacheable prefix mid-session.
     agents_md_snapshot: (Option<String>, crate::prompt::ContextInfo),
@@ -260,6 +266,9 @@ pub struct Agent {
     /// Prevent duplicate content uploads when shutdown/finalization is invoked
     /// more than once for the same in-memory agent.
     transcript_telemetry_sent: bool,
+    /// One logical runtime session, independent of the process-global legacy
+    /// telemetry slot and of any TUI clients viewing this agent.
+    concurrency_session: Option<crate::telemetry::ConcurrencySession>,
 }
 
 impl Agent {
@@ -290,10 +299,16 @@ impl Agent {
         disabled_tools: HashSet<String>,
     ) -> Self {
         let skills = SkillRegistry::shared_snapshot();
+        let tool_config = &crate::config::config().tools;
         let working_dir = session.working_dir.as_deref().map(std::path::Path::new);
         let agents_md_snapshot = crate::prompt::load_agents_md_files_from_dir(working_dir);
         let initial_provider_model = provider.model();
-        let agent = Self {
+        let tool_policy_registration = crate::tool::register_session_tool_policy(
+            &session.id,
+            allowed_tools.clone(),
+            disabled_tools.clone(),
+        );
+        Self {
             provider,
             registry,
             skills,
@@ -301,6 +316,9 @@ impl Agent {
             active_skill: None,
             allowed_tools,
             disabled_tools,
+            _tool_policy_registration: tool_policy_registration,
+            mcp_tools_mode: tool_config.mcp_tools,
+            mcp_tools_token_threshold: tool_config.mcp_tools_token_threshold,
             provider_session_id: None,
             last_upstream_provider: None,
             last_connection_type: None,
@@ -318,7 +336,6 @@ impl Agent {
             last_usage: TokenUsage::default(),
             locked_tools: None,
             mcp_late_register_resolved: false,
-            system_prompt_override: None,
             agents_md_snapshot,
             memory_enabled: crate::config::config().features.memory,
             rewind_undo_snapshot: None,
@@ -327,13 +344,8 @@ impl Agent {
             inline_output_tap: false,
             inline_tail: inline_tail::InlineTailBuffer::default(),
             transcript_telemetry_sent: false,
-        };
-        crate::tool::set_session_tool_policy(
-            &agent.session.id,
-            agent.allowed_tools.clone(),
-            agent.disabled_tools.clone(),
-        );
-        agent
+            concurrency_session: None,
+        }
     }
 
     fn current_skills_snapshot(&self) -> Arc<SkillRegistry> {
@@ -375,8 +387,38 @@ impl Agent {
         registry: Registry,
         working_dir: Option<&str>,
     ) -> Self {
+        Self::new_with_initial_ownership(provider, registry, working_dir, None, true)
+    }
+
+    /// A connection may only be a viewer attaching to an existing Agent.
+    /// Do not count its provisional session before that choice is resolved.
+    pub(crate) fn new_provisional_with_initial_working_dir(
+        provider: Arc<dyn Provider>,
+        registry: Registry,
+        working_dir: Option<&str>,
+    ) -> Self {
+        Self::new_with_initial_ownership(provider, registry, working_dir, None, false)
+    }
+
+    pub(crate) fn new_with_parent_and_initial_working_dir(
+        provider: Arc<dyn Provider>,
+        registry: Registry,
+        working_dir: Option<&str>,
+        parent_id: Option<String>,
+    ) -> Self {
+        Self::new_with_initial_ownership(provider, registry, working_dir, parent_id, true)
+    }
+
+    fn new_with_initial_ownership(
+        provider: Arc<dyn Provider>,
+        registry: Registry,
+        working_dir: Option<&str>,
+        parent_id: Option<String>,
+        track_concurrency: bool,
+    ) -> Self {
+        let start = Instant::now();
         let tool_selection = crate::config::config().tools.selection();
-        let mut session = Session::create(None, None);
+        let mut session = Session::create(parent_id, None);
         if let Some(working_dir) = working_dir {
             session.working_dir = Some(working_dir.to_string());
         }
@@ -395,12 +437,23 @@ impl Agent {
         agent.seed_compaction_from_session();
         agent.log_env_snapshot("create");
         agent.fire_session_lifecycle_hook("session_start", "create");
+        if track_concurrency {
+            agent.activate_concurrency_tracking();
+        }
+        let setup_ms = start.elapsed().as_millis();
+        let telemetry_start = Instant::now();
         crate::telemetry::begin_session_with_parent(
             agent.provider.name(),
             &agent.provider.model(),
             agent.session.parent_id.clone(),
             false,
         );
+        logging::info(&format!(
+            "[TIMING] agent_new: setup={}ms, telemetry={}ms, total={}ms",
+            setup_ms,
+            telemetry_start.elapsed().as_millis(),
+            start.elapsed().as_millis(),
+        ));
         agent
     }
 
@@ -456,6 +509,7 @@ impl Agent {
         agent.seed_compaction_from_session();
         agent.log_env_snapshot("attach");
         agent.fire_session_lifecycle_hook("session_start", "attach");
+        agent.begin_concurrency_tracking();
         crate::telemetry::begin_session_with_parent(
             agent.provider.name(),
             &agent.provider.model(),
@@ -911,15 +965,28 @@ impl Agent {
         &self.session.id
     }
 
+    /// Desktop self-development is selected by the session checkout, including
+    /// restored sessions. It must not set the CLI canary/reload flags.
+    pub fn is_desktop_selfdev(&self) -> bool {
+        self.session
+            .working_dir
+            .as_deref()
+            .map(std::path::Path::new)
+            .and_then(jcode_selfdev_types::desktop_repo_root)
+            .is_some()
+    }
+
     pub(crate) fn set_working_dir_for_pending_context(&mut self, working_dir: Option<String>) {
         if working_dir.is_some() {
             self.session.working_dir = working_dir;
+            self.unlock_tools();
             self.session.refresh_initial_session_context_message();
         }
     }
 
     /// Mark this agent session as closed and persist it.
     pub fn mark_closed(&mut self) {
+        self.finish_concurrency_tracking();
         self.persist_soft_interrupt_snapshot();
         self.session.mark_closed();
         if !self.session.messages.is_empty() {
@@ -951,6 +1018,7 @@ impl Agent {
     }
 
     pub fn mark_crashed(&mut self, message: Option<String>) {
+        self.finish_concurrency_tracking();
         self.persist_soft_interrupt_snapshot();
         self.session.mark_crashed(message);
         if !self.session.messages.is_empty() {
@@ -962,6 +1030,35 @@ impl Agent {
             &self.provider.model(),
             crate::telemetry::SessionEndReason::Unknown,
         );
+    }
+
+    fn begin_concurrency_tracking(&mut self) {
+        // Release the old identity before registering a new one. An Agent can
+        // survive /clear and /resume, but its logical session does not.
+        self.finish_concurrency_tracking();
+        self.activate_concurrency_tracking();
+    }
+
+    /// Commit a provisional Agent to logical session ownership exactly once.
+    pub(crate) fn activate_concurrency_tracking(&mut self) {
+        if self.concurrency_session.is_some() {
+            return;
+        }
+        self.concurrency_session = Some(crate::telemetry::begin_concurrency_session(
+            &self.session.id,
+            self.session.parent_id.as_deref(),
+        ));
+    }
+
+    pub(crate) fn finish_concurrency_tracking(&mut self) {
+        if let Some(mut guard) = self.concurrency_session.take() {
+            guard.finish();
+        }
+    }
+
+    #[cfg(test)]
+    pub(crate) fn has_concurrency_tracking(&self) -> bool {
+        self.concurrency_session.is_some()
     }
 
     fn upload_transcript_telemetry(&mut self, end_reason: crate::telemetry::SessionEndReason) {

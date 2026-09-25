@@ -1,3 +1,7 @@
+import {
+  CONCURRENCY_EVENTS, concurrencyEntries, rawConcurrencyScalar,
+} from "./concurrency.js";
+
 let cachedEventColumns = null;
 let cachedSessionDetailColumns = null;
 let cachedTurnDetailColumns = null;
@@ -29,10 +33,13 @@ const CLI_EVENTS = [
   "auth_success",
   "onboarding_step",
   "feedback",
+  "telemetry_opt_out",
   "session_start",
+  "prompt_submitted",
   "turn_end",
   "session_end",
   "session_crash",
+  "session_concurrency",
   "discovery",
   "todo_session",
 ];
@@ -272,10 +279,50 @@ function writeGeoFirehose(env, body) {
   }
 }
 
+// Dedicated append-only schema. Main FIREHOSE is full and does not contain any
+// concurrency metrics. blob10 retains parsed raw metric types and missing keys.
+// blob1..16: event, event_id, session_id, telemetry_id, version, os, arch,
+// build_channel, country, raw_json, quality, quality_reason, scope, phase, role,
+// runtime incarnation. double1..11: tracking version, available, runtime is_ci,
+// active_start, other_start, total_peak, root_start, child_start, root_peak,
+// child_peak, multi. index1: telemetry_id. Filter blob11='trusted' BEFORE using
+// numeric copies: AE cannot store NULL doubles, so untrusted missing values use 0.
+function writeConcurrencyFirehose(env, body) {
+  const sink = env.FIREHOSE_CONCURRENCY;
+  if (!sink || typeof sink.writeDataPoint !== "function") return false;
+  try {
+    const blobs = ["event", "event_id", "session_id", "id", "version", "os", "arch",
+      "build_channel", "country"].map((key) => String(body[key] ?? ""));
+    const detail = Object.fromEntries(concurrencyEntries(body));
+    blobs.push(detail.raw_json, detail.quality, detail.quality_reason,
+      detail.concurrency_tracking_scope ?? "", detail.phase ?? "", detail.agent_role ?? "",
+      detail.concurrency_session_id ?? "");
+    const doubles = ["concurrency_tracking_version", "concurrency_tracking_available", "runtime_is_ci",
+      "active_sessions_at_start", "other_active_sessions_at_start", "max_concurrent_sessions",
+      "root_sessions_at_start", "child_sessions_at_start", "max_concurrent_root_sessions",
+      "max_concurrent_child_sessions", "multi_sessioned"].map((key) => detail[key] ?? 0);
+    // Reject an oversized point, never silently truncate its counts/raw JSON.
+    const encoder = new TextEncoder();
+    if (blobs.reduce((sum, blob) => sum + encoder.encode(blob).length, 0) > 16 * 1024
+      || encoder.encode(String(body.id)).length > 96) {
+      console.warn("concurrency firehose point exceeds Analytics Engine limits");
+      return false;
+    }
+    sink.writeDataPoint({ indexes: [String(body.id)], blobs, doubles });
+    return true;
+  } catch (err) {
+    console.warn("concurrency firehose write failed", err?.message || err);
+    return false;
+  }
+}
+
 function writeFirehose(env, body) {
   // Geo is dimensioned separately from every event family, so it is written
   // before the per-family dispatch below (which returns early).
   writeGeoFirehose(env, body);
+  if (body.event === "session_concurrency") {
+    return writeConcurrencyFirehose(env, body);
+  }
   if (body.event === "discovery") {
     return writeDiscoveryFirehose(env, body);
   }
@@ -519,8 +566,12 @@ export default {
     const firehoseOk = writeFirehose(env, body);
 
     let durableOk = true;
+    let concurrencyDurable = null;
     try {
       await insertEvent(env, body);
+      if (CONCURRENCY_EVENTS.includes(body.event)) {
+        concurrencyDurable = await insertConcurrencyDetails(env, body);
+      }
     } catch (err) {
       durableOk = false;
       console.error(
@@ -541,10 +592,18 @@ export default {
 
     maybeScheduleEmergencyPrune(env, ctx);
 
+    if (body.event === "session_concurrency" && !concurrencyDurable && !firehoseOk) {
+      // The parent row alone does not contain the metric. Preserve it but ask
+      // the client to retry until a detail or the complete firehose point lands.
+      return jsonResponse({ error: "Concurrency storage unavailable", durable: durableOk,
+        concurrency_durable: false, firehose: false }, 503, cors);
+    }
     if (!durableOk && !firehoseOk) {
       return jsonResponse({ error: "Internal error" }, 500, cors);
     }
-    return jsonResponse({ ok: true, durable: durableOk, firehose: firehoseOk }, 200, cors);
+    return jsonResponse({ ok: true, durable: durableOk, firehose: firehoseOk,
+      ...(CONCURRENCY_EVENTS.includes(body.event) ? { concurrency_durable: concurrencyDurable === true } : {}),
+    }, 200, cors);
   },
 
   // Nightly retention pruning bounds durable raw-history growth and keeps the
@@ -553,6 +612,7 @@ export default {
   async scheduled(event, env, ctx) {
     ctx.waitUntil(
       (async () => {
+        await repairDailyActivityYesterday(env);
         await pruneOldEvents(env);
         // If the normal prune did not free enough headroom, escalate with the
         // emergency (halved) retention windows instead of waiting for inserts
@@ -570,6 +630,46 @@ export default {
     );
   },
 };
+
+async function repairDailyActivityYesterday(env) {
+  try {
+    await env.DB.prepare(`
+      INSERT OR IGNORE INTO daily_active_users (
+        activity_date, telemetry_id, raw_active, meaningful_active,
+        release_active, meaningful_release_active, session_start_count,
+        turn_end_count, session_end_count, session_crash_count, ci_active,
+        last_is_ci, last_build_channel
+      )
+      SELECT date(created_at), telemetry_id, 1,
+        MAX(CASE
+          WHEN event IN ('prompt_submitted', 'turn_end') THEN 1
+          WHEN event IN ('session_end', 'session_crash') AND (
+            had_user_prompt > 0 OR had_assistant_response > 0 OR turns > 0
+            OR assistant_responses > 0 OR tool_calls > 0 OR executed_tool_calls > 0
+          ) THEN 1 ELSE 0 END),
+        MAX(CASE WHEN build_channel IN ('release', 'ci_release') THEN 1 ELSE 0 END),
+        MAX(CASE WHEN build_channel IN ('release', 'ci_release') AND (
+          event IN ('prompt_submitted', 'turn_end')
+          OR (event IN ('session_end', 'session_crash') AND (
+            had_user_prompt > 0 OR had_assistant_response > 0 OR turns > 0
+            OR assistant_responses > 0 OR tool_calls > 0 OR executed_tool_calls > 0
+          ))
+        ) THEN 1 ELSE 0 END),
+        SUM(CASE WHEN event = 'session_start' THEN 1 ELSE 0 END),
+        SUM(CASE WHEN event = 'turn_end' THEN 1 ELSE 0 END),
+        SUM(CASE WHEN event = 'session_end' THEN 1 ELSE 0 END),
+        SUM(CASE WHEN event = 'session_crash' THEN 1 ELSE 0 END),
+        MAX(is_ci), MAX(is_ci), MAX(build_channel)
+      FROM events
+      WHERE event IN ('session_start', 'prompt_submitted', 'turn_end', 'session_end', 'session_crash')
+        AND created_at >= datetime('now', '-1 day', 'start of day')
+        AND created_at < datetime('now', 'start of day')
+      GROUP BY date(created_at), telemetry_id
+    `).run();
+  } catch (err) {
+    console.warn("daily activity repair failed", err?.message || err);
+  }
+}
 
 async function ingestTranscript(request, env, cors) {
   if (!env.TRANSCRIPTS || typeof env.TRANSCRIPTS.put !== "function") {
@@ -782,6 +882,7 @@ const RETENTION_DAYS = {
   auth_success: 180,
   session_end: 365,
   session_crash: 365,
+  session_concurrency: 365,
   web_pageview: 90,
   web_cta_click: 365,
   web_vital: 30,
@@ -791,6 +892,8 @@ const RETENTION_DAYS = {
   subscription_router_error: 90,
   subscription_budget_exhausted: 365,
   todo_session: 365,
+  prompt_submitted: 30,
+  telemetry_opt_out: 365,
 };
 
 const PRUNE_BATCH_LIMIT = 10000;
@@ -821,7 +924,6 @@ async function pruneOldEvents(env, options = {}) {
     const scaledDays = Math.max(1, Math.round(days * retentionScale));
     const cutoff = `-${scaledDays} days`;
     while (batchesUsed < maxBatches) {
-      batchesUsed += 1;
       // Delete web_details children first (own try/catch: databases that
       // predate migration 0016 have no web_details table, and that must not
       // abort pruning of the event rows themselves).
@@ -883,6 +985,9 @@ async function pruneOldEvents(env, options = {}) {
         ).bind(eventType, cutoff, PRUNE_BATCH_LIMIT).run();
         observeDbSize(result);
         const changes = result?.meta?.changes ?? result?.changes ?? 0;
+        // Empty event families must not consume the deletion budget, or adding
+        // a family permanently starves later families of retention checks.
+        if (changes > 0) batchesUsed += 1;
         if (changes < PRUNE_BATCH_LIMIT) {
           break;
         }
@@ -894,12 +999,35 @@ async function pruneOldEvents(env, options = {}) {
   }
 }
 
+async function insertConcurrencyDetails(env, body) {
+  if (typeof body.event_id !== "string" || !body.event_id) return false;
+  try {
+    // Also run on event retries: a previous parent insert can have succeeded
+    // while this detail write failed. INSERT OR IGNORE never rewrites history.
+    await insertDynamic(env, "concurrency_details", concurrencyEntries(body));
+    return true;
+  } catch (err) {
+    // A missing migration or failed detail write must not discard a valid
+    // parent event. Coverage exposes missing_detail and the response exposes
+    // concurrency_durable:false. Do not cache table absence across migrations.
+    console.warn("concurrency detail write failed", err?.message || err);
+    return false;
+  }
+}
+
 async function insertEvent(env, body) {
   const columns = await getEventColumns(env);
   const sessionDetailColumns = await getSessionDetailColumns(env);
   const turnDetailColumns = await getTurnDetailColumns(env);
   const installDetailColumns = await getInstallDetailColumns(env);
   const common = commonEventEntries(body, columns);
+
+  if (body.event === "session_concurrency") {
+    return insertEventRow(env, body, [
+      ["telemetry_id", body.id], ["event", body.event], ["version", body.version],
+      ["os", body.os], ["arch", body.arch], ...common,
+    ].filter(([name]) => columns.has(name)));
+  }
 
   if (body.event === "todo_session") {
     const values = [
@@ -1042,6 +1170,18 @@ async function insertEvent(env, body) {
     ].filter(([name]) => columns.has(name)));
   }
 
+  if (body.event === "telemetry_opt_out") {
+    return insertEventRow(env, body, [
+      ["telemetry_id", body.id],
+      ["event", body.event],
+      ["version", body.version],
+      ["os", body.os],
+      ["arch", body.arch],
+      ["step", body.step || "telemetry_settings"],
+      ...common.filter(([name]) => name !== "session_id"),
+    ].filter(([name]) => columns.has(name)));
+  }
+
   if (body.event === "feedback") {
     return insertEventRow(env, body, [
       ["telemetry_id", body.id],
@@ -1070,14 +1210,26 @@ async function insertEvent(env, body) {
       ["previous_session_gap_secs", body.previous_session_gap_secs ?? null],
       ["sessions_started_24h", body.sessions_started_24h || 0],
       ["sessions_started_7d", body.sessions_started_7d || 0],
-      ["active_sessions_at_start", body.active_sessions_at_start || 0],
-      ["other_active_sessions_at_start", body.other_active_sessions_at_start || 0],
+      ["active_sessions_at_start", rawConcurrencyScalar(body.active_sessions_at_start)],
+      ["other_active_sessions_at_start", rawConcurrencyScalar(body.other_active_sessions_at_start)],
       ...common,
     ];
     if (columns.has("resumed_session")) {
       values.push(["resumed_session", boolToInt(body.resumed_session)]);
     }
     return insertEventRow(env, body, values.filter(([name]) => columns.has(name)));
+  }
+
+  if (body.event === "prompt_submitted") {
+    return insertEventRow(env, body, [
+      ["telemetry_id", body.id],
+      ["event", body.event],
+      ["version", body.version],
+      ["os", body.os],
+      ["arch", body.arch],
+      ["turn_index", body.turn_index ?? null],
+      ...common,
+    ].filter(([name]) => columns.has(name)));
   }
 
   if (body.event === "turn_end") {
@@ -1191,10 +1343,10 @@ async function insertEvent(env, body) {
       ["previous_session_gap_secs", body.previous_session_gap_secs ?? null],
       ["sessions_started_24h", body.sessions_started_24h || 0],
       ["sessions_started_7d", body.sessions_started_7d || 0],
-      ["active_sessions_at_start", body.active_sessions_at_start || 0],
-      ["other_active_sessions_at_start", body.other_active_sessions_at_start || 0],
-      ["max_concurrent_sessions", body.max_concurrent_sessions || 0],
-      ["multi_sessioned", boolToInt(body.multi_sessioned)],
+      ["active_sessions_at_start", rawConcurrencyScalar(body.active_sessions_at_start)],
+      ["other_active_sessions_at_start", rawConcurrencyScalar(body.other_active_sessions_at_start)],
+      ["max_concurrent_sessions", rawConcurrencyScalar(body.max_concurrent_sessions)],
+      ["multi_sessioned", rawConcurrencyScalar(body.multi_sessioned)],
       ["resumed_session", boolToInt(body.resumed_session)],
       ["end_reason", body.end_reason || null],
       ["error_provider_timeout", errors.provider_timeout || 0],
@@ -1304,13 +1456,16 @@ async function recordDailyActivity(env, body) {
   // Country rollup covers every event family, including the ones that never
   // reach the DAU table (install, upgrade, web_pageview, ...).
   await recordCountryDaily(env, body);
-  if (!["session_start", "turn_end", "session_end", "session_crash"].includes(body.event)) {
+  if (!["session_start", "prompt_submitted", "turn_end", "session_end", "session_crash"].includes(body.event)) {
     return;
   }
 
   const activityDate = new Date().toISOString().slice(0, 10);
   const meaningful = isMeaningfulLifecycleEvent(body) ? 1 : 0;
-  const release = body.build_channel === "release" ? 1 : 0;
+  // ci_release means the artifact was built by CI/CD, not that this execution
+  // happened on a runner. Runtime automation is represented independently by
+  // is_ci and CI-built official binaries still count as release usage.
+  const release = ["release", "ci_release"].includes(body.build_channel) ? 1 : 0;
   const meaningfulRelease = meaningful && release ? 1 : 0;
   const isCi = boolToInt(body.is_ci);
   const sessionStartCount = body.event === "session_start" ? 1 : 0;
@@ -1396,6 +1551,9 @@ async function recordCountryDaily(env, body) {
 
 function isMeaningfulLifecycleEvent(body) {
   const errors = body.errors || {};
+  if (body.event === "prompt_submitted") {
+    return true;
+  }
   if (["session_end", "session_crash"].includes(body.event)) {
     return (
       (body.turns || 0) > 0
@@ -1446,10 +1604,10 @@ async function insertSessionDetails(env, body, columns) {
     ["previous_session_gap_secs", body.previous_session_gap_secs ?? null],
     ["sessions_started_24h", body.sessions_started_24h || 0],
     ["sessions_started_7d", body.sessions_started_7d || 0],
-    ["active_sessions_at_start", body.active_sessions_at_start || 0],
-    ["other_active_sessions_at_start", body.other_active_sessions_at_start || 0],
-    ["max_concurrent_sessions", body.max_concurrent_sessions || 0],
-    ["multi_sessioned", boolToInt(body.multi_sessioned)],
+    ["active_sessions_at_start", rawConcurrencyScalar(body.active_sessions_at_start)],
+    ["other_active_sessions_at_start", rawConcurrencyScalar(body.other_active_sessions_at_start)],
+    ["max_concurrent_sessions", rawConcurrencyScalar(body.max_concurrent_sessions)],
+    ["multi_sessioned", rawConcurrencyScalar(body.multi_sessioned)],
     ["first_file_edit_ms", body.first_file_edit_ms || null],
     ["first_test_pass_ms", body.first_test_pass_ms || null],
     ["tool_cat_read_search", body.tool_cat_read_search || 0],
@@ -1871,7 +2029,7 @@ function normalizeSubscriptionEvent(body) {
 }
 
 function normalizeDiscoveryEvent(body) {
-  const phases = new Set(["browse", "select", "suggest", "unknown"]);
+  const phases = new Set(["browse", "details", "select", "suggest", "unknown"]);
   const outcomes = new Set(["success", "failure"]);
   const failures = new Set([
     "disabled", "invalid_input", "invalid_category", "timeout",

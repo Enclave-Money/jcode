@@ -10,7 +10,7 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct DisplayConfig {
-    /// How to display file diffs (off/inline/full-inline/pinned/file, default: inline)
+    /// How to display file diffs (off/inline/full-inline/file, default: inline)
     #[serde(deserialize_with = "crate::serde_lenient::lenient_enum")]
     pub diff_mode: DiffDisplayMode,
     /// Legacy: "show_diffs = true/false" maps to diff_mode inline/off
@@ -28,7 +28,7 @@ pub struct DisplayConfig {
     pub emoji: bool,
     /// Center all content (default: false)
     pub centered: bool,
-    /// Show thinking/reasoning content by default (default: false)
+    /// Show thinking/reasoning content by default (default: true)
     pub show_thinking: bool,
     /// How to display reasoning/thinking content (off/full/current).
     /// When unset, falls back to `show_thinking` (true => full, false => off).
@@ -60,8 +60,6 @@ pub struct DisplayConfig {
     pub prompt_entry_animation: bool,
     /// Disable specific animation variants by name (e.g. ["donut", "orbit_rings"])
     pub disabled_animations: Vec<String>,
-    /// Wrap long lines in the pinned diff pane (default: true)
-    pub diff_line_wrap: bool,
     /// Performance tier override: auto/full/reduced/minimal (default: auto)
     pub performance: String,
     /// FPS for animations (startup, idle donut): 1-120 (default: 60)
@@ -122,7 +120,7 @@ pub struct DisplayConfig {
     /// Usage percentage wording: "left" (default) or "used".
     pub usage_display: String,
     /// When to show the overscroll status line below the input
-    /// (off/on/overscroll, default: overscroll). "overscroll" is the elastic
+    /// (off/on/overscroll, default: on). "overscroll" is the elastic
     /// reveal when scrolling past the bottom, "on" keeps it always visible.
     #[serde(default, deserialize_with = "crate::serde_lenient::lenient_enum")]
     pub overscroll_status: OverscrollStatusMode,
@@ -140,15 +138,14 @@ impl Default for DisplayConfig {
             debug_socket: false,
             emoji: true,
             centered: false,
-            show_thinking: false,
-            reasoning_display: Some(ReasoningDisplayMode::Off),
+            show_thinking: true,
+            reasoning_display: Some(ReasoningDisplayMode::Full),
             diagram_mode: DiagramDisplayMode::default(),
             markdown_spacing: MarkdownSpacingMode::default(),
             latex_rendering: LatexRenderingMode::default(),
             idle_animation: false,
             prompt_entry_animation: true,
             disabled_animations: Vec::new(),
-            diff_line_wrap: true,
             performance: String::new(),
             animation_fps: 60,
             redraw_fps: 60,
@@ -219,6 +216,18 @@ impl DisplayConfig {
 #[cfg(test)]
 mod tests {
     use super::DisplayConfig;
+    use crate::ReasoningDisplayMode;
+
+    #[test]
+    fn thinking_is_shown_in_full_by_default() {
+        let default = DisplayConfig::default();
+        assert!(default.show_thinking);
+        assert_eq!(default.reasoning_display(), ReasoningDisplayMode::Full);
+
+        let missing: DisplayConfig = serde_json::from_str("{}").expect("display config");
+        assert!(missing.show_thinking);
+        assert_eq!(missing.reasoning_display(), ReasoningDisplayMode::Full);
+    }
 
     #[test]
     fn todos_are_pinned_by_default_but_can_be_disabled() {

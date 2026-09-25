@@ -66,9 +66,10 @@ impl Tool for WriteTool {
             tokio::fs::create_dir_all(parent).await?;
         }
 
-        // Read-for-diff and write under this repo's write queue, so a teammate's
-        // concurrent edit cannot land between them and be reported as this
-        // write's "before". See `super::write_queue`.
+        // Read-for-diff and write under the per-file lock and then this repo's
+        // write queue, so a teammate's concurrent edit cannot land between them
+        // and be reported as this write's "before". See `super::write_queue`.
+        let _lock = super::file_lock::lock(&path).await;
         let session = ctx.session_id.clone();
         let (existed, old_content) = super::write_queue::with_repo_write_lock(
             &path,
@@ -90,6 +91,13 @@ impl Tool for WriteTool {
             },
         )
         .await?;
+        super::edit_stats::record(
+            &ctx,
+            old_content.as_deref().unwrap_or(""),
+            &params.content,
+            existed && old_content.is_none(),
+        )
+        .await;
 
         let _new_len = params.content.len();
         let line_count = params.content.lines().count();
@@ -144,7 +152,25 @@ impl Tool for WriteTool {
             &params.content,
         );
 
-        Ok(ToolOutput::new(body).with_title(params.file_path.clone()))
+        let output = ToolOutput::new(body).with_title(params.file_path.clone());
+        // Do not claim an authoritative diff when the old file was unreadable.
+        Ok(if !existed || old_content.is_some() {
+            super::file_diff::attach(
+                output,
+                super::file_diff::unified(
+                    if existed {
+                        &params.file_path
+                    } else {
+                        "/dev/null"
+                    },
+                    &params.file_path,
+                    old_content.as_deref().unwrap_or(""),
+                    &params.content,
+                ),
+            )
+        } else {
+            output
+        })
     }
 }
 

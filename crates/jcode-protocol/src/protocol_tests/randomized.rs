@@ -63,7 +63,11 @@ fn test_protocol_request_roundtrip_randomized_samples() -> Result<()> {
         let client_has_local_history = rng.random_bool(0.5);
         let allow_session_takeover = rng.random_bool(0.5);
         let user = rng.random_bool(0.5).then(|| format!("user-{}@test", id));
+        let crash_on_disconnect = rng.random_bool(0.5);
+        let continue_on_disconnect = rng.random_bool(0.5);
         let req = Request::Subscribe {
+            system_prompt: None,
+            supports_pdf_panels: false,
             id,
             working_dir: working_dir.clone(),
             selfdev,
@@ -71,11 +75,15 @@ fn test_protocol_request_roundtrip_randomized_samples() -> Result<()> {
             client_instance_id: client_instance_id.clone(),
             client_has_local_history,
             allow_session_takeover,
+            crash_on_disconnect,
+            continue_on_disconnect,
             terminal_env: Vec::new(),
             user: user.clone(),
         };
         let decoded = parse_request_json(&serde_json::to_string(&req)?)?;
         let Request::Subscribe {
+            system_prompt: _,
+            supports_pdf_panels: _,
             id: decoded_id,
             working_dir: decoded_working_dir,
             selfdev: decoded_selfdev,
@@ -83,6 +91,8 @@ fn test_protocol_request_roundtrip_randomized_samples() -> Result<()> {
             client_instance_id: decoded_client_instance_id,
             client_has_local_history: decoded_client_has_local_history,
             allow_session_takeover: decoded_allow_session_takeover,
+            crash_on_disconnect: decoded_crash_on_disconnect,
+            continue_on_disconnect: decoded_continue_on_disconnect,
             terminal_env: _,
             user: decoded_user,
         } = decoded
@@ -97,6 +107,8 @@ fn test_protocol_request_roundtrip_randomized_samples() -> Result<()> {
         assert_eq!(decoded_client_instance_id, client_instance_id);
         assert_eq!(decoded_client_has_local_history, client_has_local_history);
         assert_eq!(decoded_allow_session_takeover, allow_session_takeover);
+        assert_eq!(decoded_crash_on_disconnect, crash_on_disconnect);
+        assert_eq!(decoded_continue_on_disconnect, continue_on_disconnect);
     }
 
     Ok(())

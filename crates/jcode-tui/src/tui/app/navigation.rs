@@ -198,7 +198,30 @@ impl App {
         else {
             return false;
         };
-        self.cycle_image_expand(image_id);
+        let level = self.cycle_image_expand(image_id);
+        let size = match level {
+            crate::tui::ui::inline_image_ui::ImageExpandLevel::Fit => "fit",
+            crate::tui::ui::inline_image_ui::ImageExpandLevel::Large => "large",
+            crate::tui::ui::inline_image_ui::ImageExpandLevel::Full => "full",
+        };
+        crate::tui::mermaid::set_mermaid_inline_expand_level(image_id, level as u8);
+        if let Some(source) = crate::tui::mermaid::mermaid_source_for_hash(image_id) {
+            let copied = super::helpers::copy_to_clipboard(&source);
+            self.set_status_notice(if copied {
+                format!("Image size: {size} · Mermaid code copied")
+            } else {
+                format!("Image size: {size} · Could not copy Mermaid code")
+            });
+        } else if let Some((media_type, data)) =
+            super::super::ui::inline_image_ui::payload_for_copy(image_id)
+        {
+            let copied = super::helpers::copy_image_to_clipboard(&media_type, &data);
+            self.set_status_notice(if copied {
+                format!("Image size: {size} · Image copied")
+            } else {
+                format!("Image size: {size} · Could not copy image")
+            });
+        }
         true
     }
 
@@ -257,6 +280,9 @@ impl App {
     }
 
     pub(super) fn try_open_repository_markdown_link(&mut self, target: &str) -> bool {
+        if crate::tui::is_ssh_remote() {
+            return false;
+        }
         let path_target = target.split(['#', '?']).next().unwrap_or(target);
         let relative = std::path::Path::new(path_target);
         if relative.is_absolute()
@@ -304,6 +330,7 @@ impl App {
             title: title.clone(),
             file_path: path.to_string_lossy().into_owned(),
             format: crate::side_panel::SidePanelPageFormat::Markdown,
+            pdf_data: None,
             source: crate::side_panel::SidePanelPageSource::LinkedFile,
             content,
             updated_at_ms: 0,
@@ -504,6 +531,11 @@ impl App {
             .diff_pane_scroll_x
             .saturating_add(dx)
             .clamp(-4096, 4096);
+    }
+
+    pub(super) fn close_panel_image_preview(&mut self) {
+        self.panel_image_preview = None;
+        crate::tui::mermaid::clear_image_state();
     }
 
     pub(super) fn adjust_side_panel_image_zoom(&mut self, delta_percent: i16) {
@@ -868,7 +900,11 @@ impl App {
         }
     }
 
-    fn apply_mouse_scroll_step(&mut self, target: MouseScrollTarget, direction: i16) -> bool {
+    pub(super) fn apply_mouse_scroll_step(
+        &mut self,
+        target: MouseScrollTarget,
+        direction: i16,
+    ) -> bool {
         match target {
             MouseScrollTarget::Chat => {
                 if direction < 0 {
@@ -1048,7 +1084,9 @@ impl App {
             .get(&image_id)
             .copied()
             .unwrap_or_default();
-        let next = current.next();
+        let next = ImageExpandLevel::from_index(
+            crate::tui::mermaid::next_distinct_mermaid_inline_level(image_id, current as u8),
+        );
         if matches!(next, ImageExpandLevel::Fit) {
             self.expanded_images.remove(&image_id);
         } else {
@@ -1335,6 +1373,13 @@ impl App {
             }};
         }
 
+        if self.panel_image_preview.is_some() {
+            if matches!(mouse.kind, MouseEventKind::Up(MouseButton::Left)) {
+                self.close_panel_image_preview();
+            }
+            finish_mouse_event!(false, "panel_image_preview");
+        }
+
         if self.changelog_scroll.is_some() {
             match mouse.kind {
                 MouseEventKind::ScrollUp => {
@@ -1587,7 +1632,9 @@ impl App {
                 }
                 self.set_diagram_focus(true);
                 handled_scroll = true;
-            } else if self.diagram_focus {
+            } else {
+                // Wheel input belongs to the pane under the pointer, even while
+                // keyboard focus stays in chat. Do not fall through at pan limits.
                 match mouse.kind {
                     MouseEventKind::ScrollUp => self.pan_diagram(0, -1),
                     MouseEventKind::ScrollDown => self.pan_diagram(0, 1),
@@ -1642,7 +1689,16 @@ impl App {
         }
 
         if handled_scroll {
-            finish_mouse_event!(!immediate_redraw, "pane_or_focused_diagram_scroll");
+            finish_mouse_event!(!immediate_redraw, "hovered_pane_scroll");
+        }
+
+        if matches!(mouse.kind, MouseEventKind::Up(MouseButton::Left))
+            && let Some(hash) =
+                crate::tui::ui::panel_image_preview::image_at(mouse.column, mouse.row)
+        {
+            self.panel_image_preview = Some(hash);
+            crate::tui::mermaid::clear_image_state();
+            finish_mouse_event!(false, "open_panel_image_preview");
         }
 
         if matches!(mouse.kind, MouseEventKind::Up(MouseButton::Left))

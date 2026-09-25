@@ -69,22 +69,29 @@ impl Tool for PatchTool {
 
         // Watch config.toml across the whole invocation so an edit that lands
         // on it is reported regardless of which patch produced it.
+        let _locks = super::file_lock::lock_all(
+            patches
+                .iter()
+                .map(|patch| ctx.resolve_path(Path::new(&patch.path))),
+        )
+        .await;
         let config_watch = super::config_edit_notice::ConfigEditWatch::begin();
         let mut results = Vec::new();
 
         let session = ctx.session_id.clone();
         for patch in patches {
             let resolved_path = ctx.resolve_path(Path::new(&patch.path));
-            // One lock per patched file rather than one for the whole batch:
-            // holding the repo queue across every file in a large patch would
-            // stall every other teammate for the entire batch.
+            // One repo lock per patched file rather than one for the whole
+            // batch: holding the repo queue across every file in a large patch
+            // would stall every other teammate for the entire batch. The
+            // per-file locks above are taken first (same order as edit/write).
             let result = super::write_queue::with_repo_write_lock(
                 &resolved_path,
                 Some(session.as_str()),
                 |depth, holder| {
                     super::write_queue::publish_wait(&session, &resolved_path, depth, holder);
                 },
-                || apply_patch_with_diff(&patch, &resolved_path),
+                || apply_patch_with_diff(&patch, &resolved_path, &ctx),
             )
             .await;
             match result {
@@ -223,13 +230,19 @@ fn parse_hunk(lines: &[&str], i: &mut usize) -> Option<Hunk> {
 }
 
 /// Apply a patch and return (status_message, diff_output)
-async fn apply_patch_with_diff(patch: &FilePatch, path: &Path) -> Result<(String, String)> {
+async fn apply_patch_with_diff(
+    patch: &FilePatch,
+    path: &Path,
+    ctx: &ToolContext,
+) -> Result<(String, String)> {
     // Handle deletion
     if patch.is_delete {
         if path.exists() {
-            let old_content = tokio::fs::read_to_string(path).await.unwrap_or_default();
+            let old = tokio::fs::read_to_string(path).await.ok();
+            let old_content = old.as_deref().unwrap_or("");
             tokio::fs::remove_file(path).await?;
-            let diff = generate_diff(&old_content, "", 1);
+            super::edit_stats::record(ctx, old_content, "", old.is_none()).await;
+            let diff = generate_diff(old_content, "", 1);
             return Ok(("deleted".to_string(), diff));
         } else {
             return Err(anyhow::anyhow!("file does not exist"));
@@ -256,6 +269,7 @@ async fn apply_patch_with_diff(patch: &FilePatch, path: &Path) -> Result<(String
             .collect();
 
         tokio::fs::write(path, &content).await?;
+        super::edit_stats::record(ctx, "", &content, false).await;
         let diff = generate_diff("", &content, 1);
         return Ok(("created".to_string(), diff));
     }
@@ -282,6 +296,7 @@ async fn apply_patch_with_diff(patch: &FilePatch, path: &Path) -> Result<(String
 
     let new_content = lines.join("\n") + "\n";
     tokio::fs::write(path, &new_content).await?;
+    super::edit_stats::record(ctx, &old_content, &new_content, false).await;
 
     let diff = generate_diff(&old_content, &new_content, first_line);
     Ok((format!("modified ({} hunks)", patch.hunks.len()), diff))

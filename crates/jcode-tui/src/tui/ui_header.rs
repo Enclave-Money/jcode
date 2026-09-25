@@ -946,6 +946,18 @@ fn build_header_lines_with_auth(
     // Accounts, limits, and the working directory live in the pinned
     // header now; the welcome stays a quiet transcript entry.
     let _ = (auth, active);
+    // Over native SSH the pinned header describes the laptop, not the server,
+    // so point `/login` at the remote host (no credential inventory: the
+    // protocol reports only the active route).
+    if let Some(host) = crate::tui::ssh_remote_host() {
+        lines.push(
+            Line::from(Span::styled(
+                format!("/login to authenticate on {host}"),
+                Style::default().fg(dim_color()),
+            ))
+            .alignment(align),
+        );
+    }
 
     let mcps = app.mcp_servers();
     if !mcps.is_empty() {
@@ -1035,7 +1047,7 @@ pub(super) fn build_updates_box_lines(width: u16, max_lines: usize) -> Vec<Line<
 /// Build both header sections from one authentication snapshot. Credential
 /// discovery can touch several files on Windows, so the render path must not
 /// repeat it for the persistent and secondary portions of the same frame.
-pub(super) fn build_header_sections(
+pub(in crate::tui) fn build_header_sections(
     app: &dyn TuiState,
     width: u16,
 ) -> (Vec<Line<'static>>, Vec<Line<'static>>) {

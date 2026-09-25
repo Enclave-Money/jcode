@@ -1738,22 +1738,22 @@ fn format_swarm_model_list(
 ) -> String {
     let mut out = String::new();
     out.push_str(&format!(
-        "Current model (spawn default when no override): {}\n",
+        "Current coordinator model: {}\n",
         current_model.unwrap_or("unknown")
     ));
     match configured_swarm_model {
         Some(pin) if !pin.trim().is_empty() => {
-            out.push_str(&format!("Configured agents.swarm_model pin: {pin}\n"));
+            out.push_str(&format!("Configured agents.swarm_model default: {pin}\n"));
         }
-        _ => out.push_str("No agents.swarm_model pin configured (workers inherit the coordinator's model unless a per-spawn model is passed).\n"),
+        _ => out.push_str(
+            "No agents.swarm_model default configured (workers inherit the coordinator's model unless model is passed).\n",
+        ),
     }
     if model_routes.is_empty() {
-        out.push_str(
-            "\nNo model routes reported. Spawn with a bare model name or omit model to inherit.",
-        );
+        out.push_str("\nNo model routes reported. Omit model to use the configured default, or pass inherit to use the coordinator.");
         return out;
     }
-    out.push_str("\nAvailable model routes (pass as spawn model, e.g. 'gpt-5.5' or route-pinned 'openai-api:gpt-5.5'):\n");
+    out.push_str("\nAvailable model routes (pass model with a bare model or route-pinned value to override the configured default):\n");
     for route in model_routes {
         let availability = if route.available {
             ""
@@ -1887,13 +1887,13 @@ struct CommunicateInput {
     /// threshold.
     #[serde(default)]
     tldr: Option<String>,
-    /// Per-spawn model override for spawn/assign_task/assign_next/run_plan
-    /// spawns. Takes precedence over agents.swarm_model config.
-    #[serde(default)]
-    model: Option<String>,
     /// Reasoning effort for spawned agents (none|minimal|low|medium|high|xhigh|max).
     #[serde(default)]
     effort: Option<String>,
+    /// Per-worker model override for spawn and assignment-created workers.
+    /// Takes precedence over agents.swarm_model; see list_models for routes.
+    #[serde(default)]
+    model: Option<String>,
     /// Short human-readable label for a spawned agent shown in swarm UI.
     /// Required and nonblank for the explicit `spawn` action.
     #[serde(default)]
@@ -1902,7 +1902,16 @@ struct CommunicateInput {
 
 impl CommunicateInput {
     fn spawn_initial_message(&self) -> Option<String> {
-        self.initial_message.clone().or_else(|| self.prompt.clone())
+        self.initial_message
+            .as_ref()
+            .filter(|message| !message.trim().is_empty())
+            .cloned()
+            .or_else(|| {
+                self.prompt
+                    .as_ref()
+                    .filter(|prompt| !prompt.trim().is_empty())
+                    .cloned()
+            })
     }
 
     fn required_spawn_label(&self) -> anyhow::Result<String> {
@@ -2051,7 +2060,7 @@ impl Tool for CommunicateTool {
                 },
                 "model": {
                     "type": "string",
-                    "description": "Model for spawned agents, e.g. 'gpt-5.5' or 'claude-api:opus'. Omit to inherit; see list_models."
+                    "description": "Model for new workers, e.g. 'openai-api:gpt-5.6-luna'. 'inherit' uses yours. See list_models."
                 },
                 "effort": {
                     "type": "string",

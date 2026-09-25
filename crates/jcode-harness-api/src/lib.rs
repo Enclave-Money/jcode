@@ -16,14 +16,28 @@
 use serde::{Deserialize, Serialize};
 
 mod client;
+mod edit_stats;
 mod events;
+pub use edit_stats::{
+    SessionEditStats, enrich_sessions_from_edit_stats, enrich_sessions_from_local_edit_stats,
+    record_session_edit,
+};
 mod requests;
 mod sockets;
+mod swarm_metadata;
 
 pub use client::{FrameError, HarnessClient, read_frame, write_frame};
 pub use events::*;
+pub use jcode_session_types::TurnStopReason;
+pub use jcode_side_panel_types::{
+    SidePanelPage, SidePanelPageFormat, SidePanelPageSource, SidePanelSnapshot,
+};
+pub use jcode_usage_types::{ModelUsage, compare_model_usage};
 pub use requests::*;
 pub use sockets::{api_socket_path, legacy_socket_path, runtime_dir};
+pub use swarm_metadata::{
+    enrich_sessions_from_local_swarm_state, enrich_sessions_from_swarm_state,
+};
 
 #[cfg(test)]
 #[path = "harness_api_tests/schema_snapshot.rs"]
@@ -36,8 +50,11 @@ mod capability_coverage_tests;
 /// Protocol major version. Breaking changes only.
 pub const API_VERSION_MAJOR: u32 = 1;
 /// Protocol minor version. Additive changes.
-/// 1: UserMessage + PermissionResolved events; the `permissions` capability.
-pub const API_VERSION_MINOR: u32 = 6;
+/// Blaude's additive changes (UserMessage + PermissionResolved events, the
+/// `permissions` capability, and the team/room/screen/fill surface) were
+/// numbered 1-6 on the fork while upstream reached 8 independently; the
+/// merged protocol carries both sets, so it is numbered past either.
+pub const API_VERSION_MINOR: u32 = 9;
 
 /// Envelope wrapping every client-to-server frame.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]

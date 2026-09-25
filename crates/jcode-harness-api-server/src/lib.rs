@@ -13,6 +13,8 @@
 //! This keeps the daemon untouched while the API surface stabilizes. Once
 //! proven, the same translation can move in-process behind a `hello` sniff on
 //! the main socket.
+// Tests hold the std env/home serialization lock across awaits on purpose.
+#![cfg_attr(test, allow(clippy::await_holding_lock))]
 
 #[cfg(test)]
 pub(crate) fn jcode_home_test_lock() -> std::sync::MutexGuard<'static, ()> {
@@ -23,6 +25,7 @@ pub(crate) fn jcode_home_test_lock() -> std::sync::MutexGuard<'static, ()> {
         .unwrap_or_else(|poisoned| poisoned.into_inner())
 }
 
+pub mod allocator;
 pub mod background_progress;
 pub mod blaude_account;
 pub mod council_jobs;
@@ -36,6 +39,9 @@ pub mod team_create_jobs;
 pub mod translate;
 pub mod video;
 pub mod ws;
+
+#[cfg(all(test, unix))]
+mod stdio_tests;
 
 use anyhow::{Context, Result};
 use jcode_harness_api::{API_VERSION_MAJOR, ApiEvent, ErrorCode, ServerFrame};
@@ -91,14 +97,54 @@ async fn dial_legacy(
 // connect as a result).
 pub use jcode_harness_api::{api_socket_path, legacy_socket_path};
 
+/// Frames above this size are transient (history, transcripts, file reads).
+/// Their buffers are released instead of pinning that capacity for the rest
+/// of the connection, and the allocator is asked to return the pages.
+const LARGE_FRAME_BYTES: usize = 256 * 1024;
+
+fn release_large_frame(buffer: &mut Vec<u8>) {
+    if buffer.capacity() > LARGE_FRAME_BYTES {
+        *buffer = Vec::new();
+        allocator::trim();
+    }
+}
+
+/// Probe only an old, universally supported control request on a disposable
+/// connection. Older daemons close that connection after ping, and may close
+/// connections receiving unknown requests. Never probe on the session stream.
+async fn daemon_supports_session_tools(socket: &std::path::Path) -> bool {
+    let probe = async {
+        let mut stream = Stream::connect(socket).await.ok()?;
+        write_json_line(&mut stream, &serde_json::json!({"type":"ping", "id":0}))
+            .await
+            .ok()?;
+        let mut reader = BufReader::new(stream);
+        let mut line = String::new();
+        read_frame(&mut reader, &mut line).await.ok()?;
+        let reply: Value = serde_json::from_str(&line).ok()?;
+        Some(
+            reply["type"] == "pong"
+                && reply["id"] == 0
+                && reply["capabilities"]
+                    .as_array()
+                    .is_some_and(|caps| caps.iter().any(|cap| cap == "session_tools")),
+        )
+    };
+    tokio::time::timeout(std::time::Duration::from_millis(500), probe)
+        .await
+        .ok()
+        .flatten()
+        .unwrap_or(false)
+}
+
 /// Largest single request frame accepted from an API client, in bytes.
 ///
 /// `read_line` grows its buffer until it finds a newline, so a client that
 /// never sends one makes the bridge allocate without bound: one connection can
 /// exhaust the host's memory, and the bridge serves every client on the
-/// machine. 16 MiB is far above any legitimate frame (the largest real one is a
-/// message carrying base64 images) and far below a problem.
-const MAX_FRAME_BYTES: u64 = 16 * 1024 * 1024;
+/// machine. A 32 MiB aggregate PDF budget expands to ~43 MiB of base64,
+/// so 64 MiB leaves room for metadata while retaining a finite frame bound.
+const MAX_FRAME_BYTES: u64 = 64 * 1024 * 1024;
 
 /// Read one newline-delimited frame, refusing to buffer more than
 /// `MAX_FRAME_BYTES`. Returns `Ok(0)` at end of stream, like `read_line`.
@@ -118,6 +164,27 @@ where
         ));
     }
     Ok(read)
+}
+
+/// Cancellation-safe variant for the multiplexed client loop. Tokio guarantees
+/// `read_until` retains bytes already appended to `frame` when another select
+/// branch wins, unlike `read_line` with a temporary String.
+async fn read_frame_bytes<R>(reader: &mut R, frame: &mut Vec<u8>) -> std::io::Result<usize>
+where
+    R: tokio::io::AsyncBufRead + Unpin,
+{
+    // A cancelled read retains its prefix. Limit the remaining bytes, not
+    // each invocation separately, or repeated cancellation defeats the cap.
+    let remaining = MAX_FRAME_BYTES.saturating_sub(frame.len() as u64);
+    let mut limited = tokio::io::AsyncReadExt::take(reader, remaining);
+    limited.read_until(b'\n', frame).await?;
+    if frame.len() as u64 >= MAX_FRAME_BYTES && !frame.ends_with(b"\n") {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            format!("frame exceeds {MAX_FRAME_BYTES} byte limit"),
+        ));
+    }
+    Ok(frame.len())
 }
 
 /// Run the bridge accept loop forever.
@@ -317,6 +384,8 @@ pub async fn run_bridge(api_socket: PathBuf, legacy_socket: PathBuf) -> Result<(
             if let Err(error) = handle_api_client(stream, legacy).await {
                 eprintln!("harness API bridge: client ended: {error:#}");
             }
+            // A closed client drops its translation state and buffers.
+            allocator::trim();
         });
     }
 }
@@ -429,6 +498,52 @@ async fn handle_api_client(stream: Stream, legacy_socket: PathBuf) -> Result<()>
         // A local runtime has one user and one filesystem: rooms mean nothing
         // there, so it is always the shared one.
         crate::rooms::Room::Shared,
+        false,
+    )
+    .await
+}
+
+/// Serve the process's stdin/stdout as one API connection.
+///
+/// Read stdin on a plain thread, not Tokio's blocking pool: Tokio stdin cannot
+/// be cancelled and otherwise prevents process exit when the daemon disconnects
+/// while SSH still holds stdin open. This entrypoint is for a CLI process only.
+#[cfg(unix)]
+pub async fn run_bridge_stdio(legacy_socket: PathBuf) -> Result<()> {
+    let (input, mut writer) = std::os::unix::net::UnixStream::pair()?;
+    input.set_nonblocking(true)?;
+    let input = tokio::net::UnixStream::from_std(input)?;
+    std::thread::Builder::new()
+        .name("api-stdin".into())
+        .spawn(move || {
+            let _ = std::io::copy(&mut std::io::stdin().lock(), &mut writer);
+            let _ = writer.shutdown(std::net::Shutdown::Write);
+        })?;
+    run_bridge_stream(input, tokio::io::stdout(), legacy_socket).await
+}
+
+/// Serve one stable API connection over a duplex byte stream, including SSH
+/// stdio. No API listener or filesystem socket is created for this connection.
+/// Whoever holds this process's stdio already runs as this machine's user, so
+/// it is the owner exactly as a local unix-socket client is.
+pub async fn run_bridge_stream<R, W>(
+    read_half: R,
+    write_half: W,
+    legacy_socket: PathBuf,
+) -> Result<()>
+where
+    R: tokio::io::AsyncRead + Unpin,
+    W: tokio::io::AsyncWrite + Unpin,
+{
+    let identity = blaude_account::identity().or_else(|| std::env::var("USER").ok());
+    handle_api_io(
+        BufReader::new(read_half),
+        write_half,
+        legacy_socket,
+        identity,
+        true,
+        crate::rooms::Room::Shared,
+        true,
     )
     .await
 }
@@ -446,6 +561,11 @@ pub(crate) async fn handle_api_io<R, W>(
     // Which room this connection belongs to. It decides whose desktop
     // `screen_frame` captures, so it has to reach the request loop.
     room: crate::rooms::Room,
+    // Fail the handshake instead of serving bridge-only when the daemon is
+    // down. Only the SSH/stdio entry wants this: its remote caller needs a
+    // clear failure, while the socket and WebSocket doors must keep serving
+    // the sign-in verbs that bring a daemon up.
+    require_daemon: bool,
 ) -> Result<()>
 where
     R: tokio::io::AsyncBufRead + Unpin,
@@ -472,6 +592,7 @@ where
         }
     };
     let reply_to = hello["id"].as_u64().unwrap_or(0);
+    let client_name = hello["client"].as_str().unwrap_or_default();
     let compatible = hello["req"] == "hello"
         && hello["min_version"].as_u64().unwrap_or(0) <= u64::from(API_VERSION_MAJOR)
         && hello["max_version"].as_u64().unwrap_or(0) >= u64::from(API_VERSION_MAJOR);
@@ -490,40 +611,8 @@ where
         write_json_line(&mut write_half, &frame).await?;
         return Ok(());
     }
-    let hello_ok = ServerFrame::reply(
-        reply_to,
-        ApiEvent::HelloOk {
-            identity: identity.clone(),
-            version: API_VERSION_MAJOR,
-            server: format!("jcode-harness-api-bridge/{}", env!("CARGO_PKG_VERSION")),
-            capabilities: [
-                "sessions",
-                "streaming",
-                "persisted_session_discovery",
-                "runtime_info",
-                "api_key_provisioning",
-                "session_archive",
-                "session_retention",
-                "session_files",
-                "permissions",
-                "team_notes",
-                "presence",
-                "add_dir",
-                "skill_install",
-                "session_modes",
-                "council_jobs",
-                "login_jobs",
-                "codex_login",
-                "team_access",
-            ]
-            .into_iter()
-            .map(str::to_string)
-            .collect(),
-        },
-    );
-    write_json_line(&mut write_half, &hello_ok).await?;
-
-    // 2. Dial the legacy daemon for this client. A fresh team server may not
+    // 2. Dial the legacy daemon for this client (before the capability probe,
+    //    so the session connection is the first one the daemon sees). A fresh team server may not
     //    have a bootable daemon yet (no provider credentials) — that must NOT
     //    kill the connection, or the bridge-local verbs that FIX it (the
     //    login jobs, invites) can never run. Serve bridge-only until the
@@ -531,6 +620,9 @@ where
     //    request.
     let (mut legacy_rx, mut legacy_write) = match dial_legacy(&legacy_socket).await {
         Some((rx, write)) => (Some(rx), Some(write)),
+        None if require_daemon => {
+            anyhow::bail!("connect legacy socket {}", legacy_socket.display());
+        }
         None => {
             eprintln!(
                 "harness API bridge: daemon unreachable; serving bridge-only verbs until it comes up"
@@ -544,8 +636,60 @@ where
             (None, None)
         }
     };
+    // Deliberately NOT a hard connect: a fresh team server has no daemon until
+    // its first AI account lands, and the bridge-local verbs (sign-in, login
+    // jobs, invites) that fix that must still be served. With no daemon there
+    // is nothing to probe, so skip the probe's timeout too.
+    let session_tools_supported = if legacy_write.is_some() {
+        daemon_supports_session_tools(&legacy_socket).await
+    } else {
+        false
+    };
+    let hello_ok = ServerFrame::reply(
+        reply_to,
+        ApiEvent::HelloOk {
+            identity: identity.clone(),
+            version: API_VERSION_MAJOR,
+            server: format!("jcode-harness-api-bridge/{}", env!("CARGO_PKG_VERSION")),
+            capabilities: [
+                "sessions",
+                "streaming",
+                "text_framing",
+                "turn_stop_reasons",
+                "side_panel",
+                "persisted_session_discovery",
+                "runtime_info",
+                "api_key_provisioning",
+                "auth_changed_notification",
+                "usage_invalidation",
+                "session_archive",
+                "session_retention",
+                "session_files",
+                "permissions",
+                "team_notes",
+                "presence",
+                "add_dir",
+                "skill_install",
+                "session_modes",
+                "council_jobs",
+                "login_jobs",
+                "codex_login",
+                "team_access",
+                "session_fork",
+            ]
+            .into_iter()
+            .map(str::to_string)
+            .chain(session_tools_supported.then(|| "session_tools".to_string()))
+            .collect(),
+        },
+    );
+    write_json_line(&mut write_half, &hello_ok).await?;
 
-    let mut state = translate::BridgeState::default();
+
+    let mut state = translate::BridgeState::with_crash_on_disconnect(
+        client_name.starts_with("jcode-desktop-"),
+    );
+    state.session_tools_supported = session_tools_supported;
     state.identity = identity.clone();
     state.is_owner = is_owner;
     state.room = room;
@@ -554,7 +698,9 @@ where
     //    single-threaded. A third branch watches the safety queue so
     //    permission prompts reach API clients (they are file-mediated by
     //    design — see src/permissions.rs).
-    let mut api_line = String::new();
+    // Cancel-safe: `read_frame_bytes` keeps a partially read frame in this
+    // buffer when a sibling arm wins the select.
+    let mut api_frame = Vec::new();
     // The queue is written by the DAEMON, a different process, so the
     // filesystem is the only channel available. A watch makes that a push: the
     // prompt reaches the client when it is written, not up to 900ms later.
@@ -675,7 +821,7 @@ where
                     write_json_line(&mut write_half, &frame).await?;
                 }
             }
-            n = read_frame(&mut reader, &mut api_line) => {
+            n = read_frame_bytes(&mut reader, &mut api_frame) => {
                 let n = match n {
                     Ok(n) => n,
                     // An oversized frame is unrecoverable: the stream is now
@@ -690,8 +836,14 @@ where
                     }
                 };
                 if n == 0 { return Ok(()); }
-                if api_line.trim().is_empty() { continue; }
-                let request: Value = match serde_json::from_str(api_line.trim()) {
+                if api_frame.iter().all(u8::is_ascii_whitespace) {
+                    api_frame.clear();
+                    continue;
+                }
+                let parsed = serde_json::from_slice(&api_frame);
+                api_frame.clear();
+                release_large_frame(&mut api_frame);
+                let request: Value = match parsed {
                     Ok(value) => value,
                     Err(error) => {
                         // No `reply_to`: the id lived in the frame that failed
@@ -1446,6 +1598,11 @@ where
                 let outbound = tokio::task::block_in_place(|| {
                     state.api_request_to_legacy(&request)
                 });
+                let heavy = allocator::request_is_heavy(&request);
+                // Kept past the drop: a daemon-bound frame with no daemon is
+                // answered with an error that must correlate to this request.
+                let request_api_id = request["id"].as_u64().unwrap_or(0);
+                drop(request);
                 for out in outbound {
                     match out {
                         translate::Outbound::Legacy(value) => {
@@ -1467,8 +1624,7 @@ where
                             match legacy_write.as_mut() {
                                 Some(legacy) => write_json_line(legacy, &value).await?,
                                 None => {
-                                    let api_id = request["id"].as_u64().unwrap_or(0);
-                                    let frame = ServerFrame::reply(api_id, ApiEvent::Error {
+                                    let frame = ServerFrame::reply(request_api_id, ApiEvent::Error {
                                         code: ErrorCode::Internal,
                                         message: "the agent daemon is not running (usually: no AI \
                                                   account yet). Add an account — sign-in works \
@@ -1482,6 +1638,9 @@ where
                             write_json_line(&mut write_half, &frame).await?;
                         }
                     }
+                }
+                if heavy {
+                    allocator::trim();
                 }
             }
             // Cancel-safe: recv() never loses a partially-read frame the way
@@ -1517,15 +1676,28 @@ where
                     continue;
                 };
                 if legacy_line.trim().is_empty() { continue; }
+                let large = legacy_line.capacity() > LARGE_FRAME_BYTES;
                 let event: Value = match serde_json::from_str(legacy_line.trim()) {
                     Ok(value) => value,
                     Err(_) => continue,
                 };
-                let frames = tokio::task::block_in_place(|| {
+                // Only a few replies read persisted session files. Streaming
+                // deltas are pure translation, and routing each one through
+                // block_in_place handed the worker core to a fresh blocking
+                // thread per event: a busy session grew the bridge to 69 idle
+                // threads, each pinning its own allocator arena.
+                let frames = if translate::legacy_event_may_block(&event) {
+                    tokio::task::block_in_place(|| state.legacy_event_to_api(&event))
+                } else {
                     state.legacy_event_to_api(&event)
-                });
+                };
+                drop(event);
                 for frame in frames {
                     write_json_line(&mut write_half, &frame).await?;
+                }
+                drop(legacy_line);
+                if large {
+                    allocator::trim();
                 }
             }
         }
@@ -1540,7 +1712,188 @@ where
     let mut line = serde_json::to_string(value)?;
     line.push('\n');
     writer.write_all(line.as_bytes()).await?;
+    writer.flush().await?;
     Ok(())
+}
+
+#[cfg(all(test, unix))]
+mod public_acceptance_tests {
+    use super::*;
+    use serde_json::json;
+    use std::ffi::OsString;
+    use tokio::io::{AsyncBufReadExt, BufReader};
+    use tokio::net::{UnixListener, UnixStream};
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn stdio_stream_handshake_ping_and_eof() {
+        let path = std::env::temp_dir().join(format!(
+            "jcode-stdio-{}-{}.sock",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let listener = UnixListener::bind(&path).unwrap();
+        let (client, bridge) = tokio::io::duplex(4096);
+        let (read, write) = tokio::io::split(bridge);
+        let task = tokio::spawn(run_bridge_stream(read, write, path.clone()));
+        let (client_read, mut client_write) = tokio::io::split(client);
+        let mut reader = BufReader::new(client_read);
+        write_json_line(&mut client_write, &json!({"v":1,"id":1,"req":"hello","min_version":1,"max_version":1,"client":"stdio-test"})).await.unwrap();
+        let (_daemon, _) = listener.accept().await.unwrap();
+        let mut line = String::new();
+        reader.read_line(&mut line).await.unwrap();
+        assert_eq!(
+            serde_json::from_str::<Value>(&line).unwrap()["ev"],
+            "hello_ok"
+        );
+        write_json_line(&mut client_write, &json!({"v":1,"id":2,"req":"ping"}))
+            .await
+            .unwrap();
+        line.clear();
+        reader.read_line(&mut line).await.unwrap();
+        let pong: Value = serde_json::from_str(&line).unwrap();
+        assert_eq!(pong["ev"], "pong");
+        assert_eq!(pong["reply_to"], 2);
+        drop(client_write);
+        drop(reader);
+        tokio::time::timeout(std::time::Duration::from_secs(2), task)
+            .await
+            .unwrap()
+            .unwrap()
+            .unwrap();
+        drop(listener);
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[tokio::test]
+    async fn stdio_does_not_confirm_handshake_when_native_daemon_is_missing() {
+        let (mut client, bridge) = tokio::io::duplex(4096);
+        let (read, write) = tokio::io::split(bridge);
+        let task = tokio::spawn(run_bridge_stream(
+            read,
+            write,
+            PathBuf::from("/nonexistent-jcode-stdio-test/daemon.sock"),
+        ));
+        write_json_line(
+            &mut client,
+            &json!({"v":1,"id":1,"req":"hello","min_version":1,"max_version":1}),
+        )
+        .await
+        .unwrap();
+        let error = task.await.unwrap().unwrap_err();
+        assert!(error.to_string().contains("connect legacy socket"));
+    }
+
+    struct JcodeHomeGuard(Option<OsString>);
+
+    impl Drop for JcodeHomeGuard {
+        fn drop(&mut self) {
+            match self.0.take() {
+                Some(value) => unsafe { std::env::set_var("JCODE_HOME", value) },
+                None => unsafe { std::env::remove_var("JCODE_HOME") },
+            }
+        }
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn public_socket_keeps_its_attachment_after_another_sessions_state() {
+        let _home_lock = translate::jcode_home_test_lock();
+        let root = std::env::temp_dir().join(format!(
+            "jcode-api-attachment-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        let previous_home = std::env::var_os("JCODE_HOME");
+        unsafe { std::env::set_var("JCODE_HOME", &root) };
+        let _home_guard = JcodeHomeGuard(previous_home);
+        let sessions = root.join("sessions");
+        std::fs::create_dir_all(&sessions).unwrap();
+        std::fs::write(
+            sessions.join("session_alpha.json"),
+            json!({"working_dir": "/workspace/alpha", "messages": []}).to_string(),
+        )
+        .unwrap();
+        let api_path = root.join("api.sock");
+        let legacy_path = root.join("legacy.sock");
+        let legacy_listener = UnixListener::bind(&legacy_path).unwrap();
+
+        let fake_daemon = tokio::spawn(async move {
+            let (stream, _) = legacy_listener.accept().await.unwrap();
+            let (read, mut write) = stream.into_split();
+            let mut lines = BufReader::new(read).lines();
+            let mut attached_state_id = None;
+            while let Some(line) = lines.next_line().await.unwrap() {
+                let request: Value = serde_json::from_str(&line).unwrap();
+                match request["type"].as_str() {
+                    Some("state") if attached_state_id.is_none() => {
+                        let id = request["id"].as_u64().unwrap();
+                        attached_state_id = Some(id);
+                        write_json_line(
+                            &mut write,
+                            &json!({"type":"state", "id":id, "session_id":"session_alpha"}),
+                        )
+                        .await
+                        .unwrap();
+                    }
+                    Some("message") => {
+                        assert_eq!(request["content"], "public boundary prompt");
+                        return;
+                    }
+                    _ => {}
+                }
+                if attached_state_id.is_some() {
+                    write_json_line(
+                        &mut write,
+                        &json!({"type":"state", "id":999_999, "session_id":"session_beta"}),
+                    )
+                    .await
+                    .unwrap();
+                    attached_state_id = None;
+                }
+            }
+            panic!("API connection closed before the message reached the attached session");
+        });
+
+        let bridge = tokio::spawn(run_bridge(api_path.clone(), legacy_path));
+        let stream = loop {
+            match UnixStream::connect(&api_path).await {
+                Ok(stream) => break stream,
+                Err(_) => tokio::task::yield_now().await,
+            }
+        };
+        let (read, mut write) = stream.into_split();
+        let mut replies = BufReader::new(read).lines();
+        for request in [
+            json!({"id":1, "req":"hello", "min_version":1, "max_version":1, "client":"acceptance-test"}),
+            json!({"id":2, "req":"attach_session", "session_id":"session_alpha"}),
+        ] {
+            write_json_line(&mut write, &request).await.unwrap();
+            replies
+                .next_line()
+                .await
+                .unwrap()
+                .expect("public API reply");
+        }
+        write_json_line(
+            &mut write,
+            &json!({"id":3, "req":"send_message", "session_id":"session_alpha", "content":"public boundary prompt"}),
+        )
+        .await
+        .unwrap();
+
+        tokio::time::timeout(std::time::Duration::from_secs(2), fake_daemon)
+            .await
+            .expect("message should cross the API/legacy boundary")
+            .unwrap();
+        bridge.abort();
+        let _ = std::fs::remove_dir_all(root);
+    }
 }
 
 #[cfg(test)]
@@ -1636,5 +1989,82 @@ mod socket_permission_tests {
             "API socket must be owner-only (0600); a wider mode exposes every \
              session behind the bridge to other local users"
         );
+    }
+}
+
+#[cfg(all(test, unix))]
+mod fragmented_reply_tests {
+    use super::*;
+    use serde_json::json;
+    use tokio::net::UnixListener;
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn concurrent_history_replies_survive_api_requests_between_fragments() {
+        tokio::time::timeout(std::time::Duration::from_secs(10), async {
+            let path = std::env::temp_dir().join(format!("jcode-fragments-{}-{}.sock", std::process::id(), std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
+            let listener = UnixListener::bind(&path).unwrap();
+            let (client, bridge) = tokio::io::duplex(4 * 1024 * 1024);
+            let (bridge_read, bridge_write) = tokio::io::split(bridge);
+            let task = tokio::spawn(run_bridge_stream(bridge_read, bridge_write, path.clone()));
+            let (client_read, mut client_write) = tokio::io::split(client);
+            let mut replies = BufReader::new(client_read).lines();
+            write_json_line(&mut client_write, &json!({"v":1,"id":1,"req":"hello","min_version":1,"max_version":1})).await.unwrap();
+            let (daemon, _) = listener.accept().await.unwrap();
+            let (daemon_read, mut daemon_write) = daemon.into_split();
+            let mut requests = BufReader::new(daemon_read).lines();
+            assert_eq!(serde_json::from_str::<Value>(&replies.next_line().await.unwrap().unwrap()).unwrap()["ev"], "hello_ok");
+            write_json_line(&mut client_write, &json!({"v":1,"id":2,"req":"attach_session","session_id":"fragment-session"})).await.unwrap();
+            for _ in 0..3 {
+                let request: Value = serde_json::from_str(&requests.next_line().await.unwrap().unwrap()).unwrap();
+                if request["type"] == "state" {
+                    write_json_line(&mut daemon_write, &json!({"type":"state","id":request["id"],"session_id":"fragment-session"})).await.unwrap();
+                }
+            }
+            loop {
+                let frame: Value = serde_json::from_str(&replies.next_line().await.unwrap().unwrap()).unwrap();
+                if frame["ev"] == "attached" { break; }
+            }
+            for id in 3..6 {
+                write_json_line(&mut client_write, &json!({"v":1,"id":id,"req":"get_history","session_id":"fragment-session"})).await.unwrap();
+            }
+            let mut history_ids = Vec::new();
+            for _ in 0..3 {
+                let request: Value = serde_json::from_str(&requests.next_line().await.unwrap().unwrap()).unwrap();
+                assert_eq!(request["type"], "get_history");
+                history_ids.push(request["id"].clone());
+            }
+            for (index, id) in history_ids.into_iter().enumerate() {
+                // Larger than the socket send buffer, forcing the bridge to
+                // consume an unterminated prefix before API activity cancels it.
+                let text = "x".repeat(1024 * 1024);
+                let prefix = format!("{{\"type\":\"history\",\"id\":{id},\"session_id\":\"fragment-session\",\"messages\":[{{\"role\":\"assistant\",\"content\":\"{text}");
+                daemon_write.write_all(prefix.as_bytes()).await.unwrap();
+                let ping_id = 20 + index;
+                write_json_line(&mut client_write, &json!({"v":1,"id":ping_id,"req":"ping"})).await.unwrap();
+                let ping: Value = serde_json::from_str(&requests.next_line().await.unwrap().unwrap()).unwrap();
+                assert_eq!(ping["type"], "ping");
+                daemon_write.write_all(b"\"}]}\n").await.unwrap();
+                write_json_line(&mut daemon_write, &json!({"type":"pong","id":ping["id"]})).await.unwrap();
+                let mut history_seen = false;
+                let mut pong_seen = false;
+                while !history_seen || !pong_seen {
+                    let reply: Value = serde_json::from_str(&replies.next_line().await.unwrap().unwrap()).unwrap();
+                    if reply["reply_to"] == index + 3 {
+                        assert_eq!(reply["ev"], "history");
+                        assert_eq!(reply["messages"][0]["content"], text);
+                        history_seen = true;
+                    }
+                    if reply["reply_to"] == ping_id {
+                        assert_eq!(reply["ev"], "pong");
+                        pong_seen = true;
+                    }
+                }
+            }
+            drop(client_write);
+            drop(replies);
+            task.await.unwrap().unwrap();
+            drop(listener);
+            std::fs::remove_file(path).unwrap();
+        }).await.expect("fragmented history requests must all receive correlated replies");
     }
 }

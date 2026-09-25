@@ -110,7 +110,10 @@ impl App {
         // Take pending memory if available (computed in background during last turn)
         let fresh_user_turn = crate::message::ends_with_fresh_user_turn(messages);
         let pending = if fresh_user_turn {
-            crate::memory::take_pending_memory(&self.session.id)
+            crate::memory::take_pending_memory_for_project(
+                &self.session.id,
+                self.session.working_dir.as_deref(),
+            )
         } else {
             None
         };
@@ -157,6 +160,9 @@ impl App {
             for block in &msg.content {
                 match block {
                     ContentBlock::Text { text, .. } => {
+                        if text.trim_start().starts_with("<system-reminder>") {
+                            continue;
+                        }
                         transcript.push_str(text);
                         transcript.push('\n');
                     }
@@ -238,7 +244,6 @@ impl App {
 
                     // Create memory entry
                     let entry = crate::memory::MemoryEntry::new(category, memory.content)
-                        .with_id(format!("auto_{}", chrono::Utc::now().timestamp_millis()))
                         .with_source(self.session.id.clone())
                         .with_trust(trust);
 

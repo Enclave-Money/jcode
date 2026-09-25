@@ -1,4 +1,56 @@
 #[test]
+fn test_remote_fast_status_tracks_history_tier_including_explicit_off() {
+    with_temp_jcode_home(|| {
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        let _guard = rt.enter();
+        let mut app = create_test_app();
+        let mut remote = crate::tui::backend::RemoteConnection::dummy();
+        app.is_remote = true;
+        app.remote_session_id = Some("session_fast_status".to_string());
+        remote.mark_history_loaded();
+
+        // Bootstrap, catalog refresh, explicit off, then on again. An absent
+        // tier is authoritative Standard, not an invitation to use the saved
+        // default or preserve a stale priority badge.
+        for tier in [Some("priority"), Some("priority"), None, Some("priority")] {
+            let history = serde_json::from_value(serde_json::json!({
+                "type": "history",
+                "id": 1,
+                "session_id": "session_fast_status",
+                "messages": [],
+                "provider_name": "OpenAI",
+                "provider_model": "gpt-future-model",
+                "service_tier": tier
+            }))
+            .expect("history fixture");
+            app.handle_server_event(history, &mut remote);
+            assert_eq!(app.remote_service_tier.as_deref(), tier);
+            assert_eq!(
+                crate::tui::TuiState::info_widget_data(&app)
+                    .service_tier
+                    .as_deref(),
+                tier
+            );
+
+            app.input = "/fast status".to_string();
+            rt.block_on(app.handle_remote_key(KeyCode::Enter, KeyModifiers::empty(), &mut remote))
+                .expect("fast status");
+            let status = &app
+                .display_messages()
+                .last()
+                .expect("status message")
+                .content;
+            let expected = if tier.is_some() {
+                "Fast mode is on."
+            } else {
+                "Fast mode is off."
+            };
+            assert!(status.starts_with(expected), "{status}");
+        }
+    });
+}
+
+#[test]
 fn test_remote_debug_frame_commands_request_a_fresh_draw() {
     for command in [
         "frame",
@@ -436,6 +488,7 @@ fn openai_oauth_route(model: &str) -> crate::provider::ModelRoute {
         api_method: "openai-oauth".to_string(),
         available: true,
         detail: String::new(),
+        usage: None,
         cheapness: None,
     }
 }
@@ -447,6 +500,7 @@ fn claude_oauth_route(model: &str) -> crate::provider::ModelRoute {
         api_method: "claude-oauth".to_string(),
         available: true,
         detail: String::new(),
+        usage: None,
         cheapness: None,
     }
 }
@@ -574,6 +628,7 @@ fn test_remote_fallback_offer_accept_stages_switch_and_resends() {
             model: "claude-sonnet-4".to_string(),
             provider_name: Some("Anthropic".to_string()),
             error: None,
+            resolved_credential: None,
         },
         &mut remote,
     );
@@ -618,6 +673,7 @@ fn test_remote_fallback_resend_dropped_when_switch_fails() {
             model: "claude-sonnet-4".to_string(),
             provider_name: None,
             error: Some("switch failed".to_string()),
+            resolved_credential: None,
         },
         &mut remote,
     );
@@ -737,6 +793,7 @@ fn test_guardrail_reroute_prefers_native_anthropic_route() {
             api_method: "openrouter".to_string(),
             available: true,
             detail: String::new(),
+            usage: None,
             cheapness: None,
         },
         claude_oauth_route("claude-opus-4-8"),
@@ -1675,6 +1732,7 @@ fn test_resumed_session_seeds_cost_from_history_token_totals() {
     crate::provider::anthropic::set_cache_ttl_1h(true);
 
     let totals = crate::protocol::TokenUsageTotals {
+        cache_prompt_tokens: Some(141_000),
         messages_with_token_usage: 3,
         input_tokens: 1_000,
         output_tokens: 2_000,
@@ -2435,5 +2493,41 @@ fn test_credential_failure_breaker_resets_on_turn_success() {
     assert_eq!(
         app.consecutive_credential_failures, 0,
         "a successful turn must reset the credential-failure streak"
+    );
+}
+
+/// An OAuth -> API-key route switch must update the auth badge immediately,
+/// instead of keeping the previous route's server-resolved credential.
+#[test]
+fn test_remote_model_changed_updates_resolved_credential() {
+    let mut app = create_test_app();
+    let rt = tokio::runtime::Runtime::new().unwrap();
+    let _guard = rt.enter();
+    let mut remote = crate::tui::backend::RemoteConnection::dummy();
+    remote.mark_history_loaded();
+
+    app.is_remote = true;
+    app.remote_provider_name = Some("Claude".to_string());
+    app.remote_resolved_credential = Some(jcode_provider_core::ResolvedCredential::Oauth);
+
+    app.handle_server_event(
+        crate::protocol::ServerEvent::ModelChanged {
+            id: 0,
+            model: "claude-opus-5-5".to_string(),
+            provider_name: Some("Claude".to_string()),
+            error: None,
+            resolved_credential: Some(jcode_provider_core::ResolvedCredential::ApiKey),
+        },
+        &mut remote,
+    );
+
+    assert_eq!(
+        app.remote_resolved_credential,
+        Some(jcode_provider_core::ResolvedCredential::ApiKey)
+    );
+    let data = crate::tui::TuiState::info_widget_data(&app);
+    assert_eq!(
+        data.auth_method,
+        crate::tui::info_widget::AuthMethod::AnthropicApiKey
     );
 }

@@ -1,6 +1,8 @@
 use jcode_logging as logging;
 use jcode_storage as storage;
+mod concurrency;
 mod lifecycle;
+pub use concurrency::{ConcurrencySession, begin_concurrency_session};
 pub mod onboarding_trace;
 mod state_support;
 use chrono::{DateTime, NaiveDate, Utc};
@@ -18,24 +20,36 @@ use lifecycle::emit_lifecycle_event;
 use serde_json::Value;
 use state_support::*;
 use std::collections::HashSet;
+use std::sync::Mutex;
+#[cfg(not(test))]
+use std::sync::OnceLock;
+#[cfg(not(test))]
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::mpsc::{SyncSender, TrySendError, sync_channel};
-use std::sync::{Mutex, OnceLock};
+#[cfg(not(test))]
+use std::sync::mpsc::TrySendError;
+use std::sync::mpsc::{SyncSender, sync_channel};
 use std::time::{Duration, Instant};
 
 const TELEMETRY_ENDPOINT: &str = "https://telemetry.jcode.sh/v1/event";
 const TRANSCRIPT_ENDPOINT: &str = "https://telemetry.jcode.sh/v1/transcript";
+#[cfg(not(test))]
 const ASYNC_SEND_TIMEOUT: Duration = Duration::from_secs(5);
+#[cfg(not(test))]
 const BACKGROUND_QUEUE_CAPACITY: usize = 2048;
 const BLOCKING_INSTALL_TIMEOUT: Duration = Duration::from_millis(1200);
 const BLOCKING_LIFECYCLE_TIMEOUT: Duration = Duration::from_millis(800);
+const BLOCKING_FIRST_PROMPT_TIMEOUT: Duration = Duration::from_millis(500);
 const TELEMETRY_SCHEMA_VERSION: u32 = 6;
 const DEFAULT_DISCOVERY_ENDPOINT: &str = "https://api.jcode.sh/v1/discovery";
+#[cfg(not(test))]
 static TELEMETRY_PERMANENTLY_REJECTED: AtomicBool = AtomicBool::new(false);
+#[cfg(not(test))]
 static TELEMETRY_QUEUE_OVERFLOW_WARNED: AtomicBool = AtomicBool::new(false);
+#[cfg(not(test))]
 static TELEMETRY_BACKGROUND_SENDER: OnceLock<SyncSender<Value>> = OnceLock::new();
 #[cfg(not(test))]
 static TRANSCRIPT_BACKGROUND_SENDER: OnceLock<SyncSender<Value>> = OnceLock::new();
+#[cfg(not(test))]
 static TELEMETRY_HTTP_CLIENT: OnceLock<reqwest::blocking::Client> = OnceLock::new();
 #[cfg(test)]
 static TEST_EMITTED_PAYLOADS: Mutex<Vec<Value>> = Mutex::new(Vec::new());
@@ -480,7 +494,15 @@ fn opt_out_marker_path() -> Option<std::path::PathBuf> {
 /// persisted marker. Env opt-outs win, so UI should present themselves as
 /// read-only in that case.
 pub fn opt_out_forced_by_env() -> bool {
-    std::env::var("JCODE_NO_TELEMETRY").is_ok() || std::env::var("DO_NOT_TRACK").is_ok()
+    fn is_truthy(name: &str) -> bool {
+        std::env::var(name).is_ok_and(|value| {
+            !matches!(
+                value.trim().to_ascii_lowercase().as_str(),
+                "" | "0" | "false" | "no" | "off"
+            )
+        })
+    }
+    is_truthy("JCODE_NO_TELEMETRY") || is_truthy("DO_NOT_TRACK")
 }
 
 /// Persist the user's anonymous-usage telemetry choice. `enabled == false`
@@ -500,6 +522,12 @@ pub fn set_usage_telemetry_enabled(enabled: bool) -> bool {
             }
         }
     } else {
+        // Record the explicit in-app choice once, while telemetry is still
+        // enabled. Failure never prevents or delays the opt-out itself, and
+        // environment-forced opt-outs remain completely silent.
+        if !path.exists() && !opt_out_forced_by_env() {
+            emit_telemetry_opt_out();
+        }
         if let Some(parent) = path.parent() {
             let _ = std::fs::create_dir_all(parent);
         }
@@ -514,6 +542,31 @@ pub fn set_usage_telemetry_enabled(enabled: bool) -> bool {
             }
         }
     }
+}
+
+fn emit_telemetry_opt_out() {
+    let Some(id) = get_or_create_id() else {
+        return;
+    };
+    let (schema_version, build_channel, git_checkout, ci, from_cargo) = telemetry_envelope();
+    let payload = serde_json::json!({
+        "event_id": new_event_id(),
+        "id": id,
+        "event": "telemetry_opt_out",
+        "version": version(),
+        "os": std::env::consts::OS,
+        "arch": std::env::consts::ARCH,
+        "step": "telemetry_settings",
+        "schema_version": schema_version,
+        "build_channel": build_channel,
+        "is_git_checkout": git_checkout,
+        "is_ci": ci,
+        "ran_from_cargo": from_cargo,
+    });
+    let _ = send_payload(
+        payload,
+        DeliveryMode::Blocking(BLOCKING_FIRST_PROMPT_TIMEOUT),
+    );
 }
 
 /// Marker file recording that the user opted in to sharing prompt and
@@ -963,10 +1016,6 @@ fn increment_turn_tool_category(state: &mut TurnTelemetry, category: ToolCategor
     }
 }
 
-fn observe_session_concurrency(state: &mut SessionTelemetry) {
-    state.max_concurrent_sessions = state.max_concurrent_sessions.max(observe_active_sessions());
-}
-
 fn update_turn_activity_timestamp(turn: &mut TurnTelemetry, now: Instant) {
     if now >= turn.last_activity_at {
         turn.last_activity_at = now;
@@ -1120,7 +1169,7 @@ fn mark_tool_feature_usage(state: &mut SessionTelemetry, name: &str, input: &Val
                 turn.feature_email_used = true;
             }
         }
-        "side_panel" => {
+        "side_panel" | "panel" => {
             state.feature_side_panel_used = true;
             if let Some(turn) = state.current_turn.as_mut() {
                 turn.feature_side_panel_used = true;
@@ -1161,7 +1210,7 @@ fn mark_tool_feature_usage(state: &mut SessionTelemetry, name: &str, input: &Val
 
     if matches!(
         name,
-        "write" | "edit" | "multiedit" | "patch" | "apply_patch"
+        "write" | "edit" | "multiedit" | "patch" | "apply_patch" | "replace"
     ) {
         state.file_write_calls += 1;
         if let Some(turn) = state.current_turn.as_mut() {
@@ -1217,14 +1266,14 @@ fn mark_tool_success_side_effects(state: &mut SessionTelemetry, name: &str, inpu
 
     if matches!(
         name,
-        "write" | "edit" | "multiedit" | "patch" | "apply_patch"
+        "write" | "edit" | "multiedit" | "patch" | "apply_patch" | "replace"
     ) && state.first_file_edit_ms.is_none()
     {
         state.first_file_edit_ms = Some(now_ms_since(state.started_at));
     }
     if matches!(
         name,
-        "write" | "edit" | "multiedit" | "patch" | "apply_patch"
+        "write" | "edit" | "multiedit" | "patch" | "apply_patch" | "replace"
     ) && let Some(turn) = state.current_turn.as_mut()
         && turn.first_file_edit_ms.is_none()
     {
@@ -1243,7 +1292,6 @@ pub fn record_command_family(command: &str) {
     if let Ok(mut guard) = SESSION_STATE.lock()
         && let Some(ref mut state) = *guard
     {
-        observe_session_concurrency(state);
         mark_command_family_usage(state, command);
         if let Some(turn) = state.current_turn.as_mut() {
             update_turn_activity_timestamp(turn, Instant::now());
@@ -1252,6 +1300,7 @@ pub fn record_command_family(command: &str) {
     maybe_emit_session_start();
 }
 
+#[cfg(not(test))]
 fn post_payload(payload: serde_json::Value, timeout: Duration) -> bool {
     if TELEMETRY_PERMANENTLY_REJECTED.load(Ordering::Relaxed) {
         return false;
@@ -1288,6 +1337,24 @@ fn post_payload(payload: serde_json::Value, timeout: Duration) -> bool {
             false
         }
     }
+}
+
+#[cfg(not(test))]
+fn post_payload_with_retry(payload: serde_json::Value, timeout: Duration) -> bool {
+    const RETRY_DELAYS: [Duration; 2] = [Duration::from_millis(200), Duration::from_millis(800)];
+    if post_payload(payload.clone(), timeout) {
+        return true;
+    }
+    for delay in RETRY_DELAYS {
+        if TELEMETRY_PERMANENTLY_REJECTED.load(Ordering::Relaxed) {
+            return false;
+        }
+        std::thread::sleep(delay);
+        if post_payload(payload.clone(), timeout) {
+            return true;
+        }
+    }
+    false
 }
 
 #[cfg(not(test))]
@@ -1338,10 +1405,11 @@ where
     Ok(sender)
 }
 
+#[cfg(not(test))]
 fn background_sender() -> &'static SyncSender<Value> {
     TELEMETRY_BACKGROUND_SENDER.get_or_init(|| {
         spawn_background_worker(BACKGROUND_QUEUE_CAPACITY, |payload| {
-            let _ = post_payload(payload, ASYNC_SEND_TIMEOUT);
+            let _ = post_payload_with_retry(payload, ASYNC_SEND_TIMEOUT);
         })
         .expect("telemetry background worker should start")
     })
@@ -1357,15 +1425,16 @@ fn transcript_background_sender() -> &'static SyncSender<Value> {
     })
 }
 
+#[cfg(test)]
 fn send_transcript_payload(payload: Value) -> bool {
-    #[cfg(test)]
-    {
-        if let Ok(mut emitted) = TEST_EMITTED_PAYLOADS.lock() {
-            emitted.push(payload);
-        }
-        true
+    if let Ok(mut emitted) = TEST_EMITTED_PAYLOADS.lock() {
+        emitted.push(payload);
     }
-    #[cfg(not(test))]
+    true
+}
+
+#[cfg(not(test))]
+fn send_transcript_payload(payload: Value) -> bool {
     match transcript_background_sender().try_send(payload) {
         Ok(()) => true,
         Err(TrySendError::Full(_)) => {
@@ -1379,11 +1448,19 @@ fn send_transcript_payload(payload: Value) -> bool {
     }
 }
 
-fn send_payload(payload: serde_json::Value, mode: DeliveryMode) -> bool {
-    #[cfg(test)]
+#[cfg(test)]
+fn send_payload(mut payload: serde_json::Value, mode: DeliveryMode) -> bool {
+    concurrency::mark_legacy_concurrency_unavailable(&mut payload);
+    tests::TEST_DELIVERY_MODES.lock().unwrap().push(mode);
     if let Ok(mut emitted) = TEST_EMITTED_PAYLOADS.lock() {
-        emitted.push(payload.clone());
+        emitted.push(payload);
     }
+    true
+}
+
+#[cfg(not(test))]
+fn send_payload(mut payload: serde_json::Value, mode: DeliveryMode) -> bool {
+    concurrency::mark_legacy_concurrency_unavailable(&mut payload);
     match mode {
         DeliveryMode::Background => {
             if TELEMETRY_PERMANENTLY_REJECTED.load(Ordering::Relaxed) {
@@ -1640,8 +1717,6 @@ fn maybe_emit_session_start() {
         if state.start_event_sent {
             return;
         }
-        state.start_event_sent = true;
-        observe_session_concurrency(state);
         let (schema_version, build_channel, git_checkout, ci, from_cargo) = telemetry_envelope();
         SessionStartEvent {
             event_id: new_event_id(),
@@ -1671,8 +1746,13 @@ fn maybe_emit_session_start() {
             ran_from_cargo: from_cargo,
         }
     };
-    if let Ok(payload) = serde_json::to_value(&event) {
-        let _ = send_payload(payload, DeliveryMode::Background);
+    if let Ok(payload) = serde_json::to_value(&event)
+        && send_payload(payload, DeliveryMode::Background)
+        && let Ok(mut guard) = SESSION_STATE.lock()
+        && let Some(state) = guard.as_mut()
+        && state.session_id == event.session_id
+    {
+        state.start_event_sent = true;
     }
 }
 
@@ -1922,8 +2002,9 @@ fn begin_session_with_mode(
     let (previous_session_gap_secs, sessions_started_24h, sessions_started_7d) = get_or_create_id()
         .map(|id| update_session_start_history(&id, started_at_utc))
         .unwrap_or((None, 0, 0));
-    let (active_sessions_at_start, other_active_sessions_at_start) =
-        register_active_session(&session_id);
+    // The process-global accumulator cannot attribute logical Agent concurrency.
+    // These legacy struct fields are stripped from all emitted payloads.
+    let (active_sessions_at_start, other_active_sessions_at_start) = (0, 0);
     let state = SessionTelemetry {
         session_id,
         correlation_id,
@@ -2072,10 +2153,11 @@ fn begin_session_with_mode(
 
 pub fn record_turn() {
     let id = get_or_create_id();
+    let mut prompt_event = None;
+    let mut first_prompt = false;
     if let Ok(mut guard) = SESSION_STATE.lock()
         && let Some(ref mut state) = *guard
     {
-        observe_session_concurrency(state);
         let now = Instant::now();
         let previous_last_activity = state
             .current_turn
@@ -2085,6 +2167,7 @@ pub fn record_turn() {
             finalize_current_turn(id, state, now, "next_user_prompt", DeliveryMode::Background);
         }
         state.turns += 1;
+        first_prompt = state.turns == 1;
         logging::debug(&format!("recording telemetry turn index={}", state.turns));
         state.had_user_prompt = true;
         let idle_before_turn_ms = previous_last_activity.and_then(|last| {
@@ -2097,6 +2180,36 @@ pub fn record_turn() {
             now_ms_since(state.started_at),
             idle_before_turn_ms,
         ));
+        if let Some(ref id) = id {
+            let (schema_version, build_channel, git_checkout, ci, from_cargo) =
+                telemetry_envelope();
+            prompt_event = Some(serde_json::json!({
+                "event_id": new_event_id(),
+                "id": id,
+                "session_id": state.session_id,
+                "event": "prompt_submitted",
+                "version": version(),
+                "os": std::env::consts::OS,
+                "arch": std::env::consts::ARCH,
+                "turn_index": state.turns,
+                "schema_version": schema_version,
+                "build_channel": build_channel,
+                "is_git_checkout": git_checkout,
+                "is_ci": ci,
+                "ran_from_cargo": from_cargo,
+            }));
+        }
+    }
+    if let Some(payload) = prompt_event {
+        let mode = if first_prompt {
+            // Short `jcode run` invocations can exit before the background
+            // worker starts. Bound the first prompt's delivery so every active
+            // installation has an immediate durable activity anchor.
+            DeliveryMode::Blocking(BLOCKING_FIRST_PROMPT_TIMEOUT)
+        } else {
+            DeliveryMode::Background
+        };
+        let _ = send_payload(payload, mode);
     }
     emit_onboarding_step_once("first_prompt_sent", None, None);
     maybe_emit_session_start();
@@ -2106,7 +2219,6 @@ pub fn record_assistant_response() {
     if let Ok(mut guard) = SESSION_STATE.lock()
         && let Some(ref mut state) = *guard
     {
-        observe_session_concurrency(state);
         let now = Instant::now();
         if state.first_assistant_response_ms.is_none() {
             state.first_assistant_response_ms = Some(now_ms_since(state.started_at));
@@ -2129,7 +2241,6 @@ pub fn record_memory_injected(_count: usize, _age_ms: u64) {
     if let Ok(mut guard) = SESSION_STATE.lock()
         && let Some(ref mut state) = *guard
     {
-        observe_session_concurrency(state);
         state.feature_memory_used = true;
         if let Some(turn) = state.current_turn.as_mut() {
             turn.feature_memory_used = true;
@@ -2143,7 +2254,6 @@ pub fn record_tool_call() {
     if let Ok(mut guard) = SESSION_STATE.lock()
         && let Some(ref mut state) = *guard
     {
-        observe_session_concurrency(state);
         let now = Instant::now();
         state.tool_calls += 1;
         if state.first_tool_call_ms.is_none() {
@@ -2164,7 +2274,6 @@ pub fn record_tool_failure() {
     if let Ok(mut guard) = SESSION_STATE.lock()
         && let Some(ref mut state) = *guard
     {
-        observe_session_concurrency(state);
         state.tool_failures += 1;
         if let Some(turn) = state.current_turn.as_mut() {
             turn.tool_failures += 1;
@@ -2178,7 +2287,6 @@ pub fn record_connection_type(connection: &str) {
     if let Ok(mut guard) = SESSION_STATE.lock()
         && let Some(ref mut state) = *guard
     {
-        observe_session_concurrency(state);
         let normalized = sanitize_telemetry_label(connection).to_ascii_lowercase();
         if normalized.contains("websocket/persistent-reuse") {
             state.transport_persistent_ws_reuse += 1;
@@ -2211,7 +2319,6 @@ pub fn record_token_usage(
     if let Ok(mut guard) = SESSION_STATE.lock()
         && let Some(ref mut state) = *guard
     {
-        observe_session_concurrency(state);
         let cache_read = cache_read_input_tokens.unwrap_or(0);
         let cache_creation = cache_creation_input_tokens.unwrap_or(0);
         let total = input_tokens
@@ -2255,7 +2362,6 @@ pub fn record_error(category: ErrorCategory) {
     if let Ok(mut guard) = SESSION_STATE.lock()
         && let Some(ref mut state) = *guard
     {
-        observe_session_concurrency(state);
         if let Some(turn) = state.current_turn.as_mut() {
             update_turn_activity_timestamp(turn, Instant::now());
         }
@@ -2284,7 +2390,6 @@ pub fn record_provider_switch() {
     if let Ok(mut guard) = SESSION_STATE.lock()
         && let Some(ref mut state) = *guard
     {
-        observe_session_concurrency(state);
         if let Some(turn) = state.current_turn.as_mut() {
             update_turn_activity_timestamp(turn, Instant::now());
         }
@@ -2297,7 +2402,6 @@ pub fn record_model_switch() {
     if let Ok(mut guard) = SESSION_STATE.lock()
         && let Some(ref mut state) = *guard
     {
-        observe_session_concurrency(state);
         if let Some(turn) = state.current_turn.as_mut() {
             update_turn_activity_timestamp(turn, Instant::now());
         }
@@ -2310,7 +2414,6 @@ pub fn record_user_cancelled() {
     if let Ok(mut guard) = SESSION_STATE.lock()
         && let Some(ref mut state) = *guard
     {
-        observe_session_concurrency(state);
         state.user_cancelled_count = state.user_cancelled_count.saturating_add(1);
         if let Some(turn) = state.current_turn.as_mut() {
             update_turn_activity_timestamp(turn, Instant::now());
@@ -2347,7 +2450,6 @@ pub fn record_todo_gate(kind: TodoGateKind) {
     if let Ok(mut guard) = SESSION_STATE.lock()
         && let Some(ref mut state) = *guard
     {
-        observe_session_concurrency(state);
         let counter = match kind {
             TodoGateKind::Ownership => &mut state.todo_gate_ownership_count,
             TodoGateKind::ClosedFeedbackLoop
@@ -2383,7 +2485,6 @@ pub fn record_tool_execution(name: &str, input: &Value, succeeded: bool, latency
     if let Ok(mut guard) = SESSION_STATE.lock()
         && let Some(ref mut state) = *guard
     {
-        observe_session_concurrency(state);
         let now = Instant::now();
         state.executed_tool_calls += 1;
         state.tool_latency_total_ms = state.tool_latency_total_ms.saturating_add(latency_ms);
@@ -2444,7 +2545,7 @@ pub fn record_tool_execution(name: &str, input: &Value, succeeded: bool, latency
         emit_onboarding_step_once("first_successful_tool", None, None);
         if matches!(
             name,
-            "write" | "edit" | "multiedit" | "patch" | "apply_patch"
+            "write" | "edit" | "multiedit" | "patch" | "apply_patch" | "replace"
         ) {
             emit_onboarding_step_once("first_file_edit", None, None);
         }

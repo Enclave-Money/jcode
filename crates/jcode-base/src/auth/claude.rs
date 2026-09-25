@@ -939,16 +939,17 @@ fn read_claude_code_keychain_blob() -> Option<String> {
 /// reading the secret value. The secret is only read during an approved
 /// import or at runtime load.
 pub fn native_credentials_present() -> bool {
-    // Sandboxed homes (`JCODE_HOME` set) never import host-native credentials:
-    // the macOS Keychain and `CLAUDE_CODE_OAUTH_TOKEN` are outside the sandbox.
-    if std::env::var_os("JCODE_HOME").is_some() {
-        return false;
-    }
+    // An explicitly set token counts even in a sandboxed home; the host login
+    // Keychain never does (guarded below and in `claude_code_keychain_item_exists`),
+    // which is the leak into hermetic tests and self-dev this used to close.
     if std::env::var(CLAUDE_CODE_OAUTH_TOKEN_ENV)
         .map(|value| !value.trim().is_empty())
         .unwrap_or(false)
     {
         return true;
+    }
+    if crate::storage::running_with_sandboxed_home() {
+        return false;
     }
     claude_code_keychain_item_exists()
 }

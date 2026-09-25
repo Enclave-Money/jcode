@@ -50,7 +50,7 @@ impl Tool for JcodeDocsTool {
     }
 
     fn description(&self) -> &str {
-        "Search bundled, version-matched blaude documentation. Use this first for questions about blaude features, configuration, architecture, tools, or behavior."
+        "Search bundled blaude docs. Use first for questions about blaude itself."
     }
 
     fn parameters_schema(&self) -> Value {

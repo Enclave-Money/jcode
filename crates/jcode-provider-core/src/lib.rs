@@ -6,6 +6,7 @@ pub mod failover;
 pub mod fallback_pick;
 pub mod fingerprint;
 pub mod model_id;
+pub mod model_names;
 pub mod models;
 pub mod openai_schema;
 pub mod pricing;
@@ -14,6 +15,7 @@ pub mod retry_after;
 pub mod selection;
 pub mod transport;
 
+pub use jcode_usage_types::{ModelUsage, compare_model_usage};
 pub use transport::is_transient_transport_error;
 
 pub use anthropic::{
@@ -74,6 +76,12 @@ pub type EventStream = Pin<Box<dyn Stream<Item = Result<StreamEvent>> + Send>>;
 /// Provider trait for LLM backends.
 #[async_trait]
 pub trait Provider: Send + Sync {
+    /// Prepare provider-specific request state before the foreground completion.
+    ///
+    /// The default is intentionally a no-op. Implementations must not send user
+    /// input through this hook or wait for a network warmup to finish.
+    async fn prewarm(&self, _tools: &[ToolDefinition], _system_static: &str) {}
+
     /// Send messages and get a streaming response.
     /// resume_session_id: Optional session ID to resume a previous conversation (provider-specific).
     async fn complete(
@@ -713,6 +721,8 @@ pub struct ModelRoute {
     pub detail: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cheapness: Option<RouteCheapnessEstimate>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub usage: Option<jcode_usage_types::ModelUsage>,
 }
 
 /// Exact runtime identity for a selected model route.
@@ -743,7 +753,17 @@ pub enum RuntimeKey {
     CodeAssistOAuth,
     RemoteCatalog,
     Current,
-    Other(String),
+    GrokBuild,
+    /// Catch-all for unrecognized `api_method` strings.
+    ///
+    /// This must be a struct variant, not `Other(String)`. Serde's internally
+    /// tagged representation (`tag = "kind"`) cannot serialize a newtype
+    /// variant that contains a string, which made `/model` switches onto
+    /// Grok Build (and any other unknown ACP method) fail with
+    /// `cannot serialize tagged newtype variant RuntimeKey::Other containing a string`.
+    Other {
+        method: String,
+    },
 }
 
 impl RuntimeKey {
@@ -765,7 +785,10 @@ impl RuntimeKey {
             ModelRouteApiMethod::AntigravityHttps => Self::Antigravity,
             ModelRouteApiMethod::RemoteCatalog => Self::RemoteCatalog,
             ModelRouteApiMethod::Current => Self::Current,
-            ModelRouteApiMethod::Other(method) => Self::Other(method.clone()),
+            ModelRouteApiMethod::GrokBuild => Self::GrokBuild,
+            ModelRouteApiMethod::Other(method) => Self::Other {
+                method: method.clone(),
+            },
         }
     }
 
@@ -789,7 +812,8 @@ impl RuntimeKey {
             Self::CodeAssistOAuth => "code-assist-oauth".to_string(),
             Self::RemoteCatalog => "remote-catalog".to_string(),
             Self::Current => "current".to_string(),
-            Self::Other(value) => value.clone(),
+            Self::GrokBuild => "grok-build".to_string(),
+            Self::Other { method } => method.clone(),
         }
     }
 }
@@ -858,13 +882,22 @@ impl RouteSelection {
             RuntimeKey::Cursor => format!("cursor:{model}"),
             RuntimeKey::Bedrock => format!("bedrock:{model}"),
             RuntimeKey::Antigravity => format!("antigravity:{model}"),
+            RuntimeKey::GrokBuild => grok_build_model_spec(model),
             RuntimeKey::Gemini
             | RuntimeKey::CodeAssistOAuth
             | RuntimeKey::RemoteCatalog
             | RuntimeKey::Current
-            | RuntimeKey::Other(_) => model.to_string(),
+            | RuntimeKey::Other { .. } => model.to_string(),
         }
     }
+}
+
+/// Grok Build routing spec: `grok-4.6` and `grok-build:grok-4.6` both become
+/// `grok-build:grok-4.6` so `MultiProvider::set_model` dispatches to the Grok
+/// Build runtime instead of treating the bare id as the active provider's model.
+pub fn grok_build_model_spec(model: &str) -> String {
+    let bare = model.strip_prefix("grok-build:").unwrap_or(model).trim();
+    format!("grok-build:{bare}")
 }
 
 /// OpenRouter catalog id for a bare model: claude models gain an `anthropic/`
@@ -901,6 +934,7 @@ pub enum ModelRouteApiMethod {
     AntigravityHttps,
     RemoteCatalog,
     Current,
+    GrokBuild,
     Other(String),
 }
 
@@ -927,6 +961,7 @@ impl ModelRouteApiMethod {
         }
         match lower.as_str() {
             "jcode-subscription" => Self::JcodeSubscription,
+            "grok-build" | "grok-build-acp" => Self::GrokBuild,
             "openrouter" => Self::OpenRouter,
             "openai-compatible" => Self::OpenAiCompatible { profile_id: None },
             "copilot" => Self::Copilot,
@@ -1005,6 +1040,7 @@ impl ModelRouteApiMethod {
             Self::AntigravityHttps => "https".to_string(),
             Self::RemoteCatalog => "remote-catalog".to_string(),
             Self::Current => "current".to_string(),
+            Self::GrokBuild => "grok-build-acp".to_string(),
             Self::Other(method) => method
                 .split_once(':')
                 .map(|(method, _)| method)
@@ -1422,6 +1458,14 @@ mod tests {
             ModelRouteApiMethod::parse("claude-api"),
             ModelRouteApiMethod::AnthropicApiKey
         );
+        assert_eq!(
+            ModelRouteApiMethod::parse("grok-build-acp"),
+            ModelRouteApiMethod::GrokBuild
+        );
+        assert_eq!(
+            ModelRouteApiMethod::parse("grok-build"),
+            ModelRouteApiMethod::GrokBuild
+        );
     }
 
     #[test]
@@ -1604,6 +1648,7 @@ mod tests {
                 api_method: "snapshot-api".to_string(),
                 available: true,
                 detail: "test route".to_string(),
+                usage: None,
                 cheapness: None,
             }]
         }
@@ -1649,6 +1694,7 @@ mod tests {
             api_method: "openrouter".to_string(),
             available: true,
             detail: "https://openrouter.ai/api/v1".to_string(),
+            usage: None,
             cheapness: None,
         });
         assert_eq!(selection.model, "openrouter/owl-alpha");
@@ -1661,6 +1707,7 @@ mod tests {
             api_method: "openai-compatible:nvidia-nim".to_string(),
             available: true,
             detail: "https://integrate.api.nvidia.com/v1".to_string(),
+            usage: None,
             cheapness: None,
         });
         assert_eq!(
@@ -1670,5 +1717,59 @@ mod tests {
             }
         );
         assert_eq!(selection.provider_label, "NVIDIA NIM");
+    }
+
+    #[test]
+    fn grok_build_route_selection_is_a_first_class_runtime() {
+        let selection = RouteSelection::from_model_route(&ModelRoute {
+            model: "grok-4.6".to_string(),
+            provider: "Grok Build".to_string(),
+            api_method: "grok-build-acp".to_string(),
+            available: true,
+            detail: "Grok Build subscription via Jcode-managed ACP".to_string(),
+            cheapness: None,
+            usage: None,
+        });
+        assert_eq!(selection.runtime_key, RuntimeKey::GrokBuild);
+        assert_eq!(selection.runtime_key.stable_id(), "grok-build");
+        assert_eq!(selection.routed_model_spec(), "grok-build:grok-4.6");
+
+        let prefixed = RouteSelection::from_model_route(&ModelRoute {
+            model: "grok-build:grok-4.6".to_string(),
+            provider: "Grok Build".to_string(),
+            api_method: "grok-build-acp".to_string(),
+            available: true,
+            detail: String::new(),
+            cheapness: None,
+            usage: None,
+        });
+        assert_eq!(prefixed.routed_model_spec(), "grok-build:grok-4.6");
+    }
+
+    #[test]
+    fn runtime_key_other_is_internally_tagged_wire_safe() {
+        // Internally tagged newtype `Other(String)` cannot be serialized by
+        // serde. The struct variant is the wire form used by SetRoute.
+        let key = RuntimeKey::Other {
+            method: "custom-acp".to_string(),
+        };
+        let json = serde_json::to_value(&key).expect("Other must serialize");
+        assert_eq!(json["kind"], "other");
+        assert_eq!(json["method"], "custom-acp");
+        let decoded: RuntimeKey = serde_json::from_value(json).expect("Other must deserialize");
+        assert_eq!(
+            decoded,
+            RuntimeKey::Other {
+                method: "custom-acp".to_string()
+            }
+        );
+    }
+
+    #[test]
+    fn grok_build_runtime_key_is_internally_tagged_wire_safe() {
+        let json = serde_json::to_value(&RuntimeKey::GrokBuild).expect("GrokBuild must serialize");
+        assert_eq!(json, serde_json::json!({"kind": "grok-build"}));
+        let decoded: RuntimeKey = serde_json::from_value(json).expect("GrokBuild must deserialize");
+        assert_eq!(decoded, RuntimeKey::GrokBuild);
     }
 }

@@ -13,6 +13,7 @@ fn test_handle_server_event_available_models_updated_replaces_remote_model_catal
         api_method: "old-api".to_string(),
         available: false,
         detail: "old".to_string(),
+        usage: None,
         cheapness: None,
     }];
 
@@ -27,6 +28,7 @@ fn test_handle_server_event_available_models_updated_replaces_remote_model_catal
                 api_method: "openai-oauth".to_string(),
                 available: true,
                 detail: String::new(),
+                usage: None,
                 cheapness: None,
             }],
         },
@@ -129,6 +131,7 @@ fn test_remote_available_models_updated_after_refresh_shows_summary_and_updates_
             api_method: "responses".to_string(),
             available: true,
             detail: "old detail".to_string(),
+            usage: None,
             cheapness: None,
         }],
     ));
@@ -145,6 +148,7 @@ fn test_remote_available_models_updated_after_refresh_shows_summary_and_updates_
                     api_method: "responses".to_string(),
                     available: true,
                     detail: "new detail".to_string(),
+                    usage: None,
                     cheapness: None,
                 },
                 crate::provider::ModelRoute {
@@ -153,6 +157,7 @@ fn test_remote_available_models_updated_after_refresh_shows_summary_and_updates_
                     api_method: "chat".to_string(),
                     available: true,
                     detail: String::new(),
+                    usage: None,
                     cheapness: None,
                 },
             ],
@@ -296,6 +301,7 @@ fn test_remote_auth_model_change_does_not_add_a_third_visible_line() {
             model: "gpt-5.6-sol".to_string(),
             provider_name: Some("OpenAI".to_string()),
             error: None,
+            resolved_credential: None,
         },
         &mut remote,
     );
@@ -376,6 +382,7 @@ fn test_remote_catalog_activity_notification_upserts_compact_row() {
             label: "Model list refresh".to_string(),
             percent: Some(20.0),
             status: crate::tui::BackgroundTaskRowStatus::Running,
+            completed_at: None,
         }
     );
     let status = app.status_notice().expect("status notice");

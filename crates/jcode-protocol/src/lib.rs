@@ -13,6 +13,7 @@ mod comm_format;
 mod notifications;
 
 pub use comm_format::*;
+pub use jcode_session_types::TurnStopReason;
 pub use notifications::{FeatureToggle, NotificationType};
 
 use jcode_batch_types::BatchProgress;
@@ -50,6 +51,8 @@ pub enum CommDeliveryMode {
 /// A message in conversation history (for sync)
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HistoryMessage {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub response_stats: Option<jcode_session_types::ResponseStats>,
     pub role: String,
     pub content: String,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -70,6 +73,10 @@ pub struct SessionActivitySnapshot {
 
 #[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
 pub struct TokenUsageTotals {
+    /// Sum of full prompt sizes for requests with cache telemetry. None means
+    /// legacy records lack per-request accounting, not that the total is zero.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cache_prompt_tokens: Option<u64>,
     pub messages_with_token_usage: usize,
     pub input_tokens: u64,
     pub output_tokens: u64,
@@ -175,8 +182,8 @@ impl AuthChanged {
 pub type ReloadRecoverySnapshot = jcode_selfdev_types::ReloadRecoveryDirective;
 
 mod wire;
-pub use wire::TaskGraphNodeSpec;
 pub use wire::{Request, ServerEvent};
+pub use wire::{SessionToolConfig, SessionToolDefinition, TaskGraphNodeSpec};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ToolCallSummary {
@@ -252,6 +259,9 @@ pub struct AgentInfo {
     /// Provider model id.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub provider_model: Option<String>,
+    /// Reasoning effort the agent's provider is running with.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub provider_effort: Option<String>,
     /// Number of turns the agent has run this session.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub turn_count: Option<u64>,
@@ -564,6 +574,9 @@ pub struct AwaitedMemberStatus {
 impl Request {
     pub fn id(&self) -> u64 {
         match self {
+            Request::ConfigureTools { id, .. }
+            | Request::ListTools { id }
+            | Request::ToolResult { id, .. } => *id,
             Request::Message { id, .. } => *id,
             Request::TeamNote { id, .. } => *id,
             Request::Cancel { id } => *id,
@@ -578,9 +591,9 @@ impl Request {
             Request::DebugCommand { id, .. } => *id,
             Request::ClientDebugCommand { id, .. } => *id,
             Request::ClientDebugResponse { id, .. } => *id,
-            Request::Subscribe { id, .. } => *id,
+            Request::Subscribe { id, .. } | Request::PrepareDisconnect { id } => *id,
             Request::GetHistory { id } => *id,
-            Request::GetModelCatalog { id } => *id,
+            Request::GetModelCatalog { id, .. } => *id,
             Request::GetCompactedHistory { id, .. } => *id,
             Request::Reload { id, .. } => *id,
             Request::ResumeSession { id, .. } => *id,
@@ -603,6 +616,7 @@ impl Request {
             Request::SetCompactionMode { id, .. } => *id,
             Request::RenameSession { id, .. } => *id,
             Request::SetWorkMode { id, .. } => *id,
+            Request::SetSessionSaved { id, .. } => *id,
             Request::Split { id } => *id,
             Request::Transfer { id } => *id,
             Request::Compact { id } => *id,
@@ -610,6 +624,8 @@ impl Request {
             Request::NotifyAuthChanged { id, .. } => *id,
             Request::SwitchAnthropicAccount { id, .. } => *id,
             Request::SwitchOpenAiAccount { id, .. } => *id,
+            Request::InvalidateOpenAiUsage { id, .. } => *id,
+            Request::InvalidateAnthropicUsage { id, .. } => *id,
             Request::StdinResponse { id, .. } => *id,
             Request::VaultIndexSync { id, .. } => *id,
             Request::ListSessions { id } => *id,
@@ -654,6 +670,11 @@ impl Request {
             self,
             Request::Ping { .. }
                 | Request::ReloadSkills { .. }
+                // Usage invalidation only touches process-wide caches, so a
+                // one-shot client can send it without subscribing to a session.
+                | Request::InvalidateOpenAiUsage { .. }
+                | Request::InvalidateAnthropicUsage { .. }
+                | Request::NotifySession { .. }
                 | Request::CommShare { .. }
                 | Request::CommRead { .. }
                 | Request::CommMessage { .. }

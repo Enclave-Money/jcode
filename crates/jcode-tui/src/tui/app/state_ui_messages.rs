@@ -212,20 +212,38 @@ impl App {
         &self.background_task_rows
     }
 
+    fn retain_latest_background_tasks(&mut self) {
+        const MAX_PINNED_BACKGROUND_TASKS: usize = 2;
+        if self.background_task_rows.len() > MAX_PINNED_BACKGROUND_TASKS {
+            let stale = self.background_task_rows.len() - MAX_PINNED_BACKGROUND_TASKS;
+            self.background_task_rows.drain(..stale);
+        }
+    }
+
     pub(super) fn upsert_running_background_task(
         &mut self,
         task_id: String,
         label: String,
         percent: Option<f32>,
     ) {
-        if let Some(task) = self
+        if let Some(index) = self
             .background_task_rows
-            .iter_mut()
-            .find(|task| task.task_id == task_id)
+            .iter()
+            .position(|task| task.task_id == task_id)
         {
+            let mut task = self.background_task_rows.remove(index);
             task.label = label;
-            task.percent = percent;
+            // Output parsers can alternate between determinate updates (for
+            // example `42%`) and phase-only updates (`Compiling foo`).  A
+            // phase-only update must not erase the last useful percentage,
+            // otherwise the pinned progress bar jumps back to zero until the
+            // task completes at 100%.
+            if percent.is_some() || task.percent.is_none() {
+                task.percent = percent;
+            }
             task.status = crate::tui::BackgroundTaskRowStatus::Running;
+            task.completed_at = None;
+            self.background_task_rows.push(task);
             return;
         }
         self.background_task_rows
@@ -234,7 +252,9 @@ impl App {
                 label,
                 percent,
                 status: crate::tui::BackgroundTaskRowStatus::Running,
+                completed_at: None,
             });
+        self.retain_latest_background_tasks();
     }
 
     pub(super) fn upsert_running_background_task_progress(&mut self, content: &str) -> bool {
@@ -267,16 +287,20 @@ impl App {
         label: String,
         status: crate::tui::BackgroundTaskRowStatus,
     ) {
-        if let Some(task) = self
+        if let Some(index) = self
             .background_task_rows
-            .iter_mut()
-            .find(|task| task.task_id == task_id)
+            .iter()
+            .position(|task| task.task_id == task_id)
         {
+            let mut task = self.background_task_rows.remove(index);
             task.label = label;
             task.status = status;
+            task.completed_at = (status == crate::tui::BackgroundTaskRowStatus::Completed)
+                .then(std::time::Instant::now);
             if status == crate::tui::BackgroundTaskRowStatus::Completed {
                 task.percent = Some(100.0);
             }
+            self.background_task_rows.push(task);
             return;
         }
         self.background_task_rows
@@ -286,7 +310,25 @@ impl App {
                 percent: (status == crate::tui::BackgroundTaskRowStatus::Completed)
                     .then_some(100.0),
                 status,
+                completed_at: (status == crate::tui::BackgroundTaskRowStatus::Completed)
+                    .then(std::time::Instant::now),
             });
+        self.retain_latest_background_tasks();
+    }
+
+    /// Successful tasks are useful as short-lived confirmation, but should not
+    /// permanently consume the pinned todo band's limited space. Failures stay
+    /// until acted on, and running tasks always stay visible.
+    pub(super) fn prune_irrelevant_background_tasks(&mut self) -> bool {
+        const COMPLETED_TASK_VISIBILITY: std::time::Duration = std::time::Duration::from_secs(12);
+        let now = std::time::Instant::now();
+        let previous_len = self.background_task_rows.len();
+        self.background_task_rows.retain(|task| {
+            task.completed_at.is_none_or(|completed_at| {
+                now.saturating_duration_since(completed_at) < COMPLETED_TASK_VISIBILITY
+            })
+        });
+        self.background_task_rows.len() != previous_len
     }
 
     pub(super) fn upsert_overnight_display_card(
@@ -311,6 +353,9 @@ impl App {
     }
 
     pub(super) fn maybe_refresh_overnight_display_card(&mut self) -> bool {
+        if crate::tui::is_ssh_remote() {
+            return false;
+        }
         let now = Instant::now();
         if self
             .last_overnight_card_refresh

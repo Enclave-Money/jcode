@@ -660,6 +660,8 @@ where
         identity,
         is_owner,
         room,
+        // A team door must keep serving sign-in while its daemon is down.
+        false,
     ));
 
     let (relay_read, mut relay_write) = tokio::io::split(client_side);

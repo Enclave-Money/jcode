@@ -1576,10 +1576,23 @@ pub enum MemorySubcommand {
     ClearTest,
 }
 
-pub fn run_memory_command(cmd: MemorySubcommand) -> Result<()> {
+pub async fn run_memory_command(cmd: MemorySubcommand) -> Result<()> {
+    run_memory_command_for_dir(cmd, std::env::current_dir().ok()).await
+}
+
+async fn run_memory_command_for_dir(
+    cmd: MemorySubcommand,
+    project_dir: Option<std::path::PathBuf>,
+) -> Result<()> {
     use memory::{MemoryEntry, MemoryManager};
 
-    let manager = MemoryManager::new();
+    let project_dir = project_dir.filter(|dir| !dir.as_os_str().is_empty());
+    // Match agent-side memory resolution: project memory is available only when
+    // the caller supplied a concrete working directory.
+    let manager = match project_dir.as_ref() {
+        Some(dir) => MemoryManager::new().with_project_dir(dir),
+        _ => MemoryManager::new(),
+    };
 
     match cmd {
         MemorySubcommand::List { scope, tag } => {
@@ -1629,13 +1642,15 @@ pub fn run_memory_command(cmd: MemorySubcommand) -> Result<()> {
 
         MemorySubcommand::Search { query, semantic } => {
             if semantic {
-                match manager.find_similar(&query, 0.3, 20) {
+                match crate::memory_jev::recall(&manager, &query, 20, memory::MemoryScope::All)
+                    .await
+                {
                     Ok(results) => {
                         if results.is_empty() {
                             println!("No memories found matching '{}'", query);
                         } else {
                             println!(
-                                "Found {} memories matching '{}' (semantic):\n",
+                                "Found {} memories matching '{}' (Jev relevance):\n",
                                 results.len(),
                                 query
                             );
@@ -1646,7 +1661,7 @@ pub fn run_memory_command(cmd: MemorySubcommand) -> Result<()> {
                                     format!(" [{}]", entry.tags.join(", "))
                                 };
                                 println!(
-                                    "- [{}] {}{}\n  id: {} (score: {:.0}%)",
+                                    "- [{}] {}{}\n  id: {} (relevance: {:.0}%)",
                                     entry.category,
                                     entry.content,
                                     tags_str,
@@ -1658,7 +1673,9 @@ pub fn run_memory_command(cmd: MemorySubcommand) -> Result<()> {
                         }
                     }
                     Err(e) => {
-                        eprintln!("Search failed: {}", e);
+                        // A credential or transport failure is not an empty
+                        // result and must give scripts a nonzero exit status.
+                        return Err(e.context("Jev memory search failed"));
                     }
                 }
             } else {
@@ -1717,6 +1734,9 @@ pub fn run_memory_command(cmd: MemorySubcommand) -> Result<()> {
             scope,
             overwrite,
         } => {
+            if scope != "global" && project_dir.is_none() {
+                anyhow::bail!("cannot import project memories without a project directory");
+            }
             let content = std::fs::read_to_string(&input)?;
             let memories: Vec<memory::MemoryEntry> = serde_json::from_str(&content)?;
 
@@ -1724,6 +1744,7 @@ pub fn run_memory_command(cmd: MemorySubcommand) -> Result<()> {
             let mut skipped = 0;
 
             for entry in memories {
+                let entry_id = entry.id.clone();
                 let result = if scope == "global" {
                     if !overwrite
                         && let Ok(graph) = manager.load_global_graph()
@@ -1744,9 +1765,12 @@ pub fn run_memory_command(cmd: MemorySubcommand) -> Result<()> {
                     manager.remember_project(entry)
                 };
 
-                if result.is_ok() {
-                    imported += 1;
-                }
+                result.map_err(|error| {
+                    anyhow::anyhow!(
+                        "failed to durably import memory {entry_id} into {scope} scope: {error}"
+                    )
+                })?;
+                imported += 1;
             }
 
             println!("Imported {} memories ({} skipped)", imported, skipped);
@@ -1904,14 +1928,51 @@ pub fn run_pair_command(list: bool, revoke: Option<String>) -> Result<()> {
 
 pub use gateway::{detect_tailscale_dns_name, parse_tailscale_dns_name, resolve_connect_host};
 
-pub async fn run_browser(action: &str) -> Result<()> {
+pub async fn run_browser(action: &str, requested: Option<&str>) -> Result<()> {
     match action {
-        "setup" => browser::run_setup_command().await?,
+        "setup" => browser::run_setup_command_for(requested).await?,
+        "detect" => {
+            let target = browser::resolve_target_browser(requested)?;
+            println!("Browser detection");
+            println!(
+                "  target: {} ({})",
+                target.kind.display_name(),
+                target.source.describe()
+            );
+            match crate::browser_detect::system_default_browser_id() {
+                Some(id) => println!("  system default: {}", id),
+                None => println!("  system default: unknown"),
+            }
+            let installed: Vec<&str> = crate::browser_detect::ALL_BROWSERS
+                .iter()
+                .filter(|k| k.is_installed())
+                .map(|k| k.id())
+                .collect();
+            println!(
+                "  installed: {}",
+                if installed.is_empty() {
+                    "none detected".to_string()
+                } else {
+                    installed.join(", ")
+                }
+            );
+            if let Some(saved) = browser::saved_browser_preference() {
+                println!("  configured by setup: {}", saved.id());
+            }
+            println!(
+                "\nOverride with `blaude browser setup <browser>` or JCODE_BROWSER=<browser>."
+            );
+        }
         "status" => {
-            let status = browser::ensure_browser_ready_noninteractive().await?;
+            let target = browser::resolve_target_browser(requested)?;
+            let name = target.kind.display_name();
+            let status = browser::ensure_browser_ready_noninteractive_for(&target).await?;
             println!("Browser automation");
             println!("  backend: {}", status.backend);
-            println!("  browser: {}", status.browser);
+            println!("  browser: {} ({})", status.browser, status.detected_via);
+            if let Some(connected) = &status.connected_browser {
+                println!("  connected browser: {}", connected);
+            }
             println!(
                 "  binary: {}",
                 if status.binary_installed {
@@ -1952,7 +2013,18 @@ pub async fn run_browser(action: &str) -> Result<()> {
                 println!("\nBuilt-in browser tool is ready.");
             } else if status.responding && !status.compatible {
                 println!(
-                    "\nThe browser bridge is connected, but the installed Firefox extension is out of date for this blaude build. Run `blaude browser setup` to repair or update it."
+                    "\nThe browser bridge is connected, but the installed extension is out of date for this blaude build. Run `blaude browser setup` to repair or update it."
+                );
+            } else if status.binary_installed && !browser::is_browser_running(target.kind) {
+                println!(
+                    "\n{} is not running, so the bridge cannot respond. Start {} (or run a browser tool action, which launches it automatically), then re-check status. Setup is one-time and does not need to be re-run.",
+                    name, name
+                );
+            } else if status.binary_installed {
+                println!(
+                    "\n{} is running, but the bridge is not responding. Check that the Browser Agent Bridge extension is enabled ({}). Run `blaude browser setup` only to repair the install.",
+                    name,
+                    target.kind.extensions_page()
                 );
             } else {
                 println!("\nRun `blaude browser setup` to install or repair it.");
@@ -1960,7 +2032,7 @@ pub async fn run_browser(action: &str) -> Result<()> {
         }
         other => {
             eprintln!("Unknown browser action: {}", other);
-            eprintln!("Available: setup, status");
+            eprintln!("Available: setup [browser], status [browser], detect");
             std::process::exit(1);
         }
     }
@@ -2450,25 +2522,49 @@ pub async fn run_single_message_command(
         wait_for_cold_cache_mcp_tools(&registry).await;
     }
     let mut agent = crate::agent::Agent::new(provider.clone(), registry);
-    restore_agent_session_if_requested(&mut agent, resume_session)?;
-
-    if emit_json {
-        let text = run_single_message_command_capture_with_auto_poke(&mut agent, message).await?;
-        let report = RunCommandReport {
-            session_id: agent.session_id().to_string(),
-            provider: provider.name().to_string(),
-            model: provider.model(),
-            text,
-            usage: agent.last_usage().clone(),
-        };
-        println!("{}", serde_json::to_string_pretty(&report)?);
-    } else if emit_ndjson {
-        run_single_message_command_ndjson(&mut agent, provider.clone(), message).await?;
-    } else {
-        run_single_message_command_plain_with_auto_poke(&mut agent, message).await?;
+    if let Err(error) = restore_agent_session_if_requested(&mut agent, resume_session) {
+        agent.mark_closed();
+        return Err(error);
     }
 
-    Ok(())
+    run_single_message_with_agent(&mut agent, provider, message, emit_json, emit_ndjson).await
+}
+
+async fn run_single_message_with_agent(
+    agent: &mut crate::agent::Agent,
+    provider: std::sync::Arc<dyn crate::provider::Provider>,
+    message: &str,
+    emit_json: bool,
+    emit_ndjson: bool,
+) -> Result<()> {
+    let result: Result<()> = async {
+        if emit_json {
+            let text = run_single_message_command_capture_with_auto_poke(agent, message).await?;
+            let report = RunCommandReport {
+                session_id: agent.session_id().to_string(),
+                provider: provider.name().to_string(),
+                model: provider.model(),
+                text,
+                usage: agent.last_usage().clone(),
+            };
+            println!("{}", serde_json::to_string_pretty(&report)?);
+        } else if emit_ndjson {
+            run_single_message_command_ndjson(agent, provider, message).await?;
+        } else {
+            run_single_message_command_plain_with_auto_poke(agent, message).await?;
+        }
+        Ok(())
+    }
+    .await;
+
+    // `Agent::new` and session restore both register this process as the active
+    // owner. Unlike the interactive lifecycle, `jcode run` has no later quit
+    // path to close the session. Finalize after output has been emitted, while
+    // returning the original command result unchanged. This prevents a normal
+    // one-shot exit from looking like a stale-PID crash on the next startup
+    // (issue #988).
+    agent.mark_closed();
+    result
 }
 
 fn run_command_auto_poke_enabled() -> bool {
@@ -3104,7 +3200,7 @@ fn emit_ndjson_event(
             stdout,
             &serde_json::json!({ "type": "tool_start", "id": id, "name": name }),
         ),
-        ServerEvent::ToolInput { delta } => write_json_line(
+        ServerEvent::ToolInput { delta, .. } => write_json_line(
             stdout,
             &serde_json::json!({ "type": "tool_input", "delta": delta }),
         ),
@@ -3399,7 +3495,7 @@ fn filter_cli_model_routes_for_choice(
     use super::provider_init::ProviderChoice;
 
     let keep = |route: &&crate::provider::ModelRoute| match choice {
-        ProviderChoice::Claude | ProviderChoice::ClaudeSubprocess => {
+        ProviderChoice::Claude => {
             route.api_method_kind().is_anthropic_credential_route()
         }
         ProviderChoice::Openai => {
