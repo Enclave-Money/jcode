@@ -107,3 +107,24 @@ impl ServerFrame {
         }
     }
 }
+
+/// One step of the user's model order.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct ModelOrderEntry {
+    /// `claude` or `openai`.
+    pub provider: String,
+    /// Stored account label (see `ListAccounts`).
+    pub account: String,
+    pub model: String,
+}
+
+/// A limit in force on an account, or on one model when `model` is set.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct ModelOrderLimit {
+    pub provider: String,
+    pub account: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
+    /// Milliseconds since the epoch when the limit is expected to lift.
+    pub until_ms: u64,
+}

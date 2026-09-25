@@ -6,6 +6,7 @@ mod gitnexus_watch;
 mod inline_tail;
 mod interrupts;
 mod messages;
+mod model_chain;
 #[cfg(test)]
 mod model_usage_tests;
 mod prompting;

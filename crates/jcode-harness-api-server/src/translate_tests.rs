@@ -4,7 +4,6 @@ use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 use std::sync::MutexGuard;
 
-
 #[test]
 fn token_usage_preserves_cache_creation_and_missing_counters() {
     let mut state = BridgeState {
@@ -1659,9 +1658,12 @@ fn unattached_list_sessions_handles_no_session_candidates() {
             std::fs::create_dir(sessions_dir.join("directory.json")).unwrap();
         }
         for limit in [None, Some(0), Some(10)] {
-            let event = list_reply(&mut state, json!({
-                "req": "list_sessions", "id": 1, "limit": limit,
-            }));
+            let event = list_reply(
+                &mut state,
+                json!({
+                    "req": "list_sessions", "id": 1, "limit": limit,
+                }),
+            );
             assert_eq!(event, ApiEvent::Sessions { sessions: vec![] });
             assert_eq!(
                 only_reply_event(state.api_request_to_legacy(&json!({"req": "ping", "id": 2}))),
@@ -1740,7 +1742,10 @@ fn limited_session_list_reads_compact_index_without_transcript_records() {
     }
     transaction.commit().unwrap();
 
-    let event = list_reply(&mut BridgeState::default(), json!({"req": "list_sessions", "id": 1, "limit": 100}));
+    let event = list_reply(
+        &mut BridgeState::default(),
+        json!({"req": "list_sessions", "id": 1, "limit": 100}),
+    );
     let ApiEvent::Sessions { sessions } = event else {
         panic!("expected sessions reply, got {event:?}");
     };
@@ -2688,7 +2693,9 @@ fn list_and_attach_expose_swarm_ownership_without_nesting_forks() {
     std::fs::write(fork_path, fork.to_string()).unwrap();
     let mut state = BridgeState::default();
     let list = |state: &mut BridgeState| {
-        let ApiEvent::Sessions { sessions } = list_reply(state, json!({"req": "list_sessions", "id": 1})) else {
+        let ApiEvent::Sessions { sessions } =
+            list_reply(state, json!({"req": "list_sessions", "id": 1}))
+        else {
             panic!("expected sessions")
         };
         sessions
@@ -4241,7 +4248,10 @@ fn session_list_recovers_save_label_missing_from_older_index_rows() {
         )
         .unwrap();
 
-    let event = list_reply(&mut BridgeState::default(), json!({"req": "list_sessions", "id": 1}));
+    let event = list_reply(
+        &mut BridgeState::default(),
+        json!({"req": "list_sessions", "id": 1}),
+    );
     let ApiEvent::Sessions { sessions } = event else {
         panic!("expected sessions reply, got {event:?}");
     };
@@ -4276,7 +4286,10 @@ fn limited_session_list_always_includes_saved_sessions() {
             .unwrap();
     }
 
-    let event = list_reply(&mut BridgeState::default(), json!({"req": "list_sessions", "id": 1, "limit": 2}));
+    let event = list_reply(
+        &mut BridgeState::default(),
+        json!({"req": "list_sessions", "id": 1, "limit": 2}),
+    );
     let ApiEvent::Sessions { sessions } = event else {
         panic!("expected sessions reply, got {event:?}");
     };
@@ -4306,4 +4319,48 @@ fn interrupt_with_no_live_turn_still_ends_the_clients_turn() {
             .all(|f| !matches!(f.event, ApiEvent::TurnStopped { .. })),
         "an idle cancel is not an abnormal stop"
     );
+}
+
+/// The model order is answered by the serving daemon (each room keeps its own)
+/// and needs no attached session; a switch reaches the client as one event.
+#[test]
+fn model_order_round_trips_through_the_daemon_and_switches_are_announced() {
+    let mut state = BridgeState::default();
+    let out = state.api_request_to_legacy(&json!({
+        "req": "set_model_order", "id": 5,
+        "entries": [{"provider": "openai", "account": "openai-fox", "model": "gpt-6-astra"}],
+    }));
+    let Outbound::Legacy(forwarded) = &out[0] else {
+        panic!("set_model_order must reach the daemon, even unattached: {out:?}");
+    };
+    assert_eq!(forwarded["type"], "set_model_order");
+    assert_eq!(forwarded["entries"][0]["account"], "openai-fox");
+    let frames = state.legacy_event_to_api(&json!({
+        "type": "model_order", "id": forwarded["id"],
+        "entries": [{"provider": "openai", "account": "openai-fox", "model": "gpt-6-astra"}],
+        "limits": [{"provider": "openai", "account": "openai-fox", "model": "gpt-6-astra", "until_ms": 42}],
+    }));
+    assert_eq!(frames.len(), 1);
+    assert_eq!(frames[0].reply_to, Some(5));
+    let ApiEvent::ModelOrder { entries, limits } = &frames[0].event else {
+        panic!("expected model_order, got {:?}", frames[0].event);
+    };
+    assert_eq!(entries[0].model, "gpt-6-astra");
+    assert_eq!(limits[0].until_ms, 42);
+    // A stray reply for someone else's request is not ours to answer.
+    assert!(
+        state
+            .legacy_event_to_api(&json!({"type": "model_order", "id": 999, "entries": []}))
+            .is_empty()
+    );
+
+    let mut state = state_with_session();
+    let frames = state.legacy_event_to_api(&json!({
+        "type": "model_switched", "from": "gpt-6-astra", "to": "claude-fable-5-1",
+        "account": "claude-fox", "reason": "limit",
+    }));
+    assert!(matches!(
+        &frames[0].event,
+        ApiEvent::ModelSwitched { to, account, .. } if to == "claude-fable-5-1" && account == "claude-fox"
+    ));
 }

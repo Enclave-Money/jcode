@@ -117,6 +117,23 @@ impl Agent {
         let mut incomplete_continuations = 0u32;
         let mut empty_post_tool_continuations = 0u32;
         let mut fable_guardrail_reconsiderations = 0u32;
+        // Moves along the user's model order (see agent/model_chain.rs).
+        // Bounded by the order's length so a list of exhausted entries can
+        // never spin.
+        let mut model_order_switches = 0usize;
+        let model_order_len = jcode_base::provider::model_chain::load()
+            .map(|chain| chain.entries.len())
+            .unwrap_or(0);
+        if let super::model_chain::ChainStart::Exhausted(message) =
+            self.chain_turn_start(&event_tx).await
+        {
+            let _ = event_tx.send(ServerEvent::TurnStopped {
+                reason: crate::protocol::TurnStopReason::LimitReached,
+                message: message.clone(),
+                provider_stop_reason: None,
+            });
+            return Err(anyhow::anyhow!(message));
+        }
 
         loop {
             // Never open a new provider request after a cancel. Several paths
@@ -498,13 +515,54 @@ impl Agent {
                             });
                             break;
                         }
+                        // The user's model order: a limit before anything
+                        // streamed moves this same request to the next model
+                        // they listed. It replaces the one-sibling account
+                        // switch below whenever an order is set.
+                        if model_order_len > 0
+                            && model_order_switches < model_order_len
+                            && text_content.is_empty()
+                            && tool_id_to_name.is_empty()
+                        {
+                            match self.chain_failover(&err_str, &event_tx).await {
+                                Ok(true) => {
+                                    model_order_switches += 1;
+                                    log_agent_provider_stream_lifecycle(
+                                        logging::LogLevel::Warn,
+                                        self,
+                                        "stream_error_retry_on_model_order",
+                                        api_start,
+                                        vec![
+                                            ("mode", "mpsc".to_string()),
+                                            ("error", err_str.clone()),
+                                        ],
+                                    );
+                                    retry_after_compaction = true;
+                                    break;
+                                }
+                                Ok(false) => {}
+                                Err(message) => {
+                                    let _ = event_tx.send(ServerEvent::TurnStopped {
+                                        reason: crate::protocol::TurnStopReason::LimitReached,
+                                        message: message.clone(),
+                                        provider_stop_reason: None,
+                                    });
+                                    return Err(anyhow::anyhow!(message));
+                                }
+                            }
+                        } else if model_order_len > 0 {
+                            // Too late to retry this reply, but the next turn
+                            // must not walk back into the same limit.
+                            self.chain_record_limit(&err_str);
+                        }
                         // Terminal connect-shedding (429/529 after the
                         // runtime's own retries) arrives IN-STREAM, past the
                         // create-time failover loop. If nothing streamed yet,
                         // switch to a sibling account and re-issue the same
                         // request — this is what makes a second signed-in
                         // account actually useful.
-                        if account_failover_retries < 1
+                        if model_order_len == 0
+                            && account_failover_retries < 1
                             && text_content.is_empty()
                             && tool_id_to_name.is_empty()
                             && jcode_provider_core::classify_failover_error_message(&err_str)

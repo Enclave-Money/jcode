@@ -151,6 +151,24 @@ pub enum ApiEvent {
     /// Reply to `CreateSession` / `AttachSession`.
     Attached { session: SessionInfo },
 
+    /// Reply to `GetModelOrder` / `SetModelOrder`.
+    ModelOrder {
+        entries: Vec<crate::ModelOrderEntry>,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        limits: Vec<crate::ModelOrderLimit>,
+    },
+    /// A turn moved to the next model in the user's order because `from`
+    /// hit a limit; it continues on `to`, on `account`.
+    ModelSwitched {
+        session_id: String,
+        from: String,
+        to: String,
+        account: String,
+        /// `limit` (moved off a model at its limit) or `available` (back on
+        /// a higher-priority model that is free again).
+        #[serde(default)]
+        reason: String,
+    },
     /// Reply to `ForkSession`.
     SessionForked { session: SessionInfo },
 

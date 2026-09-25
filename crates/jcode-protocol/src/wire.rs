@@ -386,6 +386,16 @@ pub enum Request {
     /// until the mode changes — clients carry no reminder text.
     #[serde(rename = "set_work_mode")]
     SetWorkMode { id: u64, mode: String },
+    /// Read the user's model order and the limits currently in force.
+    #[serde(rename = "get_model_order")]
+    GetModelOrder { id: u64 },
+    /// Replace the user's model order. An empty list removes it.
+    #[serde(rename = "set_model_order")]
+    SetModelOrder {
+        id: u64,
+        #[serde(default)]
+        entries: Vec<ModelOrderEntry>,
+    },
     /// Bookmark (`saved: true`, optional label) or unbookmark the active
     /// session. Routed through the daemon so its in-memory session, which
     /// owns later writes, does not overwrite the flag.
@@ -1454,6 +1464,25 @@ pub enum ServerEvent {
     },
 
     /// Model changed (response to cycle_model)
+    /// The user's model order and its limits (reply to get/set_model_order).
+    #[serde(rename = "model_order")]
+    ModelOrder {
+        id: u64,
+        entries: Vec<ModelOrderEntry>,
+        #[serde(default)]
+        limits: Vec<ModelOrderLimit>,
+    },
+
+    /// A turn moved to the next model in the user's order because `from`
+    /// hit a limit. `account` is where it runs now.
+    #[serde(rename = "model_switched")]
+    ModelSwitched {
+        from: String,
+        to: String,
+        account: String,
+        reason: String,
+    },
+
     #[serde(rename = "model_changed")]
     ModelChanged {
         id: u64,
@@ -1709,4 +1738,24 @@ pub enum ServerEvent {
         /// Tool call ID this is associated with
         tool_call_id: String,
     },
+}
+
+/// One step of the user's model order.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ModelOrderEntry {
+    /// `claude` or `openai`.
+    pub provider: String,
+    /// Stored account label.
+    pub account: String,
+    pub model: String,
+}
+
+/// A limit in force: the whole account (`model: None`) or one model on it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ModelOrderLimit {
+    pub provider: String,
+    pub account: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
+    pub until_ms: u64,
 }

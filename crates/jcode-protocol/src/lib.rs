@@ -182,6 +182,7 @@ impl AuthChanged {
 pub type ReloadRecoverySnapshot = jcode_selfdev_types::ReloadRecoveryDirective;
 
 mod wire;
+pub use wire::{ModelOrderEntry, ModelOrderLimit};
 pub use wire::{Request, ServerEvent};
 pub use wire::{SessionToolConfig, SessionToolDefinition, TaskGraphNodeSpec};
 
@@ -616,6 +617,8 @@ impl Request {
             Request::SetCompactionMode { id, .. } => *id,
             Request::RenameSession { id, .. } => *id,
             Request::SetWorkMode { id, .. } => *id,
+            Request::GetModelOrder { id } => *id,
+            Request::SetModelOrder { id, .. } => *id,
             Request::SetSessionSaved { id, .. } => *id,
             Request::Split { id } => *id,
             Request::Transfer { id } => *id,
@@ -670,6 +673,9 @@ impl Request {
             self,
             Request::Ping { .. }
                 | Request::ReloadSkills { .. }
+                // The model order is a runtime-home file, not session state.
+                | Request::GetModelOrder { .. }
+                | Request::SetModelOrder { .. }
                 // Usage invalidation only touches process-wide caches, so a
                 // one-shot client can send it without subscribing to a session.
                 | Request::InvalidateOpenAiUsage { .. }

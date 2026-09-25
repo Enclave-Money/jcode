@@ -135,6 +135,22 @@ export interface ToolConfiguration {
   custom?: SessionToolDefinition[];
 }
 
+/** One step of the user's model order. */
+export interface ModelOrderEntry {
+  /** `claude` or `openai`. */
+  provider: string;
+  account: string;
+  model: string;
+}
+
+/** A limit in force on an account, or on one model when `model` is set. */
+export interface ModelOrderLimit {
+  provider: string;
+  account: string;
+  model?: string;
+  until_ms: number;
+}
+
 export type ApiRequest =
   | { req: "hello"; min_version: number; max_version: number; client: string }
   | { req: "list_sessions"; include_archived?: boolean; limit?: number }
@@ -149,6 +165,8 @@ export type ApiRequest =
   | { req: "cancel_council"; job_id: string }
   | { req: "list_council_runs"; tag?: string }
   | { req: "set_work_mode"; session_id: string; mode: string }
+  | { req: "get_model_order" }
+  | { req: "set_model_order"; entries?: ModelOrderEntry[] }
   | { req: "start_claude_login"; redirect_uri: string }
   | { req: "start_codex_login"; redirect_uri: string }
   | { req: "complete_login"; job_id: string; code: string }
@@ -280,6 +298,8 @@ export type ApiEvent =
   | { ev: "sessions"; sessions: SessionInfo[] }
   | { ev: "attached"; session: SessionInfo }
   | { ev: "session_forked"; session: SessionInfo }
+  | { ev: "model_order"; entries: ModelOrderEntry[]; limits?: ModelOrderLimit[] }
+  | { ev: "model_switched"; session_id: string; from: string; to: string; account: string; reason?: string }
   | { ev: "history"; session_id: string; messages: HistoryMessage[]; images?: RenderedImage[] }
   | { ev: "pong" }
   | { ev: "text_delta"; session_id: string; text: string; message_id?: string }

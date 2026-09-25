@@ -145,6 +145,20 @@ pub(super) async fn handle_lightweight_control_request(
         return Ok(());
     }
 
+    // The model order is a file in this runtime home; no session needed.
+    match &request {
+        Request::GetModelOrder { id } => {
+            write_direct_event(&writer, &super::model_order::model_order_event(*id)).await?;
+            return Ok(());
+        }
+        Request::SetModelOrder { id, entries } => {
+            let reply = super::model_order::set_model_order(*id, entries.clone());
+            write_direct_event(&writer, &reply).await?;
+            return Ok(());
+        }
+        _ => {}
+    }
+
     write_direct_event(&writer, &ServerEvent::Ack { id: request.id() }).await?;
 
     let (client_event_tx, mut client_event_rx) = mpsc::unbounded_channel::<ServerEvent>();

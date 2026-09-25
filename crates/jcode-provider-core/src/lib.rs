@@ -296,6 +296,20 @@ pub trait Provider: Send + Sync {
         None
     }
 
+    /// Where the next request goes, for the user's model order: the
+    /// subscription provider (`claude` / `openai`) and the account label in
+    /// use. `None` when this provider has no multi-account notion.
+    fn chain_position(&self) -> Option<(String, Option<String>)> {
+        None
+    }
+
+    /// Point `provider_id` (`claude` / `openai`) at the stored account
+    /// `label` for the requests that follow. Returns false when this provider
+    /// cannot switch accounts.
+    async fn select_account(&self, _provider_id: &str, _label: &str) -> bool {
+        false
+    }
+
     /// Get the active service tier override (if applicable).
     fn service_tier(&self) -> Option<String> {
         None

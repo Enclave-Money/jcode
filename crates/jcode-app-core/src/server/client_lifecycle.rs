@@ -2243,6 +2243,14 @@ pub(super) async fn handle_client(
                 handle_set_model(id, model, &agent, &client_event_tx).await;
             }
 
+            Request::GetModelOrder { id } => {
+                let _ = client_event_tx.send(super::model_order::model_order_event(id));
+            }
+
+            Request::SetModelOrder { id, entries } => {
+                let _ = client_event_tx.send(super::model_order::set_model_order(id, entries));
+            }
+
             Request::ReloadSkills { id } => {
                 let outcome = {
                     let registry = crate::skill::SkillRegistry::shared_registry();

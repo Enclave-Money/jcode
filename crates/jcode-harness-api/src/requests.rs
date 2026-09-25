@@ -96,6 +96,18 @@ pub enum ApiRequest {
     /// into each turn — clients carry no reminder wording.
     SetWorkMode { session_id: String, mode: String },
 
+    /// Read the user's model order (which model and account serve a turn,
+    /// and what comes next when one hits its limit) plus the limits in force.
+    /// Needs no attached session. Reply: `ModelOrder`.
+    GetModelOrder,
+
+    /// Replace the user's model order; an empty list removes it and restores
+    /// the default behaviour. Reply: `ModelOrder`.
+    SetModelOrder {
+        #[serde(default)]
+        entries: Vec<crate::ModelOrderEntry>,
+    },
+
     /// Start a Claude OAuth sign-in as a bridge job (loopback-relay flow).
     /// `redirect_uri` is the CLIENT's own loopback listener
     /// (`http://localhost:<port>/callback`); the bridge mints the authorize URL

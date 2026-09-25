@@ -15,6 +15,7 @@ mod fingerprint;
 pub mod gemini;
 mod image_clamp;
 pub mod jcode;
+pub mod model_chain;
 pub mod models;
 mod multi_provider;
 pub mod openai;
@@ -1723,6 +1724,32 @@ impl Provider for MultiProvider {
         Some(next)
     }
 
+    fn chain_position(&self) -> Option<(String, Option<String>)> {
+        let provider = self.active_provider();
+        let id = match provider {
+            ActiveProvider::Claude => "claude",
+            ActiveProvider::OpenAI => "openai",
+            _ => return None,
+        };
+        Some((id.to_string(), active_account_label_for_provider(provider)))
+    }
+
+    async fn select_account(&self, provider_id: &str, label: &str) -> bool {
+        let provider = match provider_id {
+            "claude" => ActiveProvider::Claude,
+            "openai" => ActiveProvider::OpenAI,
+            _ => return false,
+        };
+        if active_account_label_for_provider(provider).as_deref() == Some(label) {
+            return true;
+        }
+        set_account_override_for_provider(provider, Some(label.to_string()));
+        clear_provider_unavailable_for_account(Self::provider_key(provider));
+        self.invalidate_provider_credentials_for_account_switch(provider)
+            .await;
+        true
+    }
+
     async fn prewarm(&self, tools: &[ToolDefinition], system_static: &str) {
         let provider = match self.active_provider() {
             ActiveProvider::Claude => self.anthropic_provider(),
@@ -2464,9 +2491,7 @@ impl Provider for MultiProvider {
 
     fn service_tier(&self) -> Option<String> {
         match self.active_provider() {
-            ActiveProvider::Claude => {
-                self.anthropic_provider().and_then(|a| a.service_tier())
-            }
+            ActiveProvider::Claude => self.anthropic_provider().and_then(|a| a.service_tier()),
             ActiveProvider::OpenAI => self.openai_provider().and_then(|o| o.service_tier()),
             _ => None,
         }

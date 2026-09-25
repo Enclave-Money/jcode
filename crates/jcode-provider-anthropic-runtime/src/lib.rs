@@ -549,6 +549,11 @@ impl AnthropicProvider {
         if !is_oauth || !selected_model.to_ascii_lowercase().contains("fable") {
             return selected_model;
         }
+        // With a model order set, the user decides what comes after Fable;
+        // quietly running Opus instead would be a model they did not pick.
+        if jcode_base::provider::model_chain::configured() {
+            return selected_model;
+        }
         let Ok(usage) = jcode_base::usage::fetch_usage_for_access_token(token).await else {
             return selected_model;
         };
@@ -1911,6 +1916,7 @@ async fn run_stream_with_retries(
                 // window. This is terminal for Fable, not a transient 429.
                 if is_oauth
                     && !saw_output
+                    && !jcode_base::provider::model_chain::configured()
                     && is_fable_scoped_limit_error(&model_name, &error_str)
                     && let Some(fallback) =
                         AnthropicProvider::best_available_opus_model(&model_name)
@@ -1964,7 +1970,10 @@ async fn run_stream_with_retries(
                 }
 
                 // Check if this is a transient/retryable error
-                if is_retryable_error(&error_str) && attempt + 1 < MAX_RETRIES {
+                if is_retryable_error(&error_str)
+                    && !is_hard_usage_limit(&error_str)
+                    && attempt + 1 < MAX_RETRIES
+                {
                     if saw_output {
                         // The fault hit mid-stream after partial output reached
                         // the consumer. Tell it to discard the partial attempt
@@ -2285,6 +2294,20 @@ fn is_retryable_error(error_str: &str) -> bool {
         // API-level server errors (SSE error events)
         || error_str.contains("api_error")
         || error_str.contains("internal server error")
+}
+
+/// A usage limit that retrying cannot fix: the account (or a model on it) is
+/// out until its window resets. A per-minute rate limit still retries; this
+/// one fails fast so failover can move on instead of waiting out 3 retries.
+fn is_hard_usage_limit(error_str: &str) -> bool {
+    let error = error_str.to_ascii_lowercase();
+    error.contains("usage limit")
+        || error.contains("usage_limit")
+        || error.contains("weekly")
+        || error.contains("limit reached")
+        || error.contains("limit has been reached")
+        || error.contains("insufficient_quota")
+        || error.contains("out of credits")
 }
 
 fn is_fable_scoped_limit_error(model: &str, error: &str) -> bool {

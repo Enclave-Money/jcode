@@ -693,10 +693,7 @@ pub fn load_credentials() -> Result<ClaudeCredentials> {
 /// behaviour this exists to end.
 fn member_credentials(member: &str) -> Result<ClaudeCredentials> {
     let auth = load_auth_file().unwrap_or_default();
-    let own = auth
-        .anthropic_accounts
-        .iter()
-        .find(|a| a.added_by.as_deref() == Some(member));
+    let own = member_account(&auth, member);
     let Some(own) = own else {
         anyhow::bail!(
             "No Claude account for {member} on this server. Sign in to add your \
@@ -724,10 +721,24 @@ pub fn refresh_target_label() -> Option<String> {
         return active_account_label();
     };
     let auth = load_auth_file().ok()?;
-    auth.anthropic_accounts
-        .iter()
-        .find(|a| a.added_by.as_deref() == Some(member.as_str()))
-        .map(|a| a.label.clone())
+    member_account(&auth, &member).map(|a| a.label.clone())
+}
+
+/// The account a member's turn runs on: the selected one (a model-order
+/// switch or an explicit pick) when it is theirs, otherwise their first.
+/// A member with two accounts could otherwise never reach the second. Never
+/// another person's account, whatever is selected.
+fn member_account<'a>(auth: &'a JcodeAuthFile, member: &str) -> Option<&'a AnthropicAccount> {
+    let own = |a: &&AnthropicAccount| a.added_by.as_deref() == Some(member);
+    let selected = get_active_account_override().or_else(|| auth.active_anthropic_account.clone());
+    selected
+        .and_then(|label| {
+            auth.anthropic_accounts
+                .iter()
+                .filter(own)
+                .find(|a| a.label == label)
+        })
+        .or_else(|| auth.anthropic_accounts.iter().find(own))
 }
 
 /// Load credentials for a specific blaude account by label.

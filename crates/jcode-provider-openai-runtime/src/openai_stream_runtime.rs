@@ -1659,7 +1659,22 @@ fn classify_unavailable_model_error(status: StatusCode, body: &str) -> Option<St
 }
 
 /// Check if an error is transient and should be retried
+/// A usage limit that a retry cannot fix (the plan's window is spent).
+pub(super) fn is_hard_usage_limit(error_str: &str) -> bool {
+    let error = error_str.to_ascii_lowercase();
+    error.contains("usage limit")
+        || error.contains("usage_limit")
+        || error.contains("insufficient_quota")
+        || error.contains("limit has been reached")
+        || error.contains("limit reached")
+}
+
 pub(super) fn is_retryable_error(error_str: &str) -> bool {
+    // A spent usage window does not come back in seconds. Retrying it three
+    // times only delays failover to the next account or model.
+    if is_hard_usage_limit(error_str) {
+        return false;
+    }
     // Shared transport-layer classifier used by every other provider. This
     // covers transient TLS/network faults (connection reset/closed/refused/
     // aborted, broken pipe, timeouts, unexpected EOF, error decoding/reading,

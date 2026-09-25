@@ -335,6 +335,8 @@ enum SimpleKind {
         provider: String,
         configured: bool,
     },
+    /// Awaiting the daemon's `model_order`.
+    ModelOrder,
     /// Awaiting the daemon's `session_list`.
     SessionList {
         include_archived: bool,
@@ -1335,6 +1337,23 @@ impl BridgeState {
                     "id": id,
                     "model": model,
                 }))]
+            }
+            // The order lives in the serving daemon's home (each room its
+            // own), so the daemon answers; no attached session is needed.
+            "get_model_order" | "set_model_order" => {
+                let id = self.legacy_id();
+                self.pending_simple
+                    .push((id, api_id, SimpleKind::ModelOrder));
+                let legacy = if req == "get_model_order" {
+                    json!({"type": "get_model_order", "id": id})
+                } else {
+                    json!({
+                        "type": "set_model_order",
+                        "id": id,
+                        "entries": request.get("entries").cloned().unwrap_or(json!([])),
+                    })
+                };
+                vec![Outbound::Legacy(legacy)]
             }
             "set_work_mode" => {
                 let mode = request["mode"].as_str().unwrap_or("");
@@ -2386,6 +2405,25 @@ impl BridgeState {
                 }
                 frames
             }
+            "model_order" => {
+                let id = event["id"].as_u64().unwrap_or(0);
+                let Some(api_id) = self.take_simple(id, SimpleKind::ModelOrder) else {
+                    return vec![];
+                };
+                let entries = serde_json::from_value(event["entries"].clone()).unwrap_or_default();
+                let limits = serde_json::from_value(event["limits"].clone()).unwrap_or_default();
+                vec![ServerFrame::reply(
+                    api_id,
+                    ApiEvent::ModelOrder { entries, limits },
+                )]
+            }
+            "model_switched" => vec![ServerFrame::event(ApiEvent::ModelSwitched {
+                session_id: session(self),
+                from: event["from"].as_str().unwrap_or_default().to_string(),
+                to: event["to"].as_str().unwrap_or_default().to_string(),
+                account: event["account"].as_str().unwrap_or_default().to_string(),
+                reason: event["reason"].as_str().unwrap_or("limit").to_string(),
+            })],
             // The model can change mid-session (`/model`, a cycle, or an auth
             // change re-resolving the route), so both pushes are forwarded.
             "model_changed" => {
